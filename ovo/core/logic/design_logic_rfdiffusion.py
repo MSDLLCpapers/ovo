@@ -66,7 +66,12 @@ def submit_rfdiffusion_preview(
     return preview_job_id
 
 
-def process_workflow_results(job: DesignJob, callback: Callable = None) -> list[Base]:
+def process_workflow_results(
+    job: DesignJob,
+    callback: Callable = None,
+    extra_filenames: dict | None = None,
+) -> list[Base]:
+    extra_filenames = extra_filenames or {}
     pool = db.get(Pool, design_job_id=job.id)
     project_round = db.get(Round, id=pool.round_id)
     scheduler = get_scheduler(job.scheduler_key)
@@ -144,6 +149,7 @@ def process_workflow_results(job: DesignJob, callback: Callable = None) -> list[
         "proteinqc|seq_composition": "seq_composition",
         "rfd_ee|backbone_metrics": "backbone_metrics",
         "pyrosetta_interface_metrics|pyrosetta": "pyrosetta_interface_metrics",
+        **extra_filenames,
     }
     if workflow.refolding_params.primary_test:
         # Store refolding results under the same set of Descriptor objects to simplify downstream analysis
