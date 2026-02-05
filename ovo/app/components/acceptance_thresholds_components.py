@@ -63,6 +63,9 @@ def thresholds_input_component(
     max_items_row: int = 3,
 ) -> dict[str, Threshold]:
     """Adjust thresholds using sliders, return new thresholds."""
+    if not selected_thresholds:
+        # TODO when we enable adding custom thresholds, don't forget to change this part
+        return {}
 
     new_thresholds = {}
 

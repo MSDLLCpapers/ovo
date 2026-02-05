@@ -54,10 +54,13 @@ def prepare_bindcraft_params(workflow: BindCraftBinderDesignWorkflow, workdir: s
     }
 
 
-def process_workflow_results(job: DesignJob, callback: Callable = None) -> list[Base]:
+def process_workflow_results(
+    job: DesignJob, callback: Callable = None, extra_filenames: dict | None = None
+) -> list[Base]:
     pool = db.get(Pool, design_job_id=job.id)
     project_round = db.get(Round, id=pool.round_id)
     scheduler = get_scheduler(job.scheduler_key)
+    extra_filenames = extra_filenames or {}
 
     # this is where result files will be stored in our storage
     # make sure to remove trailing slash otherwise S3 will keep two slashes in the path
@@ -195,6 +198,7 @@ def process_workflow_results(job: DesignJob, callback: Callable = None) -> list[
             "bindcraft|interface": final_df,
             "bindcraft|dssp": final_df,
         },
+        filenames=extra_filenames,
     )
 
     return designs + descriptor_values

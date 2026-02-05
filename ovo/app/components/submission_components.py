@@ -559,3 +559,9 @@ def show_bindcraft_advanced_settings(workflow: "BindCraftBinderDesignWorkflow"):
                 # if editor_key in st.session_state:
                 #     del st.session_state[editor_key]
                 st.rerun()
+
+        new_thresholds = thresholds_input_component(selected_thresholds=workflow.acceptance_thresholds)
+        if new_thresholds != workflow.acceptance_thresholds:
+            workflow.acceptance_thresholds = new_thresholds
+            st.rerun()
+            return
