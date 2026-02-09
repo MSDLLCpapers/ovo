@@ -1,7 +1,17 @@
+import re
+import subprocess
+from datetime import datetime
+
 import typer
 import os
+
+from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
-from ovo.cli.common import console, OVOCliError, download_files, init_nextflow
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.tree import Tree
+
+from ovo.cli.common import console, OVOCliError, download_files, init_nextflow, print_ovo_logo
 from ovo.core.configuration import (
     ConfigProps,
     DEFAULT_OVO_HOME,
@@ -10,8 +20,13 @@ from ovo.core.configuration import (
     save_default_config,
 )
 import shutil
+from pathlib import Path
+
+from ovo.core.utils.resources import RESOURCES_DIR
 
 app = typer.Typer(pretty_exceptions_enable=False, help="OVO initialization commands")
+
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 RFDIFFUSION_MODEL_FILES = [
     # URL, local path, hash (SHA256: calculate with "shasum -a 256 my_file" or "sha256sum my_file")
@@ -395,6 +410,322 @@ def proteinqc(
     else:
         console.print("ProteinQC workflow [red]FAILED[/red], please see errors above")
         exit(process.returncode)
+
+
+@app.command()
+def plugin():
+    """Create a new OVO plugin directory"""
+
+    with console.screen():
+        console.show_cursor(True)
+        print_ovo_logo(padding="")
+        console.print("[bold]Welcome to the OVO plugin wizard![/bold]")
+        console.print("This wizard will help you create a new OVO plugin directory structure.")
+        console.print("=" * console.size.width)
+        console.print("")
+
+        module_name = Prompt.ask("Enter the plugin module name (such as ovo_my_plugin)")
+        while not module_name.startswith("ovo_"):
+            console.print("[red]Please use a module name starting with ovo_[/red]")
+            module_name = Prompt.ask("Enter the plugin module name (such as ovo_my_plugin)")
+        module_suffix = module_name.removeprefix("ovo_")
+
+        plugin_dir = os.path.abspath(module_name)
+
+        if os.path.exists(plugin_dir):
+            raise FileExistsError(f"Plugin directory already exists: {plugin_dir}")
+
+        while not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", module_name):
+            console.print("[red]Invalid module name, must be a valid Python identifier[/red]")
+            module_name = Prompt.ask("Enter the plugin module name (such as ovo_my_plugin)")
+
+        console.print("")
+        table = Table(show_lines=True)
+        table.add_column("Option", style="cyan", no_wrap=True)
+        table.add_column("Description", style="magenta")
+
+        table.add_row("ui", "Plugin without any workflows")
+        table.add_row("descriptor", "Workflow that produces only Descriptor objects ")
+        table.add_row("design", "COMING SOON - Workflow that produces a Pool with Design and Descriptor objects")
+
+        console.print(table)
+        console.print("")
+
+        # Ask the user to pick
+        plugin_template = Prompt.ask(
+            "Enter your choice",
+            choices=["ui", "descriptor", "design"],
+        )
+
+        console.print(f"You picked: [bold green]{plugin_template}[/bold green]\n")
+
+        files = [
+            {
+                "path": "README.md",
+                "description": "Plugin README file",
+                "content": TEMPLATES_DIR / "README.md",
+            },
+            {
+                "path": "pyproject.toml",
+                "description": "Plugin package metadata and configuration enabling pip install",
+                "content": TEMPLATES_DIR / "plugin_pyproject.toml",
+            },
+            {
+                "path": ".gitignore",
+                "description": "Declares files to be ignored by git",
+                "content": f"""
+*.egg-info
+/build
+/work
+.DS_Store
+*.pyc
+test-results
+/.idea
+/.vscode
+__pycache__/
+.env
+""",
+            },
+            {
+                "path": "MANIFEST.in",
+                "description": "Declare non-code files to include the package distribution",
+                "content": f"""
+# Include only specific file types
+recursive-include {module_name} *
+
+prune **/test-results
+
+prune **/node_modules
+
+prune {module_name}/pipelines/*/local
+
+# Patterns to exclude from any directory
+global-exclude *~
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude .git
+global-exclude .DS_Store
+global-exclude .ipynb_checkpoints
+global-exclude *.map
+""",
+            },
+        ]
+
+        variables = {
+            "__MODULE_NAME__": module_name,
+            "__MODULE_SUFFIX__": module_suffix,
+            "__PACKAGE_NAME__": module_name.replace("_", "-"),
+        }
+
+        if plugin_template == "ui":
+            files.extend(
+                [
+                    {
+                        "path": f"{module_name}/__init__.py",
+                        "description": "Plugin module entry point that registers the plugin capabilities in OVO",
+                        "content": f'''
+plugin = dict(
+    pages = {{
+        # "Tool name": [
+        #     dict(page="my_module.my_page", title="🔥 My plugin page")
+        # ],
+    }},
+    design_views = {{
+        "🔥 My design view": "{module_name}.design_view_{module_suffix}:{module_name}_fragment",
+    }},
+    # descriptors = "{module_name}.descriptors_{module_suffix}",
+    # modules = [
+    #     "{module_name}.models_{module_suffix}",
+    # ]
+)
+''',
+                    },
+                    {
+                        "path": f"{module_name}/design_view_{module_suffix}.py",
+                        "description": "Placeholder 'design view', will appear as a new tab on the Designs page",
+                        # read using Path, ../templates/alignment_design_view.py from current file
+                        "content": TEMPLATES_DIR / "alignment_design_view.py",
+                    },
+                ]
+            )
+        elif plugin_template == "descriptor":
+            workflow_class_name = Prompt.ask(
+                "Enter the workflow subclass name (ending with Workflow such as SomeToolWorkflow)"
+            )
+            if not re.match(r"^[A-Z][a-zA-Z0-9]+Workflow$", workflow_class_name):
+                console.print("[red]Invalid workflow class name, please use CamelCase ending with Workflow[/red]")
+                workflow_class_name = Prompt.ask("Enter the workflow subclass name")
+
+            pipeline_name = Prompt.ask("Enter the pipeline name (kebab-case such as some-tool)")
+            if not re.match(r"[a-z0-9-]+$", pipeline_name):
+                console.print("[red]Invalid pipeline name, please use lowercase and dashes[/red]")
+                pipeline_name = Prompt.ask("Enter the pipeline name")
+
+            variables["__WORKFLOW_CLASS_NAME__"] = workflow_class_name
+            variables["__PIPELINE_NAME__"] = pipeline_name
+
+            files.extend(
+                [
+                    {
+                        "path": f"{module_name}/__init__.py",
+                        "description": "Plugin module entry point that registers the plugin capabilities in OVO",
+                        "content": f'''
+plugin = dict(
+    pages = {{
+        # "Tool name": [
+        #     dict(page="{module_name}.my_page", title="💥 My plugin page")
+        # ],
+    }},
+    design_views = {{
+        "💥 My Method": "{module_name}.design_view_{module_suffix}:{module_name}_fragment",
+    }},
+    descriptors = "{module_name}.descriptors_{module_suffix}",
+    modules = [
+        "{module_name}.models_{module_suffix}",
+    ]
+)
+''',
+                    },
+                    {
+                        "path": f"{module_name}/descriptors_{module_suffix}.py",
+                        "description": "Declaration of Descriptor objects that store metadata about descriptor values",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/descriptors_example.py",
+                    },
+                    {
+                        "path": f"{module_name}/design_view_{module_suffix}.py",
+                        "description": "Web interface for submission and result visualization implemented using Streamlit",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/design_view_example.py",
+                    },
+                    {
+                        "path": f"{module_name}/envs/mytool.yml",
+                        "description": "Conda environment definition for an example tool",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/envs/mytool.yml",
+                    },
+                    {
+                        "path": f"{module_name}/models_{module_suffix}.py",
+                        "description": "Workflow subclass definition storing workflow parameters and processing logic",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/models_example.py",
+                    },
+                    {
+                        "path": f"{module_name}/pipelines/{pipeline_name}/main.nf",
+                        "description": "Nextflow pipeline definition example",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/pipelines/example/main.nf",
+                    },
+                    {
+                        "path": f"{module_name}/pipelines/{pipeline_name}/bin/example.py",
+                        "description": "Example Python script used in the workflow",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/pipelines/example/bin/example.py",
+                    },
+                    {
+                        "path": f"{module_name}/pipelines/{pipeline_name}/nextflow.config",
+                        "description": "Nextflow pipeline default parameter configuration",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/pipelines/example/nextflow.config",
+                    },
+                    {
+                        "path": f"{module_name}/pipelines/{pipeline_name}/nextflow_schema.json",
+                        "description": "Nextflow pipeline parameter schema declaring available parameters",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/pipelines/example/nextflow_schema.json",
+                    },
+                    {
+                        "path": f"{module_name}/pipelines/{pipeline_name}/local/nextflow_test.sh",
+                        "description": "Nextflow pipeline test script",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/pipelines/example/local/nextflow_test.sh",
+                    },
+                    {
+                        "path": f"tests/test_{module_suffix}_workflow.py",
+                        "description": "End-to-end test of the workflow that verifies results in the OVO database",
+                        "content": TEMPLATES_DIR / "descriptor_plugin/test_example.py",
+                    },
+                    {
+                        "path": f"{module_name}/pipelines/{pipeline_name}/local/test-input/5ELI_A.pdb",
+                        "content": RESOURCES_DIR / "examples/inputs/5ELI_A.pdb",
+                    },
+                    {
+                        "path": "tests/conftest.py",
+                        "content": f'''
+import pytest
+from ovo.core.utils.tests import create_test_project_data
+
+
+@pytest.fixture(scope="session")
+def project_data():
+    """Create one project, project_round, and pool for the entire test run."""
+    return create_test_project_data()
+''',
+                    },
+                ]
+            )
+        else:
+            raise OVOCliError("Only 'descriptor' and 'ui' plugin templates are implemented so far")
+
+        console.print("")
+        run_git_init = Confirm.ask("Run 'git init' in the plugin directory?", default=True)
+
+        if Confirm.ask("Add MIT license file?", default=True):
+            author_name = Prompt.ask("Enter author name for license (Your Name)")
+            files.append(
+                {
+                    "path": "LICENSE",
+                    "description": "MIT License file",
+                    "content": TEMPLATES_DIR / "LICENSE_MIT.txt",
+                }
+            )
+            variables["__AUTHOR_NAME__"] = author_name
+            variables["__YEAR__"] = str(datetime.now().year)
+
+        console.print("")
+
+    # All parameters ready, create plugin directory
+    # create module and __init__.py file
+    os.makedirs(plugin_dir)
+    module_dir = os.path.join(plugin_dir, module_name)
+    os.mkdir(module_dir)
+
+    console.print("")
+    console.print("=" * console.size.width)
+
+    for file_dict in files:
+        full_path = os.path.join(plugin_dir, file_dict["path"])
+        content = file_dict["content"]
+        if isinstance(content, Path):
+            content = content.read_text()
+        content = content.lstrip()
+        for pattern, value in variables.items():
+            content = content.replace(pattern, value)
+
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wt") as f:
+            f.write(content)
+
+    tree = Tree(module_name)
+    nodes = {(): tree}
+
+    for item in sorted(files, key=lambda f: f["path"]):
+        parts = Path(item["path"]).parts
+
+        for i, part in enumerate(parts[:-1]):
+            key = parts[: i + 1]
+            if key not in nodes:
+                nodes[key] = nodes[parts[:i]].add(part)
+
+        nodes[parts[:-1]].add(f"{parts[-1]} [grey50]{item.get('description', '')}[/grey50]")
+
+    console.print("")
+    console.print(tree)
+
+    console.print("\n[green]✔[/green] Created new plugin directory:")
+    console.print(f"[bold]{plugin_dir}[/bold]")
+
+    if run_git_init:
+        console.print("")
+        subprocess.run(["git", "init", plugin_dir], check=True)
+
+    console.print(f"\n[bold]Next steps:[/bold]")
+    console.print(f"\n# Use pip install -e to install in editable/development mode")
+    console.print(f"pip install -e {plugin_dir}")
+
+    console.print(f"\nSee the plugin development guide at:")
+    console.print("https://ovo.dichlab.org/docs/developer_guide/plugin_development.html")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "__WORKFLOW_CLASS_NAME__",
+  "description": "",
+  "type": "object",
+  "required": [
+    "input_pdb",
+    "chains"
+  ],
+  "properties": {
+    "input_pdb": {
+      "type": "string",
+      "description": "Input PDB file, directory with PDB files, or text file with list of PDB file paths"
+    },
+    "chains": {
+      "type": "string",
+      "description": "Chains to evaluate, e.g. A,B"
+    },
+    "batch_size": {
+      "type": "integer",
+      "default": 100
+    }
+  }
+}

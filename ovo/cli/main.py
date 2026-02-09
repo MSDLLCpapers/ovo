@@ -1,11 +1,11 @@
 import typer
 from rich.panel import Panel
-from ovo import console, __version__
+from ovo import console
 from ovo.cli import init
 from ovo.cli import module
 from ovo.cli import app as app_cli
 from ovo.cli import scheduler_cli
-from ovo.cli.common import OVOCliError
+from ovo.cli.common import OVOCliError, print_ovo_logo
 
 
 app = typer.Typer(
@@ -20,14 +20,7 @@ app.add_typer(scheduler_cli.app, name="scheduler")
 
 
 def main():
-    version = f"Version [green]{__version__}[/green]"
-    console.print(f"""
-   ▄▀▀█▄  ▄▖   ▄▄  ▄▀▀█▄   
-  █    █▄ █▌   ██ █▄▀▄▀█▄  
- █     ██  █▌ ██ █     ██  
-  ▀▄▄▄█▀    ███   ▀▄▄▄█▀   
- {version.rjust(39)}
-    """)
+    print_ovo_logo()
 
     try:
         app()

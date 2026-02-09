@@ -184,12 +184,16 @@ class WorkflowTypes:
     _registry = {}
 
     @classmethod
-    def register(cls, workflow_name):
+    def register(cls, workflow_name=None):
         """Decorator to register a workflow class with a given name"""
+        assert workflow_name is None or isinstance(workflow_name, str), (
+            "Usage: WorkflowTypes.register(workflow_name=...) or @WorkflowTypes.register()"
+        )
 
         def decorator(registered_class):
-            cls._registry[workflow_name] = registered_class
-            registered_class.name = workflow_name
+            # Use provided workflow name or "ovo_module ClassName" if not provided
+            registered_class.name = workflow_name or f"{registered_class.__module__} {registered_class.__name__}"
+            cls._registry[registered_class.name] = registered_class
             return registered_class
 
         return decorator

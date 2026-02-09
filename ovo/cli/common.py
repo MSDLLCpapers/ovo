@@ -142,3 +142,16 @@ def run_nextflow(args: list[str]):
 
 def init_nextflow():
     return run_nextflow(["-h"])
+
+
+def print_ovo_logo(padding="    "):
+    from ovo import __version__
+
+    version = f"Version [green]{__version__}[/green]"
+    console.print(f"""
+{padding}  ▄▀▀█▄  ▄▖   ▄▄  ▄▀▀█▄   
+{padding} █    █▄ █▌   ██ █▄▀▄▀█▄  
+{padding}█     ██  █▌ ██ █     ██  
+{padding} ▀▄▄▄█▀    ███   ▀▄▄▄█▀   
+{padding}{version.rjust(39)}
+""")

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "__PACKAGE_NAME__"
+version = "0.0.1"
+description = "OVO plugin for TODO ADD DESCRIPTION HERE" # TODO - add description
+authors = [
+  # { name="John Doe", email="foo@bar.com" } # TODO - add authors
+]
+# Dependencies for the app (NOT for the pipeline - these should be defined in your Nextflow pipeline)
+dependencies = [
+  "ovo",
+  # OVO should ideally be the only dependency - Do NOT add dependencies here unless absolutely necessary
+  # This ensures that different OVO plugins can work together without dependency conflicts
+  # Please create a workflow with additional dependencies instead
+  # See https://ovo.dichlab.org/docs/developer_guide/plugin_development.html
+]
+
+[project.entry-points."ovo.plugins"]
+plugin = "__MODULE_NAME__:plugin" # references the plugin variable in __init__.py
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["ovo*"]
+
+[tool.setuptools.package-data]
+"*" = ["*"]
