@@ -1,9 +1,18 @@
+# Conda environment definition
+#
+# NOTE: A docker image definition of the same name
+# should be added to the ovo-containers repository:
+# https://github.com/MSDLLCpapers/ovo-containers/tree/main/containers
+# This will ensure that the pre-built image is available for everyone to download out-of-the-box.
 channels:
   - nodefaults
   - conda-forge
+  # additional channels such as bioconda can be added here
 dependencies:
   - python = 3.12
+  # conda dependencies can be added here
   - pip
   - pip:
+      # additional pip dependencies can be added here
       - pandas
-      - freesasa
+      - freesasa # TODO replace with your dependencies

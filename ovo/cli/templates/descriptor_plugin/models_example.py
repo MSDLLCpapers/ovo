@@ -52,7 +52,9 @@ class __WORKFLOW_CLASS_NAME__(DescriptorWorkflow):
         descriptor_values = read_descriptor_file_values(
             descriptor_job=job,
             # descriptor key prefix (pipeline|tool_key) -> filename to parse from pipeline output folder (.csv or .jsonl)
-            filenames={"__PIPELINE_NAME__|__MODULE_SUFFIX__": "__MODULE_SUFFIX__"},
+            filenames={
+                "__PIPELINE_NAME__|__MODULE_SUFFIX__": "__MODULE_SUFFIX__.csv",
+            },
             # mapping from design.id to ID column in produced file
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
         )

@@ -597,7 +597,7 @@ plugin = dict(
                         "content": TEMPLATES_DIR / "descriptor_plugin/design_view_example.py",
                     },
                     {
-                        "path": f"{module_name}/envs/mytool.yml",
+                        "path": f"{module_name}/envs/{module_suffix}.yml",
                         "description": "Conda environment definition for an example tool",
                         "content": TEMPLATES_DIR / "descriptor_plugin/envs/mytool.yml",
                     },

@@ -27,7 +27,7 @@ workflow {
 
 process __MODULE_SUFFIX__ {
   // docker container name
-  def containerName = "mytool"
+  def containerName = "__MODULE_SUFFIX__"
   conda { params.getSharedEnv("__MODULE_NAME__.${containerName}", workflow.profile) }
   container "${ (workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container)
     ? params.ovo_container_dir + '/ovo-' + containerName

@@ -251,7 +251,7 @@ def read_descriptor_file_values(
 
     :param descriptor_job: DescriptorJob object
     :param design_id_mapping: Mapping from design.id to table_id (basename of PDB file = id column in descriptor output file)
-    :param filenames: Dict of "pipeline_name|tool_key" -> filename in output directory (without file extension - will look for .csv or .jsonl)
+    :param filenames: Dict of "pipeline_name|tool_key" -> filename in output directory (with or without file extension - will look for .csv or .jsonl)
     :param descriptor_tables: Optional dictionary of pre-loaded descriptor tables (tool_key -> pd.DataFrame).
     """
     assert len(design_id_mapping) == len(set(design_id_mapping.values())), (
@@ -277,15 +277,18 @@ def read_descriptor_file_values(
                 any_files_in_batch = False
                 for descriptor_key_prefix, filename in filenames.items():
                     df = None
-                    jsonl_path = os.path.join(source_output_path, batch_name, f"{filename}.jsonl")
-                    if storage.file_exists(jsonl_path):
-                        try:
-                            df = pd.read_json(StringIO(storage.read_file_str(jsonl_path)), lines=True)
-                        except Exception as e:
-                            raise ValueError(f"Failed to read {jsonl_path}: {e}")
-                    csv_path = os.path.join(source_output_path, batch_name, f"{filename}.csv")
-                    if storage.file_exists(csv_path):
-                        df = pd.read_csv(StringIO(storage.read_file_str(csv_path)))
+                    filename_wo_extension, extension = os.path.splitext(filename)
+                    if not extension or extension == ".jsonl":
+                        jsonl_path = os.path.join(source_output_path, batch_name, f"{filename_wo_extension}.jsonl")
+                        if storage.file_exists(jsonl_path):
+                            try:
+                                df = pd.read_json(StringIO(storage.read_file_str(jsonl_path)), lines=True)
+                            except Exception as e:
+                                raise ValueError(f"Failed to read {jsonl_path}: {e}")
+                    if not extension or extension == ".csv":
+                        csv_path = os.path.join(source_output_path, batch_name, f"{filename_wo_extension}.csv")
+                        if storage.file_exists(csv_path):
+                            df = pd.read_csv(StringIO(storage.read_file_str(csv_path)))
                     if df is not None:
                         if not df.empty:
                             id_column = find_id_column(df, descriptor_key_prefix)
@@ -302,7 +305,10 @@ def read_descriptor_file_values(
             contig_number += 1
 
         if contig_number == 1 and batch_number == 1:
-            raise ValueError(f"No descriptor files found in {source_output_path}")
+            raise ValueError(
+                f"No suitable descriptor files found in {source_output_path}, "
+                f"expected at least one of: {', '.join(filenames.values())}."
+            )
 
         # Concatenate dataframes from all batches for each tool
         for key, dfs in batch_descriptors.items():
@@ -412,7 +418,12 @@ def generate_descriptor_values_for_design(
                 )
             )
         if not recognized_fields:
-            raise ValueError(f"No recognized descriptors found in {descriptor_key_prefix} table columns: {row.keys()}")
+            raise ValueError(
+                f"No recognized descriptors found in table '{descriptor_key_prefix}', "
+                f"found columns: {', '.join(map(str, row.keys()))}. "
+                f"Please create Descriptor objects with keys starting with '{descriptor_key_prefix}|...' "
+                f"to match the columns in the table."
+            )
     return descriptor_values
 
 
