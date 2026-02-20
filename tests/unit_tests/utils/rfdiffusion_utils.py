@@ -159,7 +159,8 @@ def settings_tab(
         round_name in round_ids_by_name,
         "Test that round was added.",
     )
-    assert round_ids_by_name[round_name] == at.selectbox("selected_round_id").value, (
+    round_ids = list(rounds_by_id.keys())
+    assert round_ids_by_name[round_name] == at.selectbox(f"selected_round_{'_'.join(round_ids)}").value, (
         "Test that newly created round is selected in selectbox by force change logic."
     )
 

@@ -42,14 +42,9 @@ def pool_submission_inputs(page_key: str):
         round_id = st.selectbox(
             "Project Round",
             format_func=lambda i: rounds_by_id[i].name,
-            # TODO force change does the trick in streamlit 1.50.0
-            #  because the component gets recreated when the options change
-            #  However this might change in the future.
-            #  We should find another way to force the selectbox to update when a new round is created.
-            #  This is covered in unit tests.
             options=round_ids,
             index=round_ids.index(round_id) if round_id in round_ids else len(round_ids) - 1,
-            key="selected_round_id",
+            key=f"selected_round_{'_'.join(round_ids)}",
         )
 
     with right:
