@@ -19,7 +19,7 @@
     "batch_size": {
       "type": "integer",
       "description": "Number of designs to generate in one batch (each batch can run in parallel)",
-      "default": 100
+      "default": 50
     },
     "rfdiffusion_input_pdb": {
       "type": "string",

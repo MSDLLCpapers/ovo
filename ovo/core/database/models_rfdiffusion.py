@@ -39,7 +39,7 @@ class RFdiffusionParams(WorkflowParams):
     # enable cyclic offset to design macrocyclic peptides
     cyclic_offset: bool = False
     # Number of designs to be processed in batches
-    batch_size: int = 100
+    batch_size: int = 50
     # Limit contig length to given value (123) or to given range (123-456, inclusive)
     contigmap_length: int | str | None = None
     # Inpaint (generate) sequence for these input structure regions, in this format: A10-20/B30-40/...
