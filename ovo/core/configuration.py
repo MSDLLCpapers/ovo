@@ -40,6 +40,7 @@ class StorageConfig:
     path: str | None
     verbose: bool = False
     aws: AWSConfig | None = field(default=None)
+    num_copy_threads: int | None = None
 
 
 @dataclass

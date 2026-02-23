@@ -104,7 +104,7 @@ def process_workflow_results(
     designs = []
     design_id_mapping = {}
     descriptor_values = []
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
         futures = [
             executor.submit(
                 process_rfdiffusion_design,
