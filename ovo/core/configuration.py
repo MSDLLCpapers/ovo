@@ -161,6 +161,8 @@ auth:
 storage:
   verbose: false
   path: ./storage
+# Customize number of threads for parallel read/write operations on Storage such as sync_files, create_zip, ...
+#  num_copy_threads: 16
 # Example of a storage path on AWS S3:
 #  path: s3://bucket-name/ovo/storage/
 #  aws:

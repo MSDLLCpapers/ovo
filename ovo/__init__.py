@@ -41,9 +41,13 @@ try:
     storage = Storage(
         storage_root=config.storage.path,
         verbose=config.storage.verbose,
-        aws=AWSSessionManager(assume_role=config.storage.aws.assume_role_arn, region_name=config.storage.aws.region)
+        aws=AWSSessionManager(
+            assume_role=config.storage.aws.assume_role_arn,
+            region_name=config.storage.aws.region,
+        )
         if config.storage.aws
         else None,
+        num_copy_threads=config.storage.num_copy_threads,
     )
 
     os.environ["NXF_HOME"] = config.nextflow_home

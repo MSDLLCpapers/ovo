@@ -748,18 +748,18 @@ class ChainNotFoundError(Exception):
 def get_sequences_from_pdb_str(
     pdb_str: str, chains: list[str] = None, by_residue_number: bool = False
 ) -> dict[str, str] | dict[str, dict[str, str]]:
-    """ Get the sequence of a structure from the pdb file.
+    """Get the sequence of a structure from the pdb file.
 
     :param pdb_str: str, PDB file contents as string
     :param chains: list of str, chain IDs to extract sequences from, if None, all chains are extracted
     :param by_residue_number: if True, return a dict with residue numbers (strings) as keys and amino acids as values
 
-    Sequence is extracted based on CA atoms. If a residue has CA atom, it is included in the sequence, either 
-    as the amino acid letter (if one of 20 standard amino acids) or as X (if non-standard amino acid). 
+    Sequence is extracted based on CA atoms. If a residue has CA atom, it is included in the sequence, either
+    as the amino acid letter (if one of 20 standard amino acids) or as X (if non-standard amino acid).
     If a residue does not have CA atom (e.g. a ligand), it is ignored.
-    
+
     Chain breaks (for example a jump from 123 to 134) are NOT filled with X but ignored.
-    
+
     Assumes sorted residue ids in the PDB file within each chain. (E.g. BioPython does as well return it in the original
         order.)
 
@@ -778,8 +778,8 @@ def get_sequences_from_pdb_str(
     #  26     insertion code
 
     sequences: dict[str, list] = defaultdict(list)  # chain ID -> residues in order of appearance in the PDB file
-    seen: set = defaultdict(set)  # Keep track of seen (residue number, insertion code) for each chain to 
-        # avoid duplicates (e.g. due to multiple atoms per residue)
+    seen: set = defaultdict(set)  # Keep track of seen (residue number, insertion code) for each chain to
+    # avoid duplicates (e.g. due to multiple atoms per residue)
 
     for line in lines:
         record = line[:6].strip()
@@ -822,10 +822,8 @@ def get_sequences_from_pdb_str(
             if chain_id not in sequences:
                 raise ChainNotFoundError(chain_id)
 
-    return {
-        chain_id: (dict(seq) if by_residue_number else "".join(seq))
-        for chain_id, seq in sequences.items()
-    }
+    return {chain_id: (dict(seq) if by_residue_number else "".join(seq)) for chain_id, seq in sequences.items()}
+
 
 def get_remark_header(pdb_path: str) -> tuple[str, list[str]]:
     """

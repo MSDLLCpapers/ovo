@@ -24,6 +24,7 @@ class Storage:
         storage_root: str,
         aws: AWSSessionManager | None,
         verbose: bool = False,
+        num_copy_threads: int | None = None,
         memory_cache_limit_bytes=50 * 1024 * 1024,
         disk_cache_limit_bytes=200 * 1024 * 1024,
         memory_cache_limit_per_file_bytes=5 * 1024 * 1024,
@@ -31,6 +32,7 @@ class Storage:
         self.storage_root: str = storage_root
         self.aws: AWSSessionManager | None = aws
         self.verbose = verbose
+        self.num_copy_threads = num_copy_threads
         # caching
         self.memory_cache_limit = memory_cache_limit_bytes
         self.disk_cache_limit = disk_cache_limit_bytes
@@ -355,7 +357,7 @@ class Storage:
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-            with ThreadPoolExecutor() as executor:
+            with ThreadPoolExecutor(self.num_copy_threads) as executor:
                 # Fetch all files and collect their content
                 futures = {
                     (file_path, executor.submit(self.read_file_bytes, file_path, cache_store=False)): dir_model
@@ -413,7 +415,7 @@ class Storage:
                 )
 
         os.makedirs(local_destination_dir, exist_ok=True)
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(self.num_copy_threads) as executor:
             futures = [
                 executor.submit(
                     self.sync_file,
@@ -441,7 +443,7 @@ class Storage:
             return
 
         os.makedirs(local_destination_dir, exist_ok=True)
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(self.num_copy_threads) as executor:
             futures = [
                 executor.submit(
                     self.sync_file, os.path.join(source_dir, file_path), os.path.join(local_destination_dir, file_path)
