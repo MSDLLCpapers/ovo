@@ -4,7 +4,6 @@ import random
 class ColorPicker:
     def __init__(self, seed: int = 27):
         self.rng = random.Random(seed)
-        random.seed(seed)
         self.assignedColorsCount = 0
         # modified tab10 palette
         self.prefferedColors = [
