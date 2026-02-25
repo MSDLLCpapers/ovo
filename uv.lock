@@ -1346,6 +1346,18 @@ wheels = [
 ]
 
 [[package]]
+name = "mypy-boto3-logs"
+version = "1.42.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8e/b1/4e8094add6ac907ddd5cb850c514e19d969f30e163290301f16d7b8c588a/mypy_boto3_logs-1.42.10.tar.gz", hash = "sha256:3abe41d76fa533fe82254b4e00812372fd8f240dffd7c0ddd4be34503d1f783f", size = 52821, upload-time = "2025-12-15T20:39:40.813Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ff/66/8998dbc452845ab539f0ffa92bd5003f5e8856bd8cc22798d24ae1673c44/mypy_boto3_logs-1.42.10-py3-none-any.whl", hash = "sha256:adbce9eb21b2f982fc7c8d20a4e1522120f117ff07e3cceb6c4ee1bf714ebba7", size = 59966, upload-time = "2025-12-15T20:39:38.206Z" },
+]
+
+[[package]]
 name = "mypy-boto3-omics"
 version = "1.42.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1367,18 +1379,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b8/15/4700b6c4e97975932c22b8d66026183d4b88c8f75aa01614a3fb73a690c6/mypy_boto3_s3-1.42.3.tar.gz", hash = "sha256:2507bdfa17829f1f422b8bf334db836689b0529fbe6635af4e0f3aaa72f92806", size = 76015, upload-time = "2025-12-04T21:11:47.686Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/32/9834730800a423f3d7ba3eaaba9741874c49d01f7abb21bdfff76464a2bd/mypy_boto3_s3-1.42.3-py3-none-any.whl", hash = "sha256:97c5171928a2ae8c7b60a60700f395407cb5eca60704c7ab6a1ff0861f4db997", size = 83144, upload-time = "2025-12-04T21:11:45.967Z" },
-]
-
-[[package]]
-name = "mypy-boto3-stepfunctions"
-version = "1.42.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.12'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c5/71/ae530f15c4e4c4ef530e1ebaf6729aee2374e72ee8b425fb262884007157/mypy_boto3_stepfunctions-1.42.3.tar.gz", hash = "sha256:bf38f9db42e144e86c7807dff127554defe1548a10ba25824f69cc74554fa5b5", size = 31247, upload-time = "2025-12-04T21:13:53.532Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/a3/628e4ca004c1da011d425bc2b9399654b60ea84cff8d1137913379fef9e5/mypy_boto3_stepfunctions-1.42.3-py3-none-any.whl", hash = "sha256:1509c58b38389b05d0664e042e66508ea7cb170948cd92c33abe531e933f3c63", size = 36251, upload-time = "2025-12-04T21:13:50.217Z" },
 ]
 
 [[package]]
@@ -1578,7 +1578,7 @@ wheels = [
 
 [[package]]
 name = "ovo"
-version = "1.0.1"
+version = "1.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "appdirs" },
@@ -1591,9 +1591,9 @@ dependencies = [
     { name = "jsonschema" },
     { name = "matplotlib" },
     { name = "mypy-boto3" },
+    { name = "mypy-boto3-logs" },
     { name = "mypy-boto3-omics" },
     { name = "mypy-boto3-s3" },
-    { name = "mypy-boto3-stepfunctions" },
     { name = "nextflow" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -1642,9 +1642,9 @@ requires-dist = [
     { name = "jsonschema" },
     { name = "matplotlib", specifier = ">=3.9.4" },
     { name = "mypy-boto3" },
+    { name = "mypy-boto3-logs" },
     { name = "mypy-boto3-omics" },
     { name = "mypy-boto3-s3" },
-    { name = "mypy-boto3-stepfunctions" },
     { name = "nextflow" },
     { name = "numpy" },
     { name = "openpyxl" },

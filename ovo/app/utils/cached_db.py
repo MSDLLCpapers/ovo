@@ -106,12 +106,13 @@ def get_cached_design_job(design_job_id: str) -> DesignJob:
     return db.get(DesignJob, id=design_job_id)
 
 
-def get_cached_design_jobs_table(round_ids: list[str]):
+# note: caching is managed by nested function - only when no jobs are in progress
+def get_cached_design_jobs_table(round_ids: list[str], **filters) -> pd.DataFrame:
     design_job_ids = [v for v in db.select_values(Pool, "design_job_id", round_id__in=round_ids) if v]
     if db.count(DesignJob, id__in=design_job_ids, job_result=None):
         # if any jobs are still running, do not use cache so that job status is updated
-        _get_cached_design_jobs_table.clear(round_ids=round_ids)
-    return _get_cached_design_jobs_table(round_ids=round_ids)
+        _get_cached_design_jobs_table.clear(round_ids=round_ids, **filters)
+    return _get_cached_design_jobs_table(round_ids=round_ids, **filters)
 
 
 @clear_when_modified(DesignJob)

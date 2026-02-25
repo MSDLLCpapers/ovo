@@ -9,6 +9,8 @@ process JupyterLab {
     label "jupyter"
     cpus { params.cpus }
     memory { params.memory }
+    queue { params.queue }
+    clusterOptions { params.cluster_options }
 
     input:
       path dirs
@@ -34,7 +36,7 @@ process JupyterLab {
         pip install jupyterlab jupyterlab-lsp python-lsp-server
     fi
 
-    echo "JUPYTER_HOSTNAME: \$(hostname)"
+    echo "JUPYTER_HOSTNAME: \$(hostname -i 2>/dev/null || hostname)" >&2
 
     # Create symlink to root directory to enable LSP access to all files (as long as they are mounted in the container)
     ln -s / .lsp_symlink
@@ -48,14 +50,26 @@ Current work dir: \$(pwd)
 
 EOF
 
+    if [[ "${workflow.containerEngine in ['singularity', 'apptainer'] && !params.no_unix_sockets}" == "true" ]]; then
+        mkdir -p "${params.socket_dir}"
+        socket_file="${params.socket_dir}/\$(date +%Y%m%d-%H%M%S)"
+        if [[ -f "\$socket_file" ]]; then
+            socket_file="\${socket_file}-\$RANDOM"
+        fi
+        network_args="--sock \$socket_file"
+        echo "JUPYTER_SOCKET: \$socket_file" >&2
+    else
+        network_args="--port ${port} ${workflow.containerEngine ? "--port-retries 0" : ""}"
+    fi
+
     # Run Jupyter Lab
     jupyter-lab \
       --ip ${ip} \
-      --port ${port} \
+      \$network_args \
       --allow-root \
       --ContentsManager.allow_hidden=True \
       --no-browser \
-      ${run_parameters} ${workflow.containerEngine ? "--port-retries 0" : ""}
+      ${run_parameters}
     """
 }
 

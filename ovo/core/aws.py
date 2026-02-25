@@ -2,6 +2,7 @@ from datetime import datetime
 from time import time
 import boto3
 from botocore.exceptions import ClientError
+from mypy_boto3_logs import CloudWatchLogsClient
 
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_omics import OmicsClient
@@ -21,6 +22,10 @@ class AWSSessionManager:
     @property
     def omics(self) -> OmicsClient:
         return self.get_client("omics")
+
+    @property
+    def logs(self) -> CloudWatchLogsClient:
+        return self.get_client("logs")
 
     def get_client(self, service, refresh_minutes_before_expiration=30):
         expired = (

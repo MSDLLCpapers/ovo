@@ -84,6 +84,14 @@ def get_pool_inputs(page_key: str) -> tuple[str, str, str]:
     return round_id, pool_name, pool_description
 
 
+def format_param_table(df):
+    # concatenate list values into comma-separated strings
+    df = df.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
+    # shorten long file paths to just .../filename.ext
+    df = df.apply(lambda v: ".../" + v.split("/")[-1] if isinstance(v, str) and "/" in v and len(v) > 50 else v)
+    return df
+
+
 def review_workflow_submission(page_key: str):
     """Show a summary of the workflow settings and submission modal button."""
     workflow = st.session_state.workflows[page_key]
@@ -127,9 +135,7 @@ def review_workflow_submission(page_key: str):
         """,
         unsafe_allow_html=True,
     )
-    st.table(
-        workflow.get_table_row(name="value").apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v),
-    )
+    st.table(format_param_table(workflow.get_table_row(name="value")))
 
     if st.button("Continue to submission :material/arrow_forward_ios:", key="continue") or is_test_dialog_shown(
         "submission_dialog"

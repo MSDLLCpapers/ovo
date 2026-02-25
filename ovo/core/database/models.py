@@ -452,6 +452,15 @@ class DesignWorkflow(Workflow):
 
         visualize_design_sequence(design_id)
 
+    def get_relevant_descriptor_keys(self) -> list[str]:
+        """Get list of descriptor keys that are of interest for this workflow
+
+        Used to determine which descriptors to show in the Explorer table
+
+        By default, we return all descriptors included in the accepted_thresholds field for this workflow (even disabled ones)
+        """
+        return list(self.acceptance_thresholds.keys())
+
 
 @WorkflowTypes.register("Unknown Workflow")
 class UnknownWorkflow(DesignWorkflow, DescriptorWorkflow):
@@ -713,11 +722,39 @@ class Artifact(ABC):
         if not ArtifactTypes.exists(artifact_type):
             raise ValueError(f"Artifact type '{artifact_type}' is not registered")
         ArtifactSubclass = ArtifactTypes.get(artifact_type)
-        return ArtifactSubclass(**data_copy)
+        try:
+            return ArtifactSubclass(**data_copy)
+        except TypeError as e:
+            return UnknownArtifact(
+                data=data,
+                error=f"Unexpected error when loading artifact from DB, this might be due to changes to the schema. Migration steps might need to be applied. Error: {e}",
+            )
 
     @abstractmethod
     def get_storage_paths(self) -> list[str]:
         raise NotImplementedError()
+
+
+@dataclass
+class UnknownArtifact(Artifact):
+    """Unknown artifact type, used when the artifact type is not recognized or not registered
+
+    This can happen when a plugin is uninstalled.
+    """
+
+    # Avoid saving this class to DB, handled by DataclassEncoder
+    __do_not_serialize__ = True
+    # Raw data dict as stored in the artifact column
+    data: dict = None
+    # Explanation for why this artifact couldn't be loaded
+    error: str = None
+
+    def __init__(self, data: dict, error: str):
+        self.data = data
+        self.error = error
+
+    def get_storage_paths(self) -> list[str]:
+        return []
 
 
 class ProjectArtifact(Base):
@@ -902,6 +939,7 @@ __all__ = [
     "StructureFileDescriptor",
     "DataclassType",
     "Artifact",
+    "UnknownArtifact",
     "ArtifactTypes",
     "ProjectArtifact",
 ]

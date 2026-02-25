@@ -1,6 +1,8 @@
 from datetime import datetime
 
+import pandas as pd
 import streamlit as st
+from humanize import precisedelta
 from streamlit_timeago import time_ago
 
 from ovo import db, get_scheduler, Pool, Design, WorkflowTypes, DesignWorkflow
@@ -10,7 +12,7 @@ from ovo.app.components.acceptance_thresholds_components import (
     display_current_thresholds,
     filter_designs_by_thresholds_cached,
 )
-from ovo.app.components.custom_elements import confirm_download_button
+import streamlit.components.v1 as components
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_scatterplot import (
@@ -18,9 +20,15 @@ from ovo.app.components.descriptor_scatterplot import (
     descriptor_scatterplot_input_component,
 )
 from ovo.core.database import DesignJob, UnknownWorkflow
-from ovo.core.logic.design_logic import get_workflows_table, process_results
+from ovo.core.logic.design_logic import process_results
 from ovo.core.logic.job_logic import update_job_status
-from ovo.app.utils.cached_db import get_cached_pools, get_cached_pool, get_cached_design, get_cached_design_job
+from ovo.app.utils.cached_db import (
+    get_cached_pools,
+    get_cached_pool,
+    get_cached_design,
+    get_cached_design_job,
+    get_cached_design_jobs_table,
+)
 
 
 @st.fragment
@@ -33,8 +41,9 @@ def design_job_detail(pool_ids):
         st.warning("Selected pools are not associated with a design job")
         return
 
-    design_jobs = db.select(DesignJob, id__in=design_job_ids)
+    design_jobs = db.select(DesignJob, id__in=design_job_ids, order_by="-created_date_utc")
 
+    # Display title
     status_icon = (
         ""
         if all(j.job_result for j in design_jobs)
@@ -43,26 +52,16 @@ def design_job_detail(pool_ids):
     if len(pools) == 1:
         pool = pools[0]
         st.title(f"{status_icon} {pool.name}")
-
-        left_col, right_col = st.columns([0.85, 0.15], vertical_alignment="center")
-        with left_col:
-            if pool.description:
-                st.write(pool.description)
+        if pool.description:
+            st.write(pool.description)
     else:
         st.title(f"{status_icon} {len(pools)} pools")
         st.markdown("#### " + ", ".join([pool.name for pool in pools]))
 
-    st.subheader("Workflow parameters")
-    table = get_workflows_table(jobs=design_jobs)
-    table.index = [pools_by_design_job[j.id].id for j in design_jobs]
-    st.dataframe(table)
-
+    # Update status for all jobs that are still in progress,
+    # and process results for those that have finished but are not yet processed
     for job in design_jobs:
         pool = pools_by_design_job[job.id]
-        if job.workflow and job.workflow.is_instance(UnknownWorkflow):
-            st.warning(f"Pool '{pool.id}' workflow failed to load: {job.workflow.error}")
-            with st.expander("Raw data"):
-                st.json(job.workflow.data)
         if job.job_result is None:
             with st.spinner(f'Checking status of "{pool.name}"'):
                 job_result = update_job_status(job)
@@ -74,12 +73,98 @@ def design_job_detail(pool_ids):
                 if job.job_result:
                     st.success(f"Workflow finished: {pool.name}")
 
+    st.subheader("Workflow parameters")
+    table = get_cached_design_jobs_table(round_ids=sorted(set(p.round_id for p in pools)), id__in=pool_ids)
+    table.index = [pools_by_design_job[j.id].id for j in design_jobs]
+    st.dataframe(table)
+
+    num_pools_failed = sum(job.job_result == False for job in design_jobs)
+    num_pools_in_progress = sum(job.job_result is None for job in design_jobs)
+
+    if num_pools_in_progress:
+        st.button(":material/refresh: Refresh", key="refresh1")
+        time_ago(datetime.now(), prefix="Refreshed", key="refreshed1")
+
+    if "show_all" not in st.session_state:
+        st.session_state.show_all = False
+
+    for i, job in enumerate(design_jobs):
+        pool = pools_by_design_job[job.id]
+        if i == 1 and not st.session_state.show_all:
+            with st.container(horizontal=True, vertical_alignment="center"):
+                if st.button(":material/unfold_more: Show all jobs", key="show_all_jobs_btn"):
+                    st.session_state.show_all = True
+                    st.rerun()
+                st.write(
+                    f"1 more job not shown" if len(design_jobs) == 2 else f"{len(design_jobs) - 1} more jobs not shown"
+                )
+        if i == 0 or st.session_state.show_all:
+            try:
+                workflow_detail_fragment(job, pool, first=i == 0)
+            except Exception as e:
+                # avoid failing here, error is already printed inside fragment
+                st.error(f"Failed reading job details for job {job.job_id}: {e}")
+
+    if len(pools) == num_pools_failed + num_pools_in_progress:
+        # Nothing to show yet, exit here
+        return
+
+    if num_pools_in_progress:
+        st.info(
+            f"Not including results of {num_pools_in_progress} ongoing workflow"
+            + ("s" if num_pools_in_progress > 1 else "")
+        )
+        st.button(":material/refresh: Refresh", key="refresh2")
+        time_ago(datetime.now(), prefix="Refreshed", key="refreshed2")
+
+    all_design_ids = sorted(db.select_unique_values(Design, "id", pool_id__in=pool_ids))
+
+    refresh_descriptors(
+        design_ids=all_design_ids,
+    )
+
+    job_results_fragment(
+        all_design_ids=all_design_ids,
+        pools=pools,
+        jobs=design_jobs,
+    )
+
+
+@st.fragment()
+def workflow_detail_fragment(job: DesignJob, pool: Pool, first=False):
+    scheduler = get_scheduler(job.scheduler_key)
+    with st.container(border=True):
+        # noinspection PyUnreachableCode
+        title_suffix = f"Pool **{pool.id}** | {pool.name}"
         if job.job_result is None:
-            scheduler = get_scheduler(job.scheduler_key)
-            status_label = scheduler.get_status_label(job.job_id)
-            st.info(f"Workflow is {status_label}: {pool.name}")
+            title = f"⏳ {scheduler.get_status_label(job.job_id)} | {title_suffix}"
         elif job.job_result == False:
-            st.error(f"Workflow failed: {pool.name}")
+            title = f":red-background[❌ :red[**Failed**] | {title_suffix}]"
+        else:
+            title = f"Done | {title_suffix}"
+
+        st.write(title)
+        if job.job_result == False:
+            with st.popover("Re-submit"):
+                if scheduler.supports_resume(job.job_id):
+                    # Allow user to re-submit failed jobs if the scheduler supports resuming
+                    st.write(
+                        "Attempt to resume the workflow from the point of failure (with the same parameters). "
+                        "Note that in case the workflow cannot be resumed, it might be re-submitted from the beginning, resulting in duplicate compute cost."
+                    )
+                    if st.button("Re-submit", key=f"retry_{pool.id}", type="primary"):
+                        # Resume and update job ID (might be the same or a new one depending on the scheduler)
+                        job.job_result = None
+                        job.job_id = scheduler.resume(job.job_id)
+                        db.save(job)
+                        st.rerun()
+                else:
+                    st.write(f"{scheduler.__class__.__name__} currently does not support resuming failed jobs.")
+
+        if job.workflow and job.workflow.is_instance(UnknownWorkflow):
+            st.warning(f"Workflow failed to load: {job.workflow.error}")
+            with st.expander("Raw data"):
+                st.json(job.workflow.data)
 
         if job.warnings:
             st.write(
@@ -89,50 +174,104 @@ def design_job_detail(pool_ids):
             for warning in job.warnings:
                 st.warning(warning)
 
-        # Show log automatically when in progress or failed
-        if job.job_result != True:
-            args = {}
-            if len(pools) == 1 and job.job_result == False:
-                args["expanded"] = True
-            with st.expander("Log output", **args):
-                with st.container(height=400):
-                    scheduler = get_scheduler(job.scheduler_key)
-                    st.code(scheduler.get_log(job.job_id))
-
-    num_pools_failed = sum(job.job_result == False for job in design_jobs)
-    num_pools_in_progress = sum(job.job_result is None for job in design_jobs)
-
-    if len(pools) == num_pools_failed:
-        # All pools failed, nothing to show
-        return
-
-    if num_pools_in_progress:
-        st.button(":material/refresh: Refresh", key="refresh_details_page")
-        time_ago(datetime.now(), prefix="Refreshed", key="refreshed")
-        if len(pools) == num_pools_in_progress:
-            # All pools are in progress, nothing to show yet
-            return
-        if num_pools_in_progress:
-            st.info(
-                f"Not including results of {num_pools_in_progress} ongoing workflow"
-                + ("s" if num_pools_in_progress > 1 else "")
+        if job.job_result in (None, False) or first or st.toggle("Show workflow details", key=f"toggle_{pool.id}"):
+            options = ["Log preview", "Full log", "Workflow tasks"]
+            if not job.job_result is None:
+                options += ["Workflow schema", "Execution timeline", "Execution report"]
+            tab = st.segmented_control(
+                "Tab",
+                options=options,
+                key=f"tabs_{pool.id}",
+                label_visibility="collapsed",
+                default="Log preview",
             )
+            log_container = st
+            if tab == "Log preview":
+                with st.spinner("Getting job log output..."):
+                    st.code(scheduler.get_log(job.job_id, preview=True) or "No log output available")
+            elif tab == "Full log":
+                # Show full log in a scrollable container with fixed height
+                with st.spinner("Getting job log output..."):
+                    log_container = st.container(height=400)
+                    log_container.code(scheduler.get_log(job.job_id) or "No log output available")
+            elif tab == "Workflow tasks":
+                if (tasks := scheduler.get_tasks(job.job_id)) is not None:
+                    if not tasks.empty:
+                        st.write("**Summary**")
+                        name_without_suffix = tasks["name"].apply(lambda s: s.split()[0])
+                        summary = (
+                            tasks.groupby(name_without_suffix, sort=False)["status"]
+                            .value_counts()
+                            .unstack(fill_value=0)
+                        )
+                        summary["avg_duration"] = (
+                            tasks.groupby(name_without_suffix)["duration_seconds"].mean().apply(precisedelta)
+                        )
+                        summary["total_duration"] = (
+                            tasks.groupby(name_without_suffix)["duration_seconds"].sum().apply(precisedelta)
+                        )
+                        st.dataframe(
+                            summary.reset_index(),
+                            hide_index=True,
+                            width="content",
+                            key=f"task_summary_{pool.id}",
+                        )
+                        st.write("**All tasks**")
+                        selection = st.dataframe(
+                            tasks,
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key=f"tasks_table_{pool.id}",
+                        )
+                        if selection["selection"]["rows"]:
+                            selected_task_row = tasks.iloc[selection["selection"]["rows"][0]]
+                            st.write(f"**Task log** | {selected_task_row.status} | {selected_task_row['name']}")
+                            with st.spinner("Getting task log output..."):
+                                task_log = scheduler.get_log(job.job_id, selected_task_row.task_id)
+                                log_container = st.container(height=400)
+                                log_container.code(task_log or "No log output available")
+                        else:
+                            st.write("Select a task above to show its log output.")
+                    else:
+                        st.write("No tasks yet.")
+                else:
+                    st.write("Workflow task information not available.")
 
-    all_design_ids = sorted(db.select_unique_values(Design, "id", pool_id__in=pool_ids))
+            if job.job_result is None:
+                if log_container.button(":material/refresh: Refresh", key=f"refresh_log_{pool.id}", type="tertiary"):
+                    if job.job_result is None and scheduler.get_result(job.job_id) is not None:
+                        # Workflow just finished, re-run whole page
+                        st.rerun(scope="app")
+                # Job still in progress, return here
+                return
 
-    refresh_descriptors(
-        design_ids=all_design_ids,
-    )
-
-    scatterplot_fragment(
-        all_design_ids=all_design_ids,
-        pools=pools,
-        jobs=design_jobs,
-    )
+            elif tab == "Workflow schema":
+                if dag := scheduler.get_dag(job.job_id):
+                    st.graphviz_chart(dag)
+                else:
+                    st.write("Workflow schema not available.")
+            elif tab == "Execution timeline":
+                if timeline_html := scheduler.get_timeline(job.job_id):
+                    components.html(timeline_html, height=600, scrolling=True)
+                else:
+                    st.write("Execution timeline not available.")
+            elif tab == "Execution report":
+                if report_html := scheduler.get_report(job.job_id):
+                    # hide navigation bar in report
+                    report_html = report_html.replace(
+                        "</head>",
+                        "<style>\n#nf-report-navbar { display: none }\nbody { padding-top: 0 }\n</style>\n</head>",
+                    )
+                    components.html(report_html, height=650, scrolling=True)
+                else:
+                    st.write("Execution report not available.")
 
 
 @st.fragment
-def scatterplot_fragment(all_design_ids: list[str], pools: list[Pool], jobs: list[DesignJob]):
+def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: list[DesignJob]):
+    st.subheader("Job results")
+
     # Get dictionary of saved thresholds (descriptor key -> (min, max) or None)
     saved_thresholds = {}
     inconsistent_threshold_keys = set()
@@ -177,7 +316,7 @@ def scatterplot_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
                 """
                 None of the designs met the acceptance thresholds. 
                 You may adjust to less strict thresholds below, or try submitting more designs.
-                
+
                 To see all generated designs, select 'All designs' above.
                 """
             )
@@ -228,6 +367,7 @@ def scatterplot_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
             )
         new_thresholds = thresholds_and_histograms_component(
             selected_thresholds=st.session_state.selected_thresholds,
+            saved_thresholds=saved_thresholds,
             all_design_ids=all_design_ids,
         )
 

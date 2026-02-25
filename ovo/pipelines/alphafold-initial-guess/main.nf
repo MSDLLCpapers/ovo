@@ -23,9 +23,26 @@ process AlphaFoldInitialGuess {
   set -euxo pipefail
 
   # unpack if tar file
+  UNPACKED_DEST="${model_weights}.unpacked"
   if [[ "${model_weights}" =~ .*\\.tar\$ ]]; then
-    mkdir -p ./alphafold_params/
-    tar -xvf ${model_weights} -C ./alphafold_params/
+    if [[ ! -d "\$UNPACKED_DEST" ]]; then
+      # Unpack model weights next to the .tar file (so that they can be shared between processes on the same node)
+      # Use random output path suffix to avoid conflicts in parallel processes
+      # Then move it to the final destination with an atomic rename
+      echo "Unpacking model weights from ${model_weights}"
+      TMP_DEST="${model_weights}.unpacked.\$RANDOM.\$RANDOM"
+      mkdir "\$TMP_DEST"
+      tar -xf "${model_weights}" -C "\$TMP_DEST"
+      if [[ ! -d "\$UNPACKED_DEST" ]]; then
+          # atomically rename the directory
+          mv "\$TMP_DEST" "\$UNPACKED_DEST"
+      else
+          echo "Unpacked model dir already exists, assuming it was created by another process"
+          # Clean up temporary directory created by this process to avoid leaking disk space
+          rm -rf "\$TMP_DEST"
+      fi
+    fi
+    ln -s "\$UNPACKED_DEST" ./alphafold_params
   else
     ln -s "${model_weights}" ./alphafold_params
   fi

@@ -77,11 +77,15 @@ def run(migrate_func=None, dry=False, all=False):
                 continue
             data = json.loads(data_raw)
             migrate_func(data)
-            value = DataclassType.from_dict(data) if hasattr(DataclassType, "from_dict") else DataclassType(**data)
-            print(data)
+            try:
+                value = DataclassType.from_dict(data) if hasattr(DataclassType, "from_dict") else DataclassType(**data)
+                print(data)
+                if not dry:
+                    db.save_value(Model, field_name, value, id=object_id)
+            except Exception as e:
+                print("Skipping failed migration:", e)
+                continue
             num_updated += 1
-            if not dry:
-                db.save_value(Model, field_name, value, id=object_id)
 
     if not dry:
         print(f"Updated {num_updated} objects")

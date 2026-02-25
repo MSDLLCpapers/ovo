@@ -55,7 +55,7 @@ def make_bg_color_func(descriptor, min_val, max_val):
 
 
 @st.fragment()
-def descriptor_table(design_ids: List[str], descriptors_df: pd.DataFrame, descriptors: List[Descriptor]):
+def descriptor_table(design_ids: List[str], descriptors_df: pd.DataFrame, descriptors: List[Descriptor], **kwargs):
     if not design_ids or descriptors_df.empty:
         st.warning("No results yet")
         return
@@ -65,7 +65,9 @@ def descriptor_table(design_ids: List[str], descriptors_df: pd.DataFrame, descri
         f"Duplicate descriptors found in list: {[d.key for d in descriptors]}"
     )
     sequence_cols = [col for col in descriptors_df.columns if col[0] == "Sequence"]
-    selected_df = descriptors_df[sequence_cols + [(descriptor.tool, descriptor.name) for descriptor in descriptors]]
+    descriptor_cols = [(descriptor.tool, descriptor.name) for descriptor in descriptors]
+    available_cols = set(descriptors_df.columns)
+    selected_df = descriptors_df[sequence_cols + [d for d in descriptor_cols if d in available_cols]]
     styles = {}
     column_config = {}
 
@@ -92,7 +94,7 @@ def descriptor_table(design_ids: List[str], descriptors_df: pd.DataFrame, descri
     style_df = pd.DataFrame(styles)
     styled_df = selected_df.style.apply(lambda _: style_df, axis=None)
 
-    st.dataframe(styled_df, column_config=column_config, key="descriptor_table")
+    st.dataframe(styled_df, column_config=column_config, key="descriptor_table", **kwargs)
 
 
 def residue_number_descriptor_detail_table(descriptor: Descriptor, descriptor_values: pd.Series):

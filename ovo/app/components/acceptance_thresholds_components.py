@@ -7,7 +7,7 @@ from ovo.app.utils.cached_db import get_cached_descriptor_values, Descriptor
 
 from plotly import express as px
 
-from ovo import db, Threshold
+from ovo import db, Threshold, NumericDescriptor
 from ovo.core.database import Pool, DesignJob
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.logic.design_logic import update_accepted_design_ids
@@ -16,6 +16,7 @@ from ovo.core.logic.filtering_logic import filter_designs_by_thresholds
 
 def thresholds_and_histograms_component(
     selected_thresholds: dict[str, Threshold],
+    saved_thresholds: dict[str, Threshold],
     all_design_ids: list[str],
     max_items_row=3,
 ) -> dict[str, Threshold]:
@@ -29,10 +30,6 @@ def thresholds_and_histograms_component(
             descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
 
             plot_container = st.container()
-
-            st.markdown(f"##### {descriptor.name}")
-            if descriptor.description:
-                st.caption(descriptor.description)
 
             descriptor_values = get_cached_descriptor_values(descriptor.key, design_ids=all_design_ids)
 
@@ -49,10 +46,18 @@ def thresholds_and_histograms_component(
                     threshold=new_thresholds[descriptor.key],
                 )
 
+            if descriptor.description:
+                st.caption(descriptor.description)
+
             if new_thresholds[descriptor.key].enabled and (num_missing := descriptor_values.isna().sum()):
                 st.warning(
                     f"{num_missing}/{len(all_design_ids)} designs are missing values for this descriptor. "
                     f"These designs will be marked as NOT accepted."
+                )
+
+            if saved_thresholds[descriptor.key] != new_thresholds[descriptor.key]:
+                st.caption(
+                    ':red[Threshold has been changed], see the new statistics above and save using the "Confirm thresholds" button.'
                 )
 
     return new_thresholds
@@ -77,44 +82,45 @@ def thresholds_input_component(
     )
 
     descriptor_keys = list(selected_thresholds.keys())
-    columns = wrapped_columns(len(descriptor_keys), wrap=max_items_row, divider=True)
+    columns = wrapped_columns(len(descriptor_keys), wrap=max_items_row, divider=True, gap="large")
     for descriptor_key, column in zip(descriptor_keys, columns):
         with column:
             descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
-            st.markdown(f"##### {descriptor.name}")
-            if descriptor.description:
-                st.caption(descriptor.description)
             new_thresholds[descriptor.key] = single_threshold_input_component(
                 threshold=selected_thresholds[descriptor_key], descriptor=descriptor, descriptor_values=None
             )
+            if descriptor.description:
+                st.caption(descriptor.description)
 
     return new_thresholds
 
 
 def single_threshold_input_component(
-    threshold: Threshold, descriptor: Descriptor, descriptor_values: pd.Series | None = None
+    threshold: Threshold, descriptor: NumericDescriptor, descriptor_values: pd.Series | None = None
 ) -> Threshold:
-    if not threshold.enabled:
-        if st.toggle("Disabled", key=f"{descriptor.key}_toggle"):
-            st.session_state.thresholds_expanded = True
-            st.success("Enabling threshold...")
-            min_value = descriptor.min_value  # value or None
-            max_value = descriptor.max_value  # value or None
-            if descriptor_values is not None and len(descriptor_values):
-                min_value, max_value = descriptor_values.min(), descriptor_values.max()
-            # if threshold already set, use the existing values, otherwise use the descriptor min/max
-            if descriptor.min_value is not None or descriptor.max_value is not None:
-                return threshold.copy(enabled=True)
-            elif descriptor.comparison == "higher_is_better":
-                return Threshold(min_value=min_value)
-            elif descriptor.comparison == "lower_is_better":
-                return Threshold(max_value=max_value)
-            else:
-                return Threshold(min_value=min_value, max_value=max_value)
-    else:
-        if not st.toggle("Enabled", value=True, key=f"{descriptor.key}_toggle"):
-            st.session_state.thresholds_expanded = True
-            return threshold.copy(enabled=False)
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        st.markdown(f"##### " + (descriptor.name if threshold.enabled else f":grey[{descriptor.name}]"))
+        if not threshold.enabled:
+            if st.toggle("Disabled", key=f"{descriptor.key}_toggle"):
+                st.session_state.thresholds_expanded = True
+                st.success("Enabling threshold...")
+                min_value = descriptor.min_value  # value or None
+                max_value = descriptor.max_value  # value or None
+                if descriptor_values is not None and len(descriptor_values):
+                    min_value, max_value = descriptor_values.min(), descriptor_values.max()
+                # if threshold already set, use the existing values, otherwise use the descriptor min/max
+                if descriptor.min_value is not None or descriptor.max_value is not None:
+                    return threshold.copy(enabled=True)
+                elif descriptor.comparison == "higher_is_better":
+                    return Threshold(min_value=min_value)
+                elif descriptor.comparison == "lower_is_better":
+                    return Threshold(max_value=max_value)
+                else:
+                    return Threshold(min_value=min_value, max_value=max_value)
+        else:
+            if not st.toggle("Enabled", value=True, key=f"{descriptor.key}_toggle"):
+                st.session_state.thresholds_expanded = True
+                return threshold.copy(enabled=False)
 
     kwargs = dict(
         min_value=float(descriptor.min_value) if descriptor.min_value is not None else None,
@@ -160,7 +166,7 @@ def descriptor_histogram_component(descriptor_values: pd.Series, descriptor: Des
         x=descriptor_values,
         labels={"x": descriptor.name},
         nbins=50,
-        height=300,
+        height=250,
         width=500,
         color_discrete_sequence=["#1f77b4"] if threshold.enabled else ["#888888"],
     )
@@ -188,7 +194,7 @@ def descriptor_histogram_component(descriptor_values: pd.Series, descriptor: Des
     fig.layout.margin["b"] = 0
     fig.layout.margin["t"] = 0
 
-    st.plotly_chart(fig, width="content")
+    st.plotly_chart(fig, width="content", key=f"{descriptor.key}_histogram")
 
 
 @st.cache_data(ttl="1h")

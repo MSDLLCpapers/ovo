@@ -178,7 +178,7 @@ def export_import_project(
             for obj in all_objects[table_name]:
                 if obj.artifact:
                     artifact_paths = obj.artifact.get_storage_paths()
-                    storage_paths.extend(artifact_paths)
+                    storage_paths.extend([p for p in artifact_paths if p])
 
     print("All entities fetched from DB!")
     counts["storage_file"] = len(storage_paths)

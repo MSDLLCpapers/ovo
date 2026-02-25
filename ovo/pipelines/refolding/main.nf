@@ -89,6 +89,8 @@ workflow Refolding {
             }
         }
 
+        pdb_dir = null
+        af2_pdb_dir = null
         if (alphafold_tests) {
           println "AlphaFold2 tests:"
           alphafold_tests.each { println it }
@@ -102,8 +104,11 @@ workflow Refolding {
               },
               params.alphafold_models_path,
           )
+          af2_pdb_dir = AlphaFoldInitialGuess.out.pdb_dir
+          pdb_dir = af2_pdb_dir
         }
 
+        esmfold_pdb_dir = null
         if (esmfold_tests) {
           ESMFold(
               batches.combine(Channel.fromList(esmfold_tests)).map { batch_name, batch_design_dir, native_pdb, test, num_recycles ->
@@ -115,9 +120,15 @@ workflow Refolding {
               params.esmfold_models_path,
               params.esmfold_fp16
           )
+          esmfold_pdb_dir = ESMFold.out.pdb_dir
+          pdb_dir = esmfold_pdb_dir
         }
 
         // TODO add RMSD calculation step based on param with yaml rmsd specs
+    emit:
+      pdb_dir = pdb_dir // pdb_dir is a shorthand when running only one refolding test
+      af2_pdb_dir = af2_pdb_dir
+      esmfold_pdb_dir = esmfold_pdb_dir
 }
 
 workflow {

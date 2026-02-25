@@ -22,6 +22,15 @@
       "type": "integer",
       "description": "Port number for Jupyter server"
     },
+    "no_unix_sockets": {
+      "type": "boolean",
+      "description": "Disable use of file-based unix sockets for Jupyter server",
+      "default": false
+    },
+    "socket_dir": {
+      "type": "string",
+      "description": "Custom directory for Jupyter server sockets (optional)"
+    },
     "run_parameters": {
       "type": "string",
       "description": "Additional parameters to pass to JupyterLab when starting the server"
@@ -34,7 +43,15 @@
     "memory": {
       "type": "string",
       "description": "Amount of memory to allocate for the JupyterLab server (e.g., '32 GB')",
-      "default": "16 GB"
+      "default": "15 GB"
+    },
+    "queue": {
+      "type": "string",
+      "description": "Non-default queue or partition where to submit the JupyterLab job"
+    },
+    "cluster_options": {
+      "type": "string",
+      "description": "Additional cluster options to pass when submitting the JupyterLab job (e.g., '-l select=ncpus=4:mem=15gb')"
     }
   }
 }

@@ -1,5 +1,6 @@
 import os
 
+import pandas as pd
 import streamlit as st
 
 from ovo import db, storage
@@ -12,7 +13,6 @@ from ovo.core.database import (
     descriptors_rfdiffusion,
     descriptors_refolding,
     descriptors_proteinqc,
-    descriptors_bindcraft,
 )
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
@@ -43,7 +43,7 @@ from ovo.app.utils.cached_db import (
 from ovo.core.utils.residue_selection import from_segments_to_hotspots
 
 
-def show_design_metrics(design_id: str, descriptor_keys: list[str]):
+def show_design_metrics(design_id: str, descriptor_keys: list[str]) -> pd.Series:
     descriptor_values = get_cached_design_descriptors(design_id, descriptor_keys=descriptor_keys)
     columns = wrapped_columns(len(descriptor_values), wrap=4)
     for column, (descriptor_key, value) in zip(columns, descriptor_values.items()):
@@ -53,6 +53,7 @@ def show_design_metrics(design_id: str, descriptor_keys: list[str]):
             help=descriptor.description,
             value=descriptor.format(value),
         )
+    return descriptor_values
 
 
 def select_structure_prediction_descriptor(paths: dict[str, str]) -> StructureFileDescriptor | None:

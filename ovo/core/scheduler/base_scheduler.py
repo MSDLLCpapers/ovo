@@ -2,6 +2,8 @@ from abc import ABC
 from datetime import datetime
 import time
 
+import pandas as pd
+
 
 class SchedulerTypes:
     REGISTERED_CLASSES = {}
@@ -64,8 +66,15 @@ class Scheduler(ABC):
         """Get job result: True if successful, False if failed, None if still running."""
         raise NotImplementedError()
 
-    def get_log(self, job_id: str) -> str | None:
-        """Get job execution log"""
+    def get_log(self, job_id: str, task_id: str = None, preview: bool = False) -> str | None:
+        """Get job execution log
+
+        :param job_id: Scheduler job ID (DesignJob.job_id or DescriptorJob.job_id)
+        :param task_id: Task id of individual task (workdir for nextflow, task id for AWS Omics), None for entire job log
+        :param preview: Whether to return only the last 10 lines (INFO, WARN or ERROR only)
+
+        :return: Log string or None if not available
+        """
         raise NotImplementedError()
 
     def cancel(self, job_id):
@@ -113,3 +122,29 @@ class Scheduler(ABC):
 
     def get_failed_message(self, job_id):
         return f"Job {job_id} has failed."
+
+    def supports_resume(self, job_id) -> bool:
+        return False
+
+    def resume(self, job_id: str) -> str:
+        """Resume a failed or stopped job and return new job ID
+
+        :param job_id: Scheduler job ID to resume
+        """
+        raise NotImplementedError()
+
+    def get_tasks(self, job_id: str) -> pd.DataFrame | None:
+        """Get job tasks as a DataFrame with columns: task_id, name, status, duration_seconds + custom columns from the scheduler"""
+        raise NotImplementedError()
+
+    def get_dag(self, job_id: str) -> str | None:
+        """Get a string representation of the job direct acyclic graph (DAG)."""
+        return None
+
+    def get_report(self, job_id: str) -> str | None:
+        """Read job execution report html as string."""
+        return None
+
+    def get_timeline(self, job_id: str) -> str | None:
+        """Read job execution timeline html as string."""
+        return None

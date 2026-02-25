@@ -746,7 +746,9 @@ class ChainNotFoundError(Exception):
 
 
 def get_sequences_from_pdb_str(
-    pdb_str: str, chains: list[str] = None, by_residue_number: bool = False
+    pdb_str: str,
+    chains: list[str] = None,
+    by_residue_number: bool = False,
 ) -> dict[str, str] | dict[str, dict[str, str]]:
     """Get the sequence of a structure from the pdb file.
 

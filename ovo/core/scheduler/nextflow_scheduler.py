@@ -1,3 +1,4 @@
+import glob
 import json
 import signal
 import subprocess
@@ -14,6 +15,7 @@ from datetime import datetime
 from ovo.core.scheduler.base_scheduler import JobNotFound, Scheduler, SchedulerTypes
 from ovo.core.scheduler.simple_queue_mixin import SimpleQueueMixin
 from ovo.cli.common import init_nextflow, run_nextflow, OVOCliError
+from ovo.core.utils.formatting import parse_duration, tail_filtered
 from ovo.core.utils.param_validation import validate_params, flatten_schema
 import shutil
 
@@ -64,7 +66,47 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
             # Run the command directly in a subprocess
             return self._run_subprocess(command, job_id, sync=sync)
 
-    def _run_subprocess(self, command: list[str], job_id: str, sync: bool = False):
+    def supports_resume(self, job_id) -> bool:
+        return True
+
+    def resume(self, job_id: str) -> str:
+        """Resume a failed or stopped job and return new job ID (actually the same job ID)
+
+        :param job_id: Scheduler job ID to resume
+        """
+
+        execdir = self._get_exec_dir(job_id)
+        history_file = os.path.join(execdir, ".nextflow", "history")
+        if not os.path.exists(history_file):
+            raise JobNotFound(f"Job {job_id} history file not found, cannot resume: {history_file}")
+
+        with open(history_file) as f:
+            history_lines = f.readlines()
+
+        if not history_lines:
+            raise JobNotFound(f"Job {job_id} history file is empty, cannot resume: {history_file}")
+
+        last_history_line = history_lines[-1].strip().split("\t")
+
+        if not last_history_line[-1].startswith("nextflow run"):
+            raise JobNotFound(
+                f"Job {job_id} history file doesn't contain a valid nextflow run command, cannot resume. Last line: {last_history_line}"
+            )
+
+        command = shlex.split(last_history_line[-1].strip().removesuffix("-resume").strip()) + ["-resume"]
+
+        print(f"Submitting workflow: {shlex.join(command)}")
+        print(f"Execution directory: {execdir}")
+
+        if self.has_queue():
+            # Submit the command to the queue. Worker will run queue_run_task() in the worker loop.
+            self.queue_put(job_id, command)
+            return job_id
+        else:
+            # Run the command directly in a subprocess
+            return self._run_subprocess(command, job_id, sync=False, retry_number=len(history_lines))
+
+    def _run_subprocess(self, command: list[str], job_id: str, sync: bool = False, retry_number: int = 0):
         # Run the Nextflow command in a child process
         out = None if sync else subprocess.DEVNULL
         env = {
@@ -77,7 +119,20 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
             "CONDA_SHLVL": "0",
         }
         execdir = self._get_exec_dir(job_id)
-        process = subprocess.Popen(command, cwd=execdir, stdout=out, stderr=out, env=env)
+
+        if retry_number:
+            # This job is being retried after a failure
+            # Write retry number to .nextflow.retry to make sure that get_result() does not consider
+            #  the job as failed if the process has not started and history file has not been updated yet by Nextflow
+            with open(os.path.join(execdir, ".nextflow.retry"), "w") as f:
+                f.write(f"{retry_number}\n")
+            # Remove old PID file and trace file
+            for file_to_remove in [".nextflow.pid", "trace.txt"]:
+                if os.path.exists(os.path.join(execdir, file_to_remove)):
+                    os.remove(os.path.join(execdir, file_to_remove))
+
+        # Submit subprocess
+        process = subprocess.Popen(command, cwd=execdir, stdout=out, stderr=out, env=env, start_new_session=True)
 
         # Write down the process ID into .nextflow.pid file
         # Note that when running with sync=False, this file will be replaced by Nextflow with new background PID
@@ -166,6 +221,8 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
         command = ["nextflow", "run"]
         command += ["-with-trace", "trace.txt"]
         command += ["-with-report", "report.html"]
+        command += ["-with-timeline", "timeline.html"]
+        command += ["-with-dag", "dag.dot"]
         command += ["-work-dir", os.path.join(self.workdir, "work")]
         command += [pipeline_dir]
         command += ["--publish_dir", "output"]
@@ -284,6 +341,42 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
                 )
         return pipeline_dir
 
+    def get_tasks(self, job_id: str) -> pd.DataFrame | None:
+        """Get job tasks as a DataFrame with columns: task_id, name, status, duration_seconds + custom columns from the scheduler"""
+        trace_table = self.get_trace_table(job_id)
+        if trace_table is None:
+            trace_table = pd.DataFrame([], columns=["task_id", "name", "status", "duration"])
+        tasks = trace_table.reset_index(drop=True).rename(
+            columns={
+                "hash": "task_id",
+            }
+        )
+        tasks.insert(3, "duration_seconds", tasks["duration"].apply(parse_duration))
+        # add tasks that are running but not yet in the trace table
+        if log := self.get_log(job_id):
+            log_lines = log.splitlines()
+            extra_tasks = []
+            for line in log_lines:
+                if match := re.match(r".*\[([a-z0-9]{2}/[a-z0-9]+)] Submitted process > (.*)", line):
+                    task_id = match.group(1)
+                    name = match.group(2)
+                    if task_id not in tasks["task_id"].values:
+                        extra_tasks.append(
+                            {
+                                "task_id": task_id,
+                                "name": name,
+                                "status": "SUBMITTED",
+                                "duration_seconds": None,
+                            }
+                        )
+            if extra_tasks:
+                tasks = pd.concat([tasks, pd.DataFrame(extra_tasks)], ignore_index=True)
+
+        if tasks.empty:
+            return None
+        return tasks
+
+    # backwards compatibility
     def get_trace_table(self, job_id: str) -> pd.DataFrame | None:
         execdir = self._get_exec_dir(job_id)
         trace_file = os.path.join(execdir, "trace.txt")
@@ -307,11 +400,24 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
         execdir = self._get_exec_dir(job_id)
         if not os.path.exists(execdir):
             raise JobNotFound(f"Job {job_id} execution directory not found: {execdir}")
+
+        retry_file = os.path.join(execdir, ".nextflow.retry")
+        retry_number = 0
+        if os.path.exists(retry_file):
+            with open(retry_file) as f:
+                retry_number = int(f.read())
+
         history_file = os.path.join(execdir, ".nextflow", "history")
         if os.path.exists(history_file):
             with open(history_file, "r") as f:
                 lines = f.readlines()
                 if not lines:
+                    return None
+                if len(lines) < retry_number + 1:
+                    print(
+                        f"History file does not contain the latest retry {retry_number}, "
+                        f"nextflow process probably has not started yet, considering the job as in progress: {history_file}"
+                    )
                     return None
                 if lines:
                     # Use last history entry in case of multiple retries
@@ -336,14 +442,60 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
         # if process with given PID still exists, assume still running
         return None
 
-    def get_log(self, job_id: str) -> str | None:
-        """Get job execution log"""
-        execdir = self._get_exec_dir(job_id)
-        log_file = os.path.join(execdir, ".nextflow.log")
+    def get_log(self, job_id: str, task_id: str = None, preview: bool = False) -> str | None:
+        """Get job execution log
+
+        :param job_id: Scheduler job ID (DesignJob.job_id or DescriptorJob.job_id)
+        :param task_id: Task id of individual task (workdir for nextflow, task id for AWS Omics), None for entire job log
+        :param preview: Whether to return only the last 10 lines (INFO, WARN or ERROR only)
+
+        :return: Log string or None if not available
+        """
+
+        if task_id:
+            assert "/" in task_id, f"Expected task_id like 'f6/f56cae', got: '{task_id}'"
+            workdir_prefix = os.path.join(self.workdir, "work", task_id + "*")
+            workdirs = glob.glob(workdir_prefix)
+            if not workdirs:
+                return f"Workdir not found or not accessible: {workdir_prefix}"
+            workdir = workdirs[0]
+            prefix = f"Working directory: {workdir}\n"
+            log_file = os.path.join(workdir, ".command.log")
+            err_file = os.path.join(workdir, ".command.err")
+            if not os.path.exists(log_file) and os.path.exists(err_file):
+                # on HPC, when the job is running, we might only get .err and .out, not .log
+                log_file = err_file
+                prefix += f"Job log output not available yet! Showing only STDERR (.command.err):\n"
+        else:
+            execdir = self._get_exec_dir(job_id)
+            log_file = os.path.join(execdir, ".nextflow.log")
+            prefix = f"Execution directory: {execdir}\n"
+            # ignore log if its modified time is older than the retryfile
+            retry_file = os.path.join(execdir, ".nextflow.retry")
+            if (
+                os.path.exists(retry_file)
+                and os.path.exists(log_file)
+                and os.path.getmtime(log_file) < os.path.getmtime(retry_file)
+            ):
+                print(
+                    f"Log file {log_file} is older than retry file {retry_file}, "
+                    f"probably from a previous run, ignoring log for now..."
+                )
+                return None
         if not os.path.exists(log_file):
             return None
-        with open(log_file, "r") as f:
-            return f.read()
+        if preview:
+            log = "\n".join(
+                tail_filtered(
+                    log_file,
+                    keywords=["INFO", "WARN", "ERROR", "WorkflowStatsObserver", "Session aborted"],
+                    max_lines=10,
+                )
+            )
+        else:
+            with open(log_file, "r") as f:
+                log = f.read()
+        return f"{prefix}{log}\n"
 
     def cancel(self, job_id):
         """Cancel job execution"""
@@ -447,7 +599,29 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
 
     def get_failed_message(self, job_id):
         return (
-            f"Job {job_id} has failed. To retry, please navigate to execution directory: {self._get_exec_dir(job_id)}, "
+            f"Job {job_id} has failed. Retry using scheduler.resume(job_id). "
+            f"To resume manually, please navigate to execution directory: {self._get_exec_dir(job_id)}, "
             f"get the Nextflow run command using 'nextflow log' and re-run the workflow "
             f"run command with -resume flag: 'nextflow run ... -resume'"
         )
+
+    def _read_execdir_file(self, job_id: str, filename: str) -> str | None:
+        """Get a string representation of the job direct acyclic graph (DAG)."""
+        execdir = self._get_exec_dir(job_id)
+        path = os.path.join(execdir, filename)
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f.read()
+        return None
+
+    def get_dag(self, job_id: str) -> str | None:
+        """Get a string representation of the job direct acyclic graph (DAG)."""
+        return self._read_execdir_file(job_id, "dag.dot")
+
+    def get_report(self, job_id: str) -> str | None:
+        """Read job execution report html as string."""
+        return self._read_execdir_file(job_id, "report.html")
+
+    def get_timeline(self, job_id: str) -> str | None:
+        """Read job execution timeline html as string."""
+        return self._read_execdir_file(job_id, "timeline.html")

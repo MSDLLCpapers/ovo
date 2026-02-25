@@ -166,11 +166,33 @@ def jupyter(
     scheduler_key: str = typer.Option(None, "--scheduler", help="Scheduler key"),
     ip: str = typer.Option(default="0.0.0.0", help="Host to bind Jupyter server to"),
     port: int = typer.Option(default=8888, help="Port to bind Jupyter server to"),
+    queue: str = typer.Option(default=None, help="Nextflow queue to use when submitting job (default queue is configured in the nextflow config of your scheduler)"),
+    cluster_options: str = typer.Option(default=None, help="Nextflow clusterOptions to use when submitting job"),
     run_parameters: str = typer.Option(default="", help="Additional commandline parameters to pass to Jupyter server"),
     timeout: int = typer.Option(default=3600, help="Timeout in seconds to wait for Jupyter server to start"),
+    socket_dir: str = typer.Option(
+        default=None,
+        help="Directory where to create Jupyter socket file (if applicable). If not specified, defaults to /tmp/ovo-USERNAME",
+    ),
 ):
     """Run JupyterLab server in a selected environment as a job using OVO scheduler"""
     from ovo import config, get_scheduler
+
+    for i, d in enumerate(dirs):
+        if d.startswith("-"):
+            raise OVOCliError(f"Unexpected parameter {d}")
+        if not os.path.exists(d):
+            if i == 0:
+                raise OVOCliError(f"Please pass a directory to run from, path does not exist: {d}")
+            raise OVOCliError(
+                f"Expected list of local directories to mount, got non-existent path: {d}. "
+                f"If you wanted to specify an environment to run from, use --env option instead."
+            )
+
+    if not socket_dir:
+        tmp_dir = os.environ.get("STMP") or "/tmp"
+        socket_dir = os.path.join(tmp_dir, f"ovo-{os.environ.get('USER')}")
+    os.makedirs(socket_dir, exist_ok=True)
 
     params = {
         "dirs": ",".join([os.path.abspath(d) for d in dirs]),
@@ -180,6 +202,10 @@ def jupyter(
     }
     if run_parameters:
         params["run_parameters"] = run_parameters
+    if queue:
+        params["queue"] = queue
+    if cluster_options:
+        params["cluster_options"] = cluster_options
     resolved_scheduler_key = scheduler_key or config.default_scheduler
     scheduler = get_scheduler(scheduler_key=resolved_scheduler_key)
 
@@ -194,6 +220,9 @@ def jupyter(
     for key, value in params.items():
         console.print(f" {key.rjust(max_key_length)}: [green]{value}[/green]")
     console.print("")
+
+    # Additional params that should not be printed in the console
+    params["socket_dir"] = os.path.abspath(socket_dir)
 
     job_id = scheduler.submit(
         pipeline_name=pipeline_name,
@@ -232,12 +261,14 @@ def jupyter(
     console.print(f"Checking workdir {workdir} for Jupyter URL...")
     jupyter_url_lines = None
     hostname = None
+    socket_file = None
     installing_jupyter = None
     log = None
     for retry in range(timeout):
         time.sleep(1)
         log_path = os.path.join(workdir, ".command.log")
         if scheduler.get_result(job_id) is False:
+            # Job has failed, print log and exit
             if os.path.exists(log_path):
                 with open(log_path) as f:
                     console.print(f.read())
@@ -246,7 +277,14 @@ def jupyter(
             console.print(f"[red][bold]✘[/bold] Jupyter job {job_id} failed[/red]")
             sys.exit(4)
         if not os.path.exists(log_path):
-            continue
+            # some executor jobs might create only a .command.err file before the job has finished
+            err_path = os.path.join(workdir, ".command.err")
+            if os.path.exists(err_path):
+                # If .command.log doesn't exist but .command.err does, use it instead
+                log_path = err_path
+            else:
+                # Log files not created yet, keep waiting
+                continue
         with open(log_path) as f:
             log = f.read()
         if "Jupyter Lab not available" in log:
@@ -256,12 +294,17 @@ def jupyter(
         jupyter_url_lines = [
             line
             for line in log.splitlines()
-            if ("http://" in line or "https://" in line) and "token=" in line and "ServerApp" not in line
+            if ("http://" in line or "https://" in line or "http+unix://" in line)
+            and "token=" in line
+            and "ServerApp" not in line
         ]
         if jupyter_url_lines:
             hostname_lines = [line for line in log.splitlines() if "JUPYTER_HOSTNAME:" in line]
             if hostname_lines:
                 hostname = hostname_lines[-1].split("JUPYTER_HOSTNAME:")[-1].strip()
+            socket_lines = [line for line in log.splitlines() if "JUPYTER_SOCKET:" in line]
+            if socket_lines:
+                socket_file = socket_lines[-1].split("JUPYTER_SOCKET:")[-1].strip()
             break
 
     if not jupyter_url_lines:
@@ -271,24 +314,32 @@ def jupyter(
 
     console.print(f"\n[green]✔[/green] Jupyter [bold]{env or 'ovo'}[/bold] environment is running at:")
 
-    different_port = False
-    for line in jupyter_url_lines:
-        console.print(line)
-        if str(port) not in line:
-            different_port = True
-    if different_port:
-        console.print(
-            f"\n[bold][red]Note![/red][/bold] JupyterLab is running on a different port! The requested port {port} was occupied.\n"
-        )
+    if socket_file:
+        token = re.search(r"token=([^&\s]+)", str(jupyter_url_lines[0])).group(1)
+        console.print(f"Socket file: {socket_file}")
+        console.print(f"      Token: {token}")
+    else:
+        different_port = False
+        for line in jupyter_url_lines:
+            console.print(line)
+            if str(port) not in line:
+                different_port = True
+        if different_port:
+            console.print(
+                f"\n[bold][red]Note![/red][/bold] JupyterLab is running on a different port! The requested port {port} was occupied.\n"
+            )
 
     console.print("Tips:")
     console.print(" - Cmd/Ctrl + Double click the URL to open the link in your browser.")
     if hostname:
+        remote = socket_file if socket_file else f"localhost:{port}"
         console.print(
-            f" - If the host is not directly accessible, use SSH tunneling to forward your local port {port} to remote {hostname}:{port}"
+            ("- Use SSH tunneling " if socket_file else f" - If the host is not directly accessible, use SSH tunneling ") +
+            f"to forward your local port {port} to remote port or socket, for example:\n"
+            f"   ssh -NTL {port}:{remote} {hostname}"
         )
     console.print(
-        f" - Remember to stop the job when you're done using 'ovo scheduler cancel {job_id}' or directly from JupyterLab using Server -> Shutdown"
+        f" - Remember to stop the job when you're done using 'ovo scheduler cancel {job_id}'\n   or directly from JupyterLab using Server -> Shutdown"
     )
 
 

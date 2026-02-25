@@ -23,7 +23,7 @@ dependencies = [
     "mypy-boto3",
     "mypy_boto3_s3",
     "mypy-boto3-omics",
-    "mypy-boto3-stepfunctions",
+    "mypy-boto3-logs",
     "biopython",
     "plotly",
     "streamlit-timeago",

@@ -27,6 +27,16 @@ class PlotSettings:
     def get_y_key(self):
         return self.y.key if self.y else None
 
+    def get_keys(self) -> list[str]:
+        keys = []
+        if self.x:
+            keys.append(self.x.key)
+        if self.y:
+            keys.append(self.y.key)
+        if self.color:
+            keys.append(self.color.key)
+        return keys
+
     @classmethod
     def from_query_params(cls, descriptors_by_key: dict[str, Descriptor]):
         for field in ["x", "y", "color"]:

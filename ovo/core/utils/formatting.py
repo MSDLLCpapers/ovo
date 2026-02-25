@@ -4,9 +4,11 @@ import random
 import re
 import string
 import uuid
+from collections import deque
 from typing import Collection, Any
 
 import numpy as np
+import pandas as pd
 
 
 def format_duration(td):
@@ -121,3 +123,71 @@ def truncated_list(items: Collection[Any], max_items: int, sep: str = ", ") -> s
         return sep.join(str(item) for item in items)
     else:
         return sep.join(str(item) for item in list(items)[:max_items]) + sep + "..."
+
+
+def parse_duration(duration: str) -> int | None:
+    """
+    Parse a duration string like '1d 27m 54s' into total seconds.
+
+    Allowed units:
+      d = days
+      h = hours
+      m = minutes
+      s = seconds
+
+    :param duration: Duration string to parse
+    :return: Total duration in seconds, or None if input is empty or NaN
+    """
+    if pd.isna(duration) or not duration:
+        return None
+
+    if not isinstance(duration, str) or not duration.strip():
+        raise ValueError("Duration must be a non-empty string")
+
+    if not duration.strip("-"):
+        return None
+
+    units = {
+        "d": 86400,
+        "h": 3600,
+        "m": 60,
+        "s": 1,
+    }
+
+    total_seconds = 0
+
+    for word in duration.split():
+        number, token = word[:-1], word[-1]
+        if token not in units:
+            raise ValueError(f"Invalid duration token {token} in duration: {duration}")
+
+        total_seconds += float(number) * units[token]
+
+    return total_seconds
+
+
+def tail_filtered(path, keywords, max_lines=10, bufsize=8192):
+    """Read a file in reverse and return up to the last N lines that contain any of the keywords."""
+    matches = deque(maxlen=max_lines)
+
+    with open(path, "rb") as f:
+        f.seek(0, 2)  # go to end
+        pos = f.tell()
+        buffer = b""
+
+        while pos > 0 and len(matches) < max_lines:
+            read_size = min(bufsize, pos)
+            pos -= read_size
+            f.seek(pos)
+            buffer = f.read(read_size) + buffer
+
+            lines = buffer.split(b"\n")
+            buffer = lines[0]  # incomplete line
+            for line in reversed(lines[1:]):
+                line_str = line.decode(errors="ignore")
+                if any(k in line_str for k in keywords):
+                    matches.appendleft(line_str)
+                    if len(matches) >= max_lines:
+                        break
+
+    return list(matches)
