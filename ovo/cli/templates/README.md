@@ -9,5 +9,5 @@ TODO describe what the plugin does.
 To install the plugin, run:
 
 ```bash
-pip install https://github.com/TODO_YOUR_REPO_NAME_HERE/__MODULE_NAME__
+pip install git+https://github.com/TODO_YOUR_REPO_NAME_HERE/__MODULE_NAME__
 ```

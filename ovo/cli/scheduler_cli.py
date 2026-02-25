@@ -166,7 +166,10 @@ def jupyter(
     scheduler_key: str = typer.Option(None, "--scheduler", help="Scheduler key"),
     ip: str = typer.Option(default="0.0.0.0", help="Host to bind Jupyter server to"),
     port: int = typer.Option(default=8888, help="Port to bind Jupyter server to"),
-    queue: str = typer.Option(default=None, help="Nextflow queue to use when submitting job (default queue is configured in the nextflow config of your scheduler)"),
+    queue: str = typer.Option(
+        default=None,
+        help="Nextflow queue to use when submitting job (default queue is configured in the nextflow config of your scheduler)",
+    ),
     cluster_options: str = typer.Option(default=None, help="Nextflow clusterOptions to use when submitting job"),
     run_parameters: str = typer.Option(default="", help="Additional commandline parameters to pass to Jupyter server"),
     timeout: int = typer.Option(default=3600, help="Timeout in seconds to wait for Jupyter server to start"),
@@ -334,8 +337,12 @@ def jupyter(
     if hostname:
         remote = socket_file if socket_file else f"localhost:{port}"
         console.print(
-            ("- Use SSH tunneling " if socket_file else f" - If the host is not directly accessible, use SSH tunneling ") +
-            f"to forward your local port {port} to remote port or socket, for example:\n"
+            (
+                "- Use SSH tunneling "
+                if socket_file
+                else f" - If the host is not directly accessible, use SSH tunneling "
+            )
+            + f"to forward your local port {port} to remote port or socket, for example:\n"
             f"   ssh -NTL {port}:{remote} {hostname}"
         )
     console.print(

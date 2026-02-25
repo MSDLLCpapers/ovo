@@ -176,6 +176,7 @@ if __name__ == "__main__":
     # Fixed behavior in Pandas 3.0
     df = (
         df.groupby("id")[list(AGG_MAP) + NUMERIC_VALUES + ["seq_len"]]
-        .apply(lambda g: custom_agg(g, AGG_MAP, NUMERIC_VALUES)).reset_index(drop=True)
+        .apply(lambda g: custom_agg(g, AGG_MAP, NUMERIC_VALUES))
+        .reset_index(drop=True)
     )
     df.to_csv(options.output_csv, index=False)
