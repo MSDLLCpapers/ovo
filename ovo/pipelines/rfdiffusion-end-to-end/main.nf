@@ -8,15 +8,16 @@ include { Refolding } from params.getSharedPipelinePath("ovo.refolding")
 
 def requiredParams = [
 	'design_type',
-	'rfdiffusion_num_designs',
-	'rfdiffusion_contig',
 	'rfdiffusion_input_pdb',
 ]
 requiredParams.each { param ->
-    params[param] = null
+    params[param] = null // this sets null as default, to avoid printing warning
     if (!params[param]) {
         throw new IllegalArgumentException("Argument --${param} is required!")
     }
+}
+if (!params.custom_backbones && !params.rfdiffusion_contig) {
+    throw new IllegalArgumentException("One of --rfdiffusion_contig or --custom_backbones must be provided!")
 }
 
 
@@ -32,37 +33,71 @@ workflow {
     } else {
         throw new IllegalArgumentException("Input file must be a .pdb file, a .txt file with a list of .pdb files, got: ${params.input_pdb}")
     }
-    def contigs = params.rfdiffusion_contig.split(',')
-	if (pdb_inputs.size() != contigs.size()) {
-		if (pdb_inputs.size() == 1) {
-			// use same pdb for all contigs
-			pdb_inputs = (1..contigs.size()).collect { pdb_inputs[0] }
-		} else {
-			throw new IllegalArgumentException("There should be one input pdb for each contig (${contigs.size()}), or one input pdb, got ${pdb_inputs.size()}: ${params.rfdiffusion_input_pdb}")
-		}
-	}
-	def batches = (1..pdb_inputs.size()).collectMany {
-		i -> (1..params.rfdiffusion_num_designs).collate(params.batch_size).withIndex().collect {
-			items, j -> ["contig${i}_batch${j+1}", pdb_inputs[i-1], contigs[i-1], items.size()]
-		}
-	}
+    def batches
+    if (params.custom_backbones) {
+      println "Using custom backbones from directory: ${params.custom_backbones}"
 
-	println "Batches:"
-	batches.each { println it }
+      if (pdb_inputs.size() > 1) {
+          throw new IllegalArgumentException("When using --custom_backbones, only one input pdb should be provided, got ${pdb_inputs.size()}: ${params.rfdiffusion_input_pdb}")
+      }
+      def backbone_paths
+      if (params.custom_backbones.endsWith('.txt')) {
+          backbone_paths = Channel.fromList(file(params.custom_backbones).readLines())
+      } else if (params.custom_backbones.endsWith('.pdb')) {
+          backbone_paths = Channel.fromPath(params.custom_backbones)
+      } else if (params.custom_backbones.endsWith('.zip')) {
+          backbone_paths = UnpackBackbones(Channel.fromPath(params.custom_backbones))
+      } else if (params.custom_backbones.endsWith('/')) {
+          backbone_paths = Channel.fromPath(params.custom_backbones + '*.pdb')
+      } else {
+          throw new IllegalArgumentException("Input file must be a .pdb file, a .txt file with a list of .pdb files, or a directory ending with /, got: ${params.custom_backbones}")
+      }
+      def file_list = backbone_paths.collate(params.batch_size)
+      indexes = Channel.of(1..(1000000.intdiv(params.batch_size)))
+      CreateBackboneFolders(
+        file_list.merge(indexes, { files, idx -> ["contig1_batch${idx}", files] })
+      )
 
-	RFdiffusion(
-        Channel.fromList(batches),
-    	params.rfdiffusion_models_path,
-		params.hotspot,
-		false,
-		params.save_traj,
-		params.rfdiffusion_run_parameters
-    )
+      batches = file_list.merge(indexes, { _, idx -> ["contig1_batch${idx}", pdb_inputs[0]] })
+      backbones_dir = CreateBackboneFolders.out.pdb_dir
+    } else {
+      def contigs = params.rfdiffusion_contig.split(',')
+      if (pdb_inputs.size() != contigs.size()) {
+          if (pdb_inputs.size() == 1) {
+              // use same pdb for all contigs
+              pdb_inputs = (1..contigs.size()).collect { pdb_inputs[0] }
+          } else {
+              throw new IllegalArgumentException("There should be one input pdb for each contig (${contigs.size()}), or one input pdb, got ${pdb_inputs.size()}: ${params.rfdiffusion_input_pdb}")
+          }
+      }
+
+      def rfd_input_batches = (1..pdb_inputs.size()).collectMany {
+          i -> (1..params.rfdiffusion_num_designs).collate(params.batch_size).withIndex().collect {
+              items, j -> ["contig${i}_batch${j+1}", pdb_inputs[i-1], contigs[i-1], items.size()]
+          }
+      }
+      batches = Channel.fromList(rfd_input_batches.collect {
+        batch -> [batch[0], batch[1]] // only keep batch name and pdb input for downstream steps
+      })
+
+      println "Generating RFdiffusion batches:"
+      rfd_input_batches.each { println it }
+
+      RFdiffusion(
+          Channel.fromList(rfd_input_batches),
+          params.rfdiffusion_models_path,
+          params.hotspot,
+          false,
+          params.save_traj,
+          params.rfdiffusion_run_parameters
+      )
+      backbones_dir = RFdiffusion.out.standardized_pdb_dir
+    }
 
     // TODO Here we assume that the rfdiffusion file produces a single binder chain (A) and single target chain (B)
     def updatedHotspots = params.hotspot ? params.hotspot.split(',').collect { r -> "B" + r.trim().substring(1) }.join(',') : ""
     BackboneMetrics(
-        RFdiffusion.out.standardized_pdb_dir,
+        backbones_dir,
         updatedHotspots,
         false,
         params.backbone_filters
@@ -99,8 +134,8 @@ workflow {
     )
 
     Refolding(
-        Channel.fromList(batches).join(mpnn_out).map({
-            batch_name, pdb_input, contig, size, mpnn_pdb_dir -> [
+        batches.join(mpnn_out).map({
+            batch_name, pdb_input, mpnn_pdb_dir -> [
                 batch_name,
                 mpnn_pdb_dir,
                 pdb_input,
@@ -119,3 +154,34 @@ workflow {
     }
 }
 
+
+process CreateBackboneFolders {
+    executor 'local'
+    publishDir { params.publish_dir }
+
+    input:
+        tuple val (batch_name), path (inputs)
+    output:
+        tuple val(batch_name), path("${batch_name}/custom_backbones/"), emit: pdb_dir
+    script:
+    """
+        mkdir -p "${batch_name}/custom_backbones/"
+        cp ${inputs} "${batch_name}/custom_backbones/"
+    """
+}
+
+process UnpackBackbones {
+    executor 'local'
+
+    input:
+    path zipfile
+
+    output:
+    path "pdbs/*.pdb"
+
+    script:
+    """
+    mkdir pdbs
+    unzip -qq ${zipfile} '*.pdb' -d pdbs
+    """
+}

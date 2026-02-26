@@ -140,6 +140,14 @@ BACKBONE_METRIC_FIELD_NAMES = [d.key.removeprefix("rfd_ee|backbone_metrics|") fo
 # )
 
 
+CUSTOM_BACKBONE_STRUCTURE_PATH = StructureFileDescriptor(
+    name="Custom backbone design",
+    description="Custom backbone structure input, without any side-chains, with Glycine residues at designed positions",
+    tool="Custom",
+    key="rfd_ee|custom_backbone|backbone_structure_path",
+    structure_type="backbone_design",
+)
+
 RFDIFFUSION_STRUCTURE_PATH = StructureFileDescriptor(
     name="RFdiffusion backbone design",
     description="RFdiffusion-generated backbone structure, without any side-chains, with Glycine residues at designed positions",

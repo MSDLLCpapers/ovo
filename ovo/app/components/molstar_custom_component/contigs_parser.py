@@ -1,3 +1,5 @@
+import pickle
+
 import pandas as pd
 import requests
 import re
@@ -16,7 +18,7 @@ from ovo.app.components.molstar_custom_component.dataclasses import (
 class ContigsParser:
     """Class for parsing the contigs definition."""
 
-    def get_chain_and_indices_fixed_region(self, region: str):
+    def get_chain_and_indices_fixed_region(self, region: list[str]):
         """Get the chain and region residue indices.
         e.g.: From A123-131 return (A, 123, 131)."""
         chain_inp = "".join(re.findall(r"[a-zA-Z]+", region[0]))
@@ -150,11 +152,9 @@ class ContigsParser:
         """
         # notice that in this case we are using the contigs from the .trb file, not the original ones that were defined by the user
         # first, we check if "trb" is an URL, then we check for a file and lastly we treat "trb" as the unpacked pickle
-        if "http://" in contigs_trb or "https://" in contigs_trb:
-            r = requests.get(contigs_trb)
-            trb_file = pd.read_pickle(BytesIO(r.content))
-        elif (isinstance(contigs_trb, str) or isinstance(contigs_trb, os.PathLike)) and os.path.exists(contigs_trb):
-            trb_file = pd.read_pickle(contigs_trb)
+        if (isinstance(contigs_trb, str) or isinstance(contigs_trb, os.PathLike)) and os.path.exists(contigs_trb):
+            with open(contigs_trb, "rb") as f:
+                trb_file = pickle.load(f)
         elif isinstance(contigs_trb, dict):
             trb_file = contigs_trb
         else:
@@ -186,15 +186,40 @@ class ContigsParser:
 
         return self.parse_contigs_ref(contigs, ref_idx=ref_idx, hal_idx=hal_idx)
 
-    def parse_contigs_ref(self, contigs: str, ref_idx: list[tuple], hal_idx: list[tuple]):
+    def parse_contigs_ref(self, contigs: str, ref_idx: list[tuple] = None, hal_idx: list[tuple] = None):
         """Parse the contigs and return segments with output numbering."""
-        reference_tuples = []
-        for tuple in ref_idx:
-            reference_tuples.append([tuple[0], tuple[1], False])
 
+        reference_tuples = []
         mapped_tuples = []
-        for tuple in hal_idx:
-            mapped_tuples.append([tuple[0], tuple[1], False])
+
+        if ref_idx is None:
+            # Generate mapping from contig itself
+            assert hal_idx is None, "If ref_idx is not provided, hal_idx should not be provided either."
+            fixed_output_res = 1
+            generated_out_res = 1
+            for subcontig in contigs.split():
+                segments = subcontig.removesuffix("/0").split("/")
+                is_fixed_chain = all(segment and segment[0].isalpha() for segment in segments)
+                for segment in segments:
+                    if segment and segment[0].isalpha():
+                        # fixed segment
+                        chain, start, end = self.get_chain_and_indices_fixed_region(segment.split("-"))
+                        for input_res in range(int(start), int(end) + 1):
+                            reference_tuples.append([chain, input_res, False])
+                            if is_fixed_chain:
+                                mapped_tuples.append(["B", fixed_output_res, True])
+                                fixed_output_res += 1
+                            else:
+                                mapped_tuples.append(["A", generated_out_res, True])
+                                generated_out_res += 1
+
+        else:
+            # Use provided mapping
+            assert hal_idx is not None
+            for tuple in ref_idx:
+                reference_tuples.append([tuple[0], tuple[1], False])
+            for tuple in hal_idx:
+                mapped_tuples.append([tuple[0], tuple[1], False])
 
         return self._parse_contigs_with_tuples(
             contigs=contigs, mapped_tuples=mapped_tuples, reference_tuples=reference_tuples, include_generated=True

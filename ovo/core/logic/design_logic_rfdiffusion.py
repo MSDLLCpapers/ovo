@@ -13,14 +13,13 @@ from ovo import (
 )
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
-    RFdiffusionBinderDesignWorkflow,
-    RFdiffusionScaffoldDesignWorkflow,
 )
 from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
 
-from ovo.core.database.models import Pool, Round, DesignJob, DesignSpec, DescriptorValue, StructureFileDescriptor, Base
+from ovo.core.database.models import Pool, Round, DesignJob, DesignSpec, DescriptorValue, Base
 from ovo.core.logic.descriptor_logic import save_descriptor_job_for_design_job, read_descriptor_file_values
 from ovo.core.logic.design_logic import set_designs_accepted
+from ovo.core.utils.pdb import get_sequences_from_pdb_str, get_standardized_remarks_from_pdb_str
 
 
 def submit_rfdiffusion_preview(
@@ -84,7 +83,7 @@ def process_workflow_results(
     # make sure to remove trailing slash otherwise S3 will keep two slashes in the path
     destination_dir = os.path.join("project", project_round.project_id, "pools", pool.id, "designs").rstrip("/")
 
-    source_output_path = scheduler.get_output_dir(job.job_id)
+    source_dir = scheduler.get_output_dir(job.job_id)
 
     batch_size = int(workflow.rfdiffusion_params.batch_size)
 
@@ -96,35 +95,61 @@ def process_workflow_results(
     if workflow.refolding_params.primary_test == "esmfold":
         esmfold_file_suffix = workflow.refolding_params.primary_test
 
-    num_contigs = len(workflow.rfdiffusion_params.contigs)
-    num_backbone_designs = workflow.rfdiffusion_params.num_designs
     num_sequence_designs = workflow.protein_mpnn_params.num_sequences
     num_fastrelax_cycles = workflow.protein_mpnn_params.fastrelax_cycles
+
+    source_backbone_paths = []
+    if workflow.rfdiffusion_params.custom_backbones:
+        # Find backbone paths in custom_backbones subdirectory of each batch
+        num_contigs = 1
+        backbone_descriptor_key = descriptors_rfdiffusion.CUSTOM_BACKBONE_STRUCTURE_PATH.key
+        batch_number = 1
+        backbone_number = 1
+        while paths := storage.list_dir(f"{source_dir}/contig1_batch{batch_number}/custom_backbones"):
+            for path in paths:
+                if not path.endswith(".pdb"):
+                    continue
+                full_path = f"contig1_batch{batch_number}/custom_backbones/{path}"
+                source_backbone_paths.append((0, f"contig1_batch{batch_number}", backbone_number, full_path))
+                backbone_number += 1
+            batch_number += 1
+        if not source_backbone_paths:
+            raise ValueError(f"No backbone pdb files found in custom_backbones subdirectories of scheduler output: {source_dir}")
+    else:
+        # Get backbone pdb paths based on our RFdiffusion output structure
+        num_contigs = len(workflow.rfdiffusion_params.contigs)
+        backbone_descriptor_key = descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key
+        for contig_idx in range(num_contigs):
+            for total_idx_backbone in range(workflow.rfdiffusion_params.num_designs):
+                batch_idx_backbone = total_idx_backbone % batch_size
+                batch_number = (total_idx_backbone // batch_size) + 1
+                backbone_number = total_idx_backbone + 1
+                batch_name = f"contig{contig_idx + 1}_batch{batch_number}"
+                source_backbone_path = f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
+                source_backbone_paths.append((contig_idx, batch_name, backbone_number, source_backbone_path))
 
     designs = []
     design_id_mapping = {}
     descriptor_values = []
     with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
-        futures = [
-            executor.submit(
-                process_rfdiffusion_design,
-                pool_id=pool.id,
-                batch_size=batch_size,
-                contig_idx=contig_idx,
-                num_contigs=num_contigs,
-                total_idx_backbone=total_idx_backbone,
-                num_backbone_designs=num_backbone_designs,
-                num_sequence_designs=num_sequence_designs,
-                num_fastrelax_cycles=num_fastrelax_cycles,
-                source_output_path=source_output_path,
-                destination_dir=destination_dir,
-                alphafold_file_suffix=alphafold_file_suffix,
-                esmfold_file_suffix=esmfold_file_suffix,
-                cyclic=workflow.rfdiffusion_params.cyclic_offset,
-            )
-            for contig_idx in range(num_contigs)
-            for total_idx_backbone in range(num_backbone_designs)
-        ]
+        futures = [executor.submit(
+            process_rfdiffusion_design,
+            pool_id=pool.id,
+            contig_idx=contig_idx,
+            num_contigs=num_contigs,
+            batch_name=batch_name,
+            source_backbone_path=source_backbone_path,
+            backbone_descriptor_key=backbone_descriptor_key,
+            backbone_number=backbone_number,
+            num_backbone_designs=len(source_backbone_paths),
+            num_sequence_designs=num_sequence_designs,
+            num_fastrelax_cycles=num_fastrelax_cycles,
+            source_dir=source_dir,
+            destination_dir=destination_dir,
+            alphafold_file_suffix=alphafold_file_suffix,
+            esmfold_file_suffix=esmfold_file_suffix,
+            cyclic=workflow.rfdiffusion_params.cyclic_offset,
+        ) for contig_idx, batch_name, backbone_number, source_backbone_path in source_backbone_paths]
 
         for i, future in enumerate(futures):
             new_designs, new_mapping, new_values = future.result()
@@ -174,37 +199,62 @@ def process_workflow_results(
 
 def process_rfdiffusion_design(
     pool_id: str,
-    batch_size: int,
     contig_idx: int,
     num_contigs: int,
-    total_idx_backbone: int,
+    batch_name: str,
+    source_backbone_path: str,
+    backbone_descriptor_key: str,
+    backbone_number: int,
     num_backbone_designs: int,
     num_sequence_designs: int,
     num_fastrelax_cycles: int,
-    source_output_path: str,
+    source_dir: str,
     destination_dir: str,
     alphafold_file_suffix: str | None,
     esmfold_file_suffix: str | None,
     cyclic: bool,
 ) -> tuple[list[Design], dict[str, tuple[str, str]]]:
-    batch_number = (total_idx_backbone // batch_size) + 1
-    batch_name = f"contig{contig_idx + 1}_batch{batch_number}"
-    batch_idx_backbone = total_idx_backbone % batch_size
-    backbone_filename = f"{batch_name}_{batch_idx_backbone}"
+    """Process a single RFdiffusion-designed backbone and its sequence designs, copying files from the scheduler output to our storage, 
+    and creating Design and DescriptorValue objects for the backbone and each sequence design.
+    
+    Args:
+        pool_id: Pool ID
+        contig_idx: Index of the contig for this backbone design, used for naming and design spec. Starting at zero.
+        num_contigs: Total number of contigs in this design job, used for formatting.
+        batch_name: Name of the batch folder in the scheduler output where this backbone design is located, e.g. "contig1_batch1"
+        source_dir: Workflow output directory where results are located (s3://bucket/path or local path)
+        source_backbone_path: Path to the backbone PDB file relative to source_dir, e.g. "rfdiffusion_standardized_pdb/contig1_batch1_0_standardized.pdb"
+        backbone_descriptor_key: Descriptor key to use for the backbone structure file
+        backbone_number: Number of the backbone design, used as a prefix in Design ID. Starting at one for each contig.
+        num_backbone_designs: Total number of backbone designs for this contig, used for formatting the Design ID.
+        num_sequence_designs: Number of sequence designs generated per backbone design, used to find output files and for formatting the Design ID.
+        num_fastrelax_cycles: Number of fastrelax sequence designs generated per backbone design, used to find output files and for formatting the Design ID.
+        destination_dir: Directory relative to our storage where design files should be stored, e.g. "project/proj123/round1/pools/pool123/designs"
+        alphafold_file_suffix: Suffix to add to the Alphafold-predicted structure file in storage
+        esmfold_file_suffix: Suffix to add to the ESMFold-predicted structure file in storage
+        cyclic: Whether the design is macrocyclic
 
+    """
     # add contig suffix 01 in case of multiple contigs
     contig_suffix = "_" + str(contig_idx + 1).zfill(max(len(str(num_contigs)), 2)) if num_contigs > 1 else ""
     # backbone suffix 01, 001, 0001 based on total number of designs
-    backbone_suffix = "_" + str(total_idx_backbone + 1).zfill(max(len(str(num_backbone_designs)), 2))
+    backbone_suffix = "_" + str(backbone_number + 1).zfill(max(len(str(num_backbone_designs)), 2))
     backbone_id = f"ovo_{pool_id}{contig_suffix}{backbone_suffix}"
-    rfdiffusion_backbone_pdb_path = storage.store_file_path(
-        source_abs_path=f"{source_output_path}/{batch_name}/rfdiffusion_standardized_pdb/{backbone_filename}_standardized.pdb",
+    backbone_filename = os.path.basename(source_backbone_path).removesuffix(".pdb")
+
+    rfdiffusion_backbone_trb_path = None
+    if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key:
+        source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
+        source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
+        rfdiffusion_backbone_trb_path = storage.store_file_path(
+            source_abs_path=f"{source_dir}/{source_trb_path}",
+            storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
+            overwrite=False,
+        )
+
+    backbone_pdb_path = storage.store_file_path(
+        source_abs_path=f"{source_dir}/{source_backbone_path}",
         storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.pdb",
-        overwrite=False,
-    )
-    rfdiffusion_backbone_trb_path = storage.store_file_path(
-        source_abs_path=f"{source_output_path}/{batch_name}/rfdiffusion_trb/{backbone_filename}.trb",
-        storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
         overwrite=False,
     )
     backbone_design = Design(
@@ -218,12 +268,12 @@ def process_rfdiffusion_design(
     descriptor_values = []
 
     if num_fastrelax_cycles > 0:
-        mpnn_pdb_template = "proteinmpnn_fastrelax/{backbone_filename}_standardized_dldesign_0_cycle{idx_sequence}"
+        mpnn_pdb_template = "proteinmpnn_fastrelax/{backbone_filename}_dldesign_0_cycle{idx_sequence}"
         seq_id_template = "_cycle{idx_sequence}"
         sequence_design_descriptor = descriptors_rfdiffusion.FASTRELAX_STRUCTURE_PATH
         num_seqs_total = num_fastrelax_cycles
     else:
-        mpnn_pdb_template = "ligandmpnn/standardized_pdb/{backbone_filename}_standardized_packed_{num_sequence}_1"
+        mpnn_pdb_template = "ligandmpnn/standardized_pdb/{backbone_filename}_packed_{num_sequence}_1"
         seq_id_template = "_seq{num_sequence}"
         sequence_design_descriptor = descriptors_rfdiffusion.LIGANDMPNN_STRUCTURE_PATH
         num_seqs_total = num_sequence_designs
@@ -243,7 +293,7 @@ def process_rfdiffusion_design(
             num_sequence=str(idx_sequence + 1).zfill(len(str(num_seqs_total))),
         )
 
-        mpnn_full_source_path = os.path.join(source_output_path, batch_name, mpnn_source_path + ".pdb")
+        mpnn_full_source_path = os.path.join(source_dir, batch_name, mpnn_source_path + ".pdb")
         if not storage.file_exists(mpnn_full_source_path):
             # skip designs that were filtered out before MPNN step
             # TODO read backbone_metrics.csv to know why they were filtered out,
@@ -268,13 +318,8 @@ def process_rfdiffusion_design(
         descriptor_values.extend(
             [
                 DescriptorValue(
-                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key,
-                    value=rfdiffusion_backbone_pdb_path,
-                    **shared_args,
-                ),
-                DescriptorValue(
-                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
-                    value=rfdiffusion_backbone_trb_path,
+                    descriptor_key=backbone_descriptor_key,
+                    value=backbone_pdb_path,
                     **shared_args,
                 ),
                 DescriptorValue(
@@ -285,13 +330,22 @@ def process_rfdiffusion_design(
             ]
         )
 
+        if rfdiffusion_backbone_trb_path:
+            descriptor_values.append(
+                DescriptorValue(
+                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
+                    value=rfdiffusion_backbone_trb_path,
+                    **shared_args,
+                )
+            )
+
         if alphafold_file_suffix:
             descriptor_values.append(
                 DescriptorValue(
                     descriptor_key=descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH.key,
                     value=storage.store_file_path(
                         source_abs_path=os.path.join(
-                            source_output_path,
+                            source_dir,
                             batch_name,
                             alphafold_file_suffix,
                             f"{filename}_{alphafold_file_suffix}.pdb",
@@ -309,7 +363,7 @@ def process_rfdiffusion_design(
                     descriptor_key=descriptors_refolding.ESMFOLD_STRUCTURE_PATH.key,
                     value=storage.store_file_path(
                         source_abs_path=os.path.join(
-                            source_output_path, batch_name, esmfold_file_suffix, f"{filename}_{esmfold_file_suffix}.pdb"
+                            source_dir, batch_name, esmfold_file_suffix, f"{filename}_{esmfold_file_suffix}.pdb"
                         ),
                         storage_rel_path=f"{destination_dir}/esmfold/{design.id}_{esmfold_file_suffix}.pdb",
                         overwrite=False,
@@ -319,7 +373,7 @@ def process_rfdiffusion_design(
             )
 
         designs.append(design)
-        design_id_mapping[design.id] = (filename, backbone_filename + "_standardized")
+        design_id_mapping[design.id] = (filename, backbone_filename)
 
     return designs, design_id_mapping, descriptor_values
 
@@ -331,13 +385,19 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
     params = {
         "batch_size": workflow.rfdiffusion_params.batch_size,
         "rfdiffusion_input_pdb": workflow_input_path,
-        "rfdiffusion_num_designs": workflow.rfdiffusion_params.num_designs,
-        "rfdiffusion_contig": ",".join(workflow.rfdiffusion_params.contigs),
-        "rfdiffusion_run_parameters": get_rfdiffusion_run_parameters(workflow),
         "refolding_tests": workflow.refolding_params.primary_test,
         "design_type": design_type,
         "mpnn_num_sequences": workflow.protein_mpnn_params.num_sequences,
     }
+    if workflow.rfdiffusion_params.custom_backbones:
+        params["custom_backbones"] = prepare_custom_backbones(
+            custom_backbones=str(workflow.rfdiffusion_params.custom_backbones),
+            workdir=workdir,
+        )
+    else:
+        params["rfdiffusion_num_designs"] = workflow.rfdiffusion_params.num_designs
+        params["rfdiffusion_contig"] = ",".join(workflow.rfdiffusion_params.contigs)
+        params["rfdiffusion_run_parameters"] = get_rfdiffusion_run_parameters(workflow)
 
     if workflow.rfdiffusion_params.backbone_filters:
         params["backbone_filters"] = workflow.rfdiffusion_params.backbone_filters
@@ -403,3 +463,27 @@ def get_rfdiffusion_run_parameters(workflow: RFdiffusionWorkflow) -> str:
     args += f" {workflow.rfdiffusion_params.run_parameters} "
 
     return args
+
+
+def prepare_custom_backbones(custom_backbones: str, workdir: str) -> str:
+    """Prepare custom backbone input for RFdiffusion workflow"""
+    if custom_backbones.endswith(".zip"):
+        return storage.prepare_workflow_input(custom_backbones, workdir=workdir)
+    else:
+        custom_dir = storage.resolve_path(custom_backbones)
+        custom_backbone_paths = [os.path.join(custom_dir, path)
+                                 for path in storage.list_dir(custom_dir) if path.endswith(".pdb")]
+        if not custom_backbone_paths:
+            raise ValueError(f"No .pdb files found in custom_backbones: {custom_backbones}")
+        example_pdb_data = storage.read_file_str(custom_backbone_paths[0])
+        remarks = get_standardized_remarks_from_pdb_str(example_pdb_data)
+        if not remarks or not remarks.get("Standardized contig") or not remarks.get("Chains"):
+            raise ValueError(
+                f"Custom backbone pdb files for scaffold design must have standardized REMARK with contig and chain information, "
+                f"required remarks not found in {custom_backbone_paths[0]}. Please add these to the top or bottom of your PDB file:\n"
+                'REMARK   1 Standardized contig: "A123-456/10-10/A456-789"\n'
+                'REMARK   1 Chains: "A"     \n')
+        return storage.prepare_workflow_inputs(
+            storage_paths=custom_backbone_paths,
+            workdir=workdir,
+        )

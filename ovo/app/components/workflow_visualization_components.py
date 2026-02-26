@@ -114,8 +114,13 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     )
     trb_dict = storage.read_file_pickle(paths[descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key])
     input_pdb_str = storage.read_file_str(workflow.get_input_pdb_path(design.contig_index))
-    input_segments = [segment for contig in trb_dict["sampled_mask"] for segment in parser.parse_contigs_str(contig)]
+    if not all(c.contig for c in design.spec.chains):
+        st.error("Contig not found in design spec")
+        return
+    contig = " ".join(c.contig for c in design.spec.chains if c.contig)
+    input_segments = parser.parse_contigs_str(contig)
     output_segments = parser.parse_contigs_trb(trb_dict)
+    st.write(output_segments, parser.parse_contigs_ref(contig))
 
     input_mapping = [
         (segment.input_res_chain, list(range(segment.input_res_start, segment.input_res_end + 1)))

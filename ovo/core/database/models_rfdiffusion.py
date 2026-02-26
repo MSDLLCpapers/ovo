@@ -48,6 +48,8 @@ class RFdiffusionParams(WorkflowParams):
     backbone_filters: str | None = None
     # Additional CLI params for RFdiffusion run_inference.py
     run_parameters: str = ""
+    # Skip RFdiffusion backbone design, use custom backbone input from the given directory or .zip file
+    custom_backbones: str = None
 
     @property
     def input_pdb(self):
@@ -65,10 +67,25 @@ class RFdiffusionParams(WorkflowParams):
     def contig(self, value):
         self.contigs = [value] if value else []
 
+    def to_dict(self, human_readable=False):
+        super_dict = super().to_dict(human_readable=human_readable)
+        if human_readable and self.custom_backbones:
+            # When reviewing parameters and custom backbone dir is used,
+            # only show that custom backbone dir and no other parameters
+            return {k: v for k, v in super_dict.items() if k in ("custom_backbones", "hotspots")}
+        return super_dict
+
     def validate(self):
         super().validate()
         if not self.input_pdb:
             raise ValueError("No input pdb provided")
+        if self.hotspots:
+            assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
+            if not all(re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in self.hotspots.split(",")):
+                raise ValueError(f"Invalid hotspots format, expected 'A123,A124,A131', got: '{self.hotspots}'")
+        if self.custom_backbones:
+            # Do not validate if this stage is skipped
+            return
         if not self.contig:
             raise ValueError("Please provide a contig")
         if "/0 " not in self.contig and " " in self.contig:
@@ -84,10 +101,6 @@ class RFdiffusionParams(WorkflowParams):
                 or re.fullmatch("[0-9]+", self.contigmap_length)
                 or re.fullmatch("[0-9]+-[0-9]+", self.contigmap_length)
             ), f"Invalid contigmap_length, expected format 123 or 123-456, got: '{self.contigmap_length}'"
-        if self.hotspots:
-            assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
-            if not all(re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in self.hotspots.split(",")):
-                raise ValueError(f"Invalid hotspots format, expected 'A123,A124,A131', got: '{self.hotspots}'")
         if self.inpaint_seq:
             assert isinstance(self.inpaint_seq, str), (
                 f"Expected str for inpaint_seq, got {type(self.inpaint_seq).__name__}"

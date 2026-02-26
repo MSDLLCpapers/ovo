@@ -122,6 +122,8 @@ def download_design_files(
         with st.spinner("Loading files..."):
             # Get list of storage paths from Design or DesignWorkflow objects
             storage_paths = collect_storage_paths(download_fields, design_ids)
+            # Make sure the paths are unique
+            storage_paths = sorted(set(storage_paths))
 
         if not storage_paths:
             st.error(f"No files found")
