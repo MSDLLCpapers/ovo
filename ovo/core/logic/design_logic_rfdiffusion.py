@@ -114,7 +114,9 @@ def process_workflow_results(
                 backbone_number += 1
             batch_number += 1
         if not source_backbone_paths:
-            raise ValueError(f"No backbone pdb files found in custom_backbones subdirectories of scheduler output: {source_dir}")
+            raise ValueError(
+                f"No backbone pdb files found in custom_backbones subdirectories of scheduler output: {source_dir}"
+            )
     else:
         # Get backbone pdb paths based on our RFdiffusion output structure
         num_contigs = len(workflow.rfdiffusion_params.contigs)
@@ -125,31 +127,36 @@ def process_workflow_results(
                 batch_number = (total_idx_backbone // batch_size) + 1
                 backbone_number = total_idx_backbone + 1
                 batch_name = f"contig{contig_idx + 1}_batch{batch_number}"
-                source_backbone_path = f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
+                source_backbone_path = (
+                    f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
+                )
                 source_backbone_paths.append((contig_idx, batch_name, backbone_number, source_backbone_path))
 
     designs = []
     design_id_mapping = {}
     descriptor_values = []
     with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
-        futures = [executor.submit(
-            process_rfdiffusion_design,
-            pool_id=pool.id,
-            contig_idx=contig_idx,
-            num_contigs=num_contigs,
-            batch_name=batch_name,
-            source_backbone_path=source_backbone_path,
-            backbone_descriptor_key=backbone_descriptor_key,
-            backbone_number=backbone_number,
-            num_backbone_designs=len(source_backbone_paths),
-            num_sequence_designs=num_sequence_designs,
-            num_fastrelax_cycles=num_fastrelax_cycles,
-            source_dir=source_dir,
-            destination_dir=destination_dir,
-            alphafold_file_suffix=alphafold_file_suffix,
-            esmfold_file_suffix=esmfold_file_suffix,
-            cyclic=workflow.rfdiffusion_params.cyclic_offset,
-        ) for contig_idx, batch_name, backbone_number, source_backbone_path in source_backbone_paths]
+        futures = [
+            executor.submit(
+                process_rfdiffusion_design,
+                pool_id=pool.id,
+                contig_idx=contig_idx,
+                num_contigs=num_contigs,
+                batch_name=batch_name,
+                source_backbone_path=source_backbone_path,
+                backbone_descriptor_key=backbone_descriptor_key,
+                backbone_number=backbone_number,
+                num_backbone_designs=len(source_backbone_paths),
+                num_sequence_designs=num_sequence_designs,
+                num_fastrelax_cycles=num_fastrelax_cycles,
+                source_dir=source_dir,
+                destination_dir=destination_dir,
+                alphafold_file_suffix=alphafold_file_suffix,
+                esmfold_file_suffix=esmfold_file_suffix,
+                cyclic=workflow.rfdiffusion_params.cyclic_offset,
+            )
+            for contig_idx, batch_name, backbone_number, source_backbone_path in source_backbone_paths
+        ]
 
         for i, future in enumerate(futures):
             new_designs, new_mapping, new_values = future.result()
@@ -214,9 +221,9 @@ def process_rfdiffusion_design(
     esmfold_file_suffix: str | None,
     cyclic: bool,
 ) -> tuple[list[Design], dict[str, tuple[str, str]]]:
-    """Process a single RFdiffusion-designed backbone and its sequence designs, copying files from the scheduler output to our storage, 
+    """Process a single RFdiffusion-designed backbone and its sequence designs, copying files from the scheduler output to our storage,
     and creating Design and DescriptorValue objects for the backbone and each sequence design.
-    
+
     Args:
         pool_id: Pool ID
         contig_idx: Index of the contig for this backbone design, used for naming and design spec. Starting at zero.
@@ -471,8 +478,9 @@ def prepare_custom_backbones(custom_backbones: str, workdir: str) -> str:
         return storage.prepare_workflow_input(custom_backbones, workdir=workdir)
     else:
         custom_dir = storage.resolve_path(custom_backbones)
-        custom_backbone_paths = [os.path.join(custom_dir, path)
-                                 for path in storage.list_dir(custom_dir) if path.endswith(".pdb")]
+        custom_backbone_paths = [
+            os.path.join(custom_dir, path) for path in storage.list_dir(custom_dir) if path.endswith(".pdb")
+        ]
         if not custom_backbone_paths:
             raise ValueError(f"No .pdb files found in custom_backbones: {custom_backbones}")
         example_pdb_data = storage.read_file_str(custom_backbone_paths[0])
@@ -482,7 +490,8 @@ def prepare_custom_backbones(custom_backbones: str, workdir: str) -> str:
                 f"Custom backbone pdb files for scaffold design must have standardized REMARK with contig and chain information, "
                 f"required remarks not found in {custom_backbone_paths[0]}. Please add these to the top or bottom of your PDB file:\n"
                 'REMARK   1 Standardized contig: "A123-456/10-10/A456-789"\n'
-                'REMARK   1 Chains: "A"     \n')
+                'REMARK   1 Chains: "A"     \n'
+            )
         return storage.prepare_workflow_inputs(
             storage_paths=custom_backbone_paths,
             workdir=workdir,

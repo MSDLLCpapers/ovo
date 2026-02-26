@@ -27,16 +27,13 @@ def test_scaffold_end_to_end_logic(project_data, input_method: str):
     if input_method == "zip":
         custom_backbones = storage.store_input(
             project_id=project.id,
-            file_bytes=storage.create_zip(
-                [os.path.join(custom_backbones, p) for p in os.listdir(custom_backbones)]
-            ),
-            filename=f"{custom_backbones.name}.zip"
+            file_bytes=storage.create_zip([os.path.join(custom_backbones, p) for p in os.listdir(custom_backbones)]),
+            filename=f"{custom_backbones.name}.zip",
         )
 
     workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
-            custom_backbones=custom_backbones
+            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"], custom_backbones=custom_backbones
         ),
         protein_mpnn_params=ProteinMPNNParams(
             num_sequences=2,

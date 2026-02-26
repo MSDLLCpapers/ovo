@@ -360,10 +360,12 @@ class Storage:
         elif isinstance(storage_paths_by_dir, dict):
             for paths in storage_paths_by_dir.values():
                 # Avoid overwriting files by mistake
-                assert len(paths) == len(set(paths)), \
+                assert len(paths) == len(set(paths)), (
                     "Storing duplicate file paths in the same zip directory are not allowed: " + ", ".join(paths)
-                assert isinstance(paths, list), \
+                )
+                assert isinstance(paths, list), (
                     "storage_paths_by_dir must be a dictionary of lists, found value of type " + str(type(paths))
+                )
 
         else:
             raise ValueError(f"storage_paths_by_dir must be a dictionary or a list, got {type(storage_paths_by_dir)}")
