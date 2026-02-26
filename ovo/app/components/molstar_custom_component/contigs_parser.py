@@ -212,6 +212,15 @@ class ContigsParser:
                             else:
                                 mapped_tuples.append(["A", generated_out_res, True])
                                 generated_out_res += 1
+                    else:
+                        # generated segment
+                        if "-" in segment:
+                            a, b = segment.split("-")
+                            assert a == b, f"Expected contig to be resolved, generated segment should not have a variable length, got {segment} in {contig}"
+                            generated_length = int(a)
+                        else:
+                            generated_length = int(segment)
+                        generated_out_res += generated_length
 
         else:
             # Use provided mapping

@@ -105,22 +105,19 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
         get_cached_design_descriptors(
             design_id,
             [
-                descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
                 *[d.key for d in descriptors.STRUCTURE_PATH_DESCRIPTORS],
             ],
         )
         .dropna()
         .to_dict()
     )
-    trb_dict = storage.read_file_pickle(paths[descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key])
     input_pdb_str = storage.read_file_str(workflow.get_input_pdb_path(design.contig_index))
     if not all(c.contig for c in design.spec.chains):
         st.error("Contig not found in design spec")
         return
     contig = " ".join(c.contig for c in design.spec.chains if c.contig)
     input_segments = parser.parse_contigs_str(contig)
-    output_segments = parser.parse_contigs_trb(trb_dict)
-    st.write(output_segments, parser.parse_contigs_ref(contig))
+    output_segments = parser.parse_contigs_ref(contig)
 
     input_mapping = [
         (segment.input_res_chain, list(range(segment.input_res_start, segment.input_res_end + 1)))
@@ -366,7 +363,6 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         get_cached_design_descriptors(
             design_id,
             [
-                descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
                 *[d.key for d in descriptors.STRUCTURE_PATH_DESCRIPTORS],
             ],
         )
@@ -712,15 +708,15 @@ def visualize_rfdiffusion_design_sequence(design_id: str):
     designed_sequences: dict[str, str] = {
         chain_id: chain.sequence for chain in design.spec.chains for chain_id in chain.chain_ids
     }
-    paths = (
-        get_cached_design_descriptors(design_id, [descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key]).dropna().to_dict()
-    )
 
     parser = ContigsParser()
-    # TODO this could be parsed from spec contig instead
-    parsed_segments = parser.parse_contigs_trb(
-        storage.read_file_pickle(paths[descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key])
-    )
+
+    if not all(c.contig for c in design.spec.chains):
+        st.warning("Contig not found in design spec")
+        return
+    contig = " ".join(c.contig for c in design.spec.chains if c.contig)
+    output_segments = parser.parse_contigs_ref(contig)
+
     # individual positions in this format ['A1', 'A2', ...]
     inpainted_positions = (
         from_segments_to_hotspots(workflow.rfdiffusion_params.inpaint_seq.split("/"))
@@ -730,7 +726,7 @@ def visualize_rfdiffusion_design_sequence(design_id: str):
     visualize_scaffold_alignment(
         input_seq_by_resno=input_seq_by_resno,
         designed_sequences=designed_sequences,
-        parsed_segments=parsed_segments,
+        parsed_segments=output_segments,
         inpainted_positions=inpainted_positions,
     )
 
