@@ -56,3 +56,4 @@ for key in ALL_DESCRIPTOR_KEYS:
 
 STRUCTURE_PATH_DESCRIPTORS = [d for d in ALL_DESCRIPTORS if isinstance(d, StructureFileDescriptor)]
 SEQUENCE_DESIGN_PATH_DESCRIPTORS = [d for d in STRUCTURE_PATH_DESCRIPTORS if d.structure_type == "sequence_design"]
+BACKBONE_DESIGN_PATH_DESCRIPTORS = [d for d in STRUCTURE_PATH_DESCRIPTORS if d.structure_type == "backbone_design"]

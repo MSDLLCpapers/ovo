@@ -23,6 +23,7 @@ from ovo.core.database.descriptors import (
     ALL_DESCRIPTORS_BY_KEY,
     SEQUENCE_DESIGN_PATH_DESCRIPTORS,
     STRUCTURE_PATH_DESCRIPTORS,
+    BACKBONE_DESIGN_PATH_DESCRIPTORS,
 )
 
 from ovo.app.components.molstar_custom_component import (
@@ -145,7 +146,10 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
             height=350,
         )
 
-    backbone_design_descriptor = descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH
+    backbone_design_descriptor = None
+    for d in BACKBONE_DESIGN_PATH_DESCRIPTORS:
+        if paths.get(d.key):
+            backbone_design_descriptor = d
 
     with middle:
         st.write(f"##### {backbone_design_descriptor.name}")
@@ -401,7 +405,11 @@ def rfdiffusion_binder_design_visualization(design_id: str):
 
     left, middle, right = st.columns(3, gap="medium")
 
-    backbone_design_descriptor = descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH
+    backbone_design_descriptor = None
+    for d in BACKBONE_DESIGN_PATH_DESCRIPTORS:
+        if paths.get(d.key):
+            backbone_design_descriptor = d
+
     with left:
         st.write(f"##### {backbone_design_descriptor.name}")
 
