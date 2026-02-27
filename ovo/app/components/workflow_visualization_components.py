@@ -121,7 +121,7 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     output_segments = parser.parse_contigs_ref(contig)
 
     input_mapping = [
-        (segment.input_res_chain, list(range(segment.input_res_start, segment.input_res_end + 1)))
+        (segment.input_res_chain, list(range(segment.out_res_start, segment.out_res_end + 1)))
         for segment in input_segments
         if segment.type == "fixed"
     ]

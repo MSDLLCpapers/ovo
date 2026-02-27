@@ -306,7 +306,8 @@ def inpainting_step():
         st.error("Please provide a contig in the previous step.")
         return
 
-    parsed_contig = ContigsParser().parse_contigs_str(workflow.rfdiffusion_params.contig)
+    parser = ContigsParser()
+    parsed_contig = parser.parse_contigs_str(workflow.rfdiffusion_params.contig)
     fixed_segments = [seg for seg in parsed_contig if seg.type == "fixed"]
 
     sequence_selection_fragment(__file__, workflow.input_name, fixed_segments=fixed_segments, inpainting=True)

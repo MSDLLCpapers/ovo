@@ -1,13 +1,9 @@
 import pickle
 
-import pandas as pd
-import requests
 import re
 import numpy as np
 import typing
 import os
-
-from io import BytesIO
 
 from ovo.app.components.molstar_custom_component.color_picker import ColorPicker, mix_colors
 from ovo.app.components.molstar_custom_component.dataclasses import (
@@ -217,7 +213,7 @@ class ContigsParser:
                         if "-" in segment:
                             a, b = segment.split("-")
                             assert a == b, (
-                                f"Expected contig to be resolved, generated segment should not have a variable length, got {segment} in {contig}"
+                                f"Expected contig to be resolved, generated segment should not have a variable length, got {segment} in {contigs}"
                             )
                             generated_length = int(a)
                         else:
