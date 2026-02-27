@@ -21,7 +21,7 @@
     },
     "custom_backbones": {
       "type": "string",
-      "description": "Path to directory (or .txt file with paths) of custom backbone PDB files to use instead of RFdiffusion-generated backbones. If provided, RFdiffusion will be skipped and the provided backbones will be used for downstream steps. For scaffold design, PDB files must contain REMARK header with OVO-specific information."
+      "description": "Path to a directory (ending with '/'), a single .pdb file, a .zip archive, or a .txt file containing paths to custom backbone PDB files to use instead of RFdiffusion-generated backbones. If provided, RFdiffusion will be skipped and the provided backbones will be used for downstream steps. For scaffold design, PDB files must contain REMARK header with OVO-specific information."
     },
     "rfdiffusion_input_pdb": {
       "type": "string",
