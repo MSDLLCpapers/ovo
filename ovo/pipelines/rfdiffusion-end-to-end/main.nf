@@ -31,7 +31,7 @@ workflow {
     } else if (params.rfdiffusion_input_pdb.endsWith('.pdb')) {
         pdb_inputs = [params.rfdiffusion_input_pdb]
     } else {
-        throw new IllegalArgumentException("Input file must be a .pdb file, a .txt file with a list of .pdb files, got: ${params.input_pdb}")
+        throw new IllegalArgumentException("Input file must be a .pdb file, a .txt file with a list of .pdb files, got: ${params.rfdiffusion_input_pdb}")
     }
     def batches
     if (params.custom_backbones) {
