@@ -245,7 +245,7 @@ def process_rfdiffusion_design(
     # add contig suffix 01 in case of multiple contigs
     contig_suffix = "_" + str(contig_idx + 1).zfill(max(len(str(num_contigs)), 2)) if num_contigs > 1 else ""
     # backbone suffix 01, 001, 0001 based on total number of designs
-    backbone_suffix = "_" + str(backbone_number + 1).zfill(max(len(str(num_backbone_designs)), 2))
+    backbone_suffix = "_" + str(backbone_number).zfill(max(len(str(num_backbone_designs)), 2))
     backbone_id = f"ovo_{pool_id}{contig_suffix}{backbone_suffix}"
     backbone_filename = os.path.basename(source_backbone_path).removesuffix(".pdb")
 
