@@ -12,7 +12,6 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.app.components import molstar_custom_component, StructureVisualization
 from ovo.app.components.history_components import history_dropdown_component
 from ovo.app.components.input_components import pdb_input_component, sequence_selection_fragment, initialize_workflow
-from ovo.app.components.molstar_custom_component import ContigsParser
 from ovo.app.components.navigation import show_prev_next_sections
 from ovo.app.components.preview_components import visualize_rfdiffusion_preview, contigs_organizer_fragment
 from ovo.app.components.scheduler_components import wait_with_statusbar
@@ -27,6 +26,7 @@ from ovo.core.auth import get_username
 from ovo.core.database import descriptors_refolding
 from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.formatting import get_hashed_path_for_bytes
+from ovo.core.utils.residue_selection import parse_contig_for_input_structure
 
 
 @st.fragment
@@ -294,10 +294,6 @@ def inpainting_step():
 
     st.subheader("Sequence inpainting")
 
-    st.write(
-        "Select input structure residues that will be kept in the structure but redesigned with ProteinMPNN. This step is optional."
-    )
-
     if not workflow.rfdiffusion_params.input_pdb:
         st.error("Please provide an input structure in the input structure step.")
         return
@@ -306,11 +302,16 @@ def inpainting_step():
         st.error("Please provide a contig in the previous step.")
         return
 
-    parser = ContigsParser()
-    parsed_contig = parser.parse_contigs_str(workflow.rfdiffusion_params.contig)
-    fixed_segments = [seg for seg in parsed_contig if seg.type == "fixed"]
+    fixed_segments = parse_contig_for_input_structure(workflow.rfdiffusion_params.contig)
 
-    sequence_selection_fragment(__file__, workflow.input_name, fixed_segments=fixed_segments, inpainting=True)
+    sequence_selection_fragment(
+        __file__,
+        workflow.input_name,
+        fixed_segments=fixed_segments,
+        selection_help="Select input structure residues that will be kept in the structure but redesigned with ProteinMPNN. This step is optional.",
+        selection_label="Residues to be inpainted (redesigned)",
+        inpainting=True,
+    )
 
 
 @st.fragment()
@@ -380,7 +381,6 @@ def review_step():
 
 
 def check_contig_parsed(contig: str | None, verbose: bool = False) -> bool:
-    parser = ContigsParser()
     if not len(contig.split(" ")) == 1:
         if verbose:
             st.warning("Support of multi-chain scaffold design is experimental, proceed with caution")
@@ -389,7 +389,7 @@ def check_contig_parsed(contig: str | None, verbose: bool = False) -> bool:
         st.warning("Input contigs are lowercase. Workflow can behave unexpectedly.")
 
     try:
-        _ = parser.parse_contigs_str(contig) if contig else None
+        parse_contig_for_input_structure(contig) if contig else None
         return True
     except Exception as e:
         if verbose:

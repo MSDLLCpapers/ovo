@@ -5,3 +5,15 @@
 .msp-plugin .msp-layout-expanded {
   position: inherit;
 }
+
+.msp-layout-top, .msp-selection-viewport-controls {
+  z-index: 2;
+}
+
+.msp-layout-contig {
+  z-index: 1;
+  position: absolute;
+  zIndex: 10;
+  top: 4px;
+  left: 5px;
+}

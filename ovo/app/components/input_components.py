@@ -4,9 +4,8 @@ from copy import deepcopy
 import streamlit as st
 
 from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
-from ovo.app.components.molstar_custom_component.dataclasses import ContigSegment
 from ovo.core.database import WorkflowTypes, Workflow
-from ovo.core.utils.residue_selection import parse_selections, from_segments_to_hotspots
+from ovo.core.utils.residue_selection import parse_selections, from_segments_to_hotspots, ContigSegment
 from ovo.core.utils.formatting import safe_filename
 from ovo.core.utils.pdb import get_pdb, filter_pdb_str
 
@@ -80,6 +79,8 @@ def sequence_selection_fragment(
     representation_type="cartoon+ball-and-stick",
     write_segments: bool = True,
     fixed_segments: list[ContigSegment] | None = None,
+    selection_help: str = None,
+    selection_label: str = None,
     **selection_kwargs,
 ):
     """Fragment to display input structure and allow residue selection via molstar component.
@@ -88,8 +89,10 @@ def sequence_selection_fragment(
     :param input_name: Name of the input structure, used for download filename
     :param color: Initial color scheme for molstar component
     :param representation_type: Initial representation type for molstar component
-    :param write_segments: Whether to write selected segments (True) or individual residues (False)
+    :param write_segments: Whether to display selected segments (True) or individual residues (False)
     :param fixed_segments: If provided, only these segments will be shown in the structure (others hidden)
+    :param selection_help: Optional help text to display above the structure for selection instructions
+    :param selection_label: Custom label to use for selection display, default is "Selected segments" or "Selected residues" depending on write_segments
     :param selection_kwargs: Additional kwargs passed to workflow.get/set_selected_segments methods
     """
 
@@ -110,7 +113,7 @@ def sequence_selection_fragment(
     ):
         pdb_input_string = filter_pdb_str(
             pdb_input_string,
-            segments=[seg.value for seg in fixed_segments],
+            segments=[f"{seg.chain}{seg.start}-{seg.end}" for seg in fixed_segments],
             add_ter=False,  # do not add TER so that molstar shows the sequence all in one piece
         )
 
@@ -158,6 +161,9 @@ def sequence_selection_fragment(
             key="color_scheme_input",
             label_visibility="collapsed",
         )
+
+    if selection_help:
+        st.write(selection_help)
 
     with st.container(horizontal=True, vertical_alignment="center"):
         force_reload = False
@@ -211,7 +217,7 @@ def sequence_selection_fragment(
 
     if selection:
         if write_segments:
-            selection_container.write(f"Selected segments: {'/'.join(selection)}")
+            selection_container.write(f"{selection_label or 'Selected segments'}: {'/'.join(selection)}")
         else:
             residues = from_segments_to_hotspots(selection)
-            selection_container.write(f"Selected residues: {residues}")
+            selection_container.write(f"{selection_label or 'Selected residues'}: {residues}")

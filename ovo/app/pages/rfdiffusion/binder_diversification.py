@@ -316,11 +316,6 @@ def selection_step():
 
     st.subheader("Select residues for partial diffusion")
 
-    st.write(
-        "Select binder residues that should be redesigned by applying RFdiffusion partial diffusion "
-        "followed by ProteinMPNN sequence design. By default, we redesign the entire binder."
-    )
-
     if not workflow.rfdiffusion_params.input_pdb:
         st.error("Please provide an input structure in the input structure step.")
         return
@@ -340,7 +335,15 @@ def selection_step():
         return
 
     sequence_selection_fragment(
-        __file__, workflow.input_name, write_segments=False, contig_index=0, partial_diffusion=True
+        __file__,
+        workflow.input_name,
+        contig_index=0,
+        partial_diffusion=True,
+        selection_help=(
+            "Select binder residues that should be redesigned by applying RFdiffusion partial diffusion "
+            "followed by ProteinMPNN sequence design. By default, we redesign the entire binder."
+        ),
+        selection_label="Residues to be redesigned",
     )
 
 

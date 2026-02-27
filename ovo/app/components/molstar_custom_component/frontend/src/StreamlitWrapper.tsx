@@ -13,20 +13,6 @@ interface State {
     isFullscreen: boolean;
 }
 
-function calculateMolstarHeight(originalHeight: string, selectionMode: boolean, contigsHeight: number = 100): string {
-    if (!selectionMode) {
-        return originalHeight;
-    }
-
-    const numericMatch = originalHeight.match(/^(\d+)(px)?$/);
-    if (numericMatch) {
-        const value = parseInt(numericMatch[1]);
-        return `${value - contigsHeight}px`;
-    }
-
-    return `calc(${originalHeight} - ${contigsHeight}px)`;
-}
-
 class StreamlitWrapper extends StreamlitComponentBase<State> {
 
     constructor(props: any) {
@@ -104,9 +90,8 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
         const selectionMode = this.props.args["selectionMode"];
         const forceReload = this.props.args["forceReload"] ?? false;
 
-        const originalHeight = this.props.args["height"];
-        const contigsHeight = 100; // for the contigs
-        const effectiveHeight = calculateMolstarHeight(originalHeight, selectionMode, contigsHeight);
+        const requestedHeight = this.props.args["height"];
+        const contigsHeight = 25; // for the contigs
 
         const originalWidth = this.props.args["width"];
         const effectiveWidth = this.state.isFullscreen ? "100%" : originalWidth;
@@ -117,7 +102,7 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
 
         return (
             <>
-                <div id={divName} style={{ height: effectiveHeight, width: effectiveWidth }}>
+                <div id={divName} style={{ height: requestedHeight, width: effectiveWidth }}>
                     <MolstarCustomComponent structures={structures} divName={divName} showControls={showControls}
                         contigs={allContigsParsed} highlightedContig={this.state.highlightedContig}
                         selectionMode={selectionMode} updateStreamlitComponentValue={this.updateStreamlitComponentValue}
@@ -126,10 +111,10 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
                 </div>
                 {!this.state.isFullscreen && allContigsParsed.map((parsedContigs, outerIdx) => {
                     if (parsedContigs.length > 0) return (
-                        <div style={{ color: "black", width: "80%", position: "relative" }} key={outerIdx}>
-                            Contigs: {parsedContigs.map((e, idx) => {
-                                const contigDescription = `${e.input_res_chain}${e.input_res_start}-${e.input_res_end} `;
-                                if (e.type === "fixed") {
+                        <div class="msp-layout-contig" style={{ color: "black", fontSize: "14px", cursor: "default" }} key={outerIdx}>
+                            Segments: {parsedContigs.map((e, idx) => {
+                                if (e.middle_label || e.start_label) {
+                                    const contigDescription = e.middle_label ? `${e.middle_label} ` : `${e.start_label}-${e.end_label} `;
                                     return <span style={{ color: e.color }} onMouseOver={() => this.setHighlightedContig(e, outerIdx)} key={idx}>{contigDescription}</span>;
                                 }
                                 return <React.Fragment key={idx}></React.Fragment>;

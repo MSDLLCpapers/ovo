@@ -1,7 +1,6 @@
 import os
 import json
 from ovo.app.components.molstar_custom_component.dataclasses import StructureVisualization, ChainVisualization
-from ovo.app.components.molstar_custom_component.contigs_parser import ContigsParser
 import uuid
 import glob
 
