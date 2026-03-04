@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "Foldseek protein clustering",
+  "description": "",
+  "type": "object",
+  "required": ["chains", "pdb_dir", "output_prefix"],
+  "properties": {
+    "chains": {
+      "type": "string",
+      "description": "List of chains, separated by comma, to be used for clustering and similarity search"
+    },
+    "pdb_dir": {
+      "type": "string",
+      "description": "Input path to directory with PDB files"
+    },
+    "output_prefix": {
+      "type": "string",
+      "description": "Prefix for output files"
+    },
+    "tmscore_threshold": {
+      "type": "float",
+      "description": "TM-score threshold for accepting alignments"
+    },
+    "alignment_type": {
+      "type": "integer",
+      "description": "Alignment to use - 0: 3Di Gotoh-Smith-Waterman (local, not recommended), 1: TMalign (global, slow), 2: 3Di+AA Gotoh-Smith-Waterman (local, default)"
+    },
+    "c": {
+      "type": "float",
+      "description": "List matches above this fraction of aligned (covered) residues (see --cov-mode) (default: 0.0); higher coverage = more global alignment"
+    },
+    "min_seq_id": {
+      "type": "float",
+      "description": "Minimum sequence identity for alignments to be clustered (default: 0.0)"
+    }
+  }
+}

@@ -14,7 +14,7 @@ test/test.log
 node_modules
 test-results
 workdir
-ovo/pipeline/*/local/*results
+ovo/pipelines/*/local/*results
 dist
 secrets.toml
 .venv/
@@ -24,3 +24,4 @@ secrets.toml
 /docs/build
 /docs/source/apidocs/ovo
 /Makefile
+ovo/pipelines/protein-clustering/local/*_pdb

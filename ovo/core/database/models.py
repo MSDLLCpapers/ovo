@@ -513,18 +513,6 @@ class Pool(Base, MetadataMixin):
 DesignChainType = Literal["protein", "dna", "rna", "ligand"]
 
 
-x = {
-    "id": "asdads",
-    "spec": {
-        "chains": [
-            {"chain_ids": ["H"], "sequence": "QVQLV..."},
-            {"chain_ids": ["L"], "sequence": "EIVL..."},
-        ]
-    },
-    "structure_path": "asdasd/asdad",
-}
-
-
 @dataclass
 class DesignChain:
     # Chain type: protein/dna/rna/ligand
@@ -777,6 +765,8 @@ class Descriptor(ABC):
     tool: str = None
     # Short machine-readable column name for the descriptor (sequence_composition|length, esm1v|native_seq_avg_softmax, ...)
     key: str = None
+    # Descriptor value is specific for each instance of run
+    required_descriptor_job: bool = False
 
     def serialize(self, value):
         """Serialize a value into a number or string so that it can be stored in the DB"""

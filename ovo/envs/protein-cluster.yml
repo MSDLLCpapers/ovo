@@ -1,0 +1,15 @@
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - llvmlite
+  - numba
+  - pip:
+      - pandas
+      - numpy
+      - scipy
+      - scikit-learn
+      - umap-learn
+      - seaborn
+      - biopython==1.85

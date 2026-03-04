@@ -7,6 +7,7 @@ from ovo.app.components.custom_elements import confirm_download_button
 from ovo.app.utils.cached_db import get_cached_design_jobs, get_cached_available_descriptors
 from ovo.core.database import DesignWorkflow, WorkflowTypes, Base, FileDescriptor, DescriptorValue
 from ovo.core.database.descriptors import ALL_DESCRIPTORS
+from ovo.core.database.descriptors_clustering import PROTEIN_CLUSTERING_DESCRIPTORS_BY_KEY
 from ovo.core.logic.descriptor_logic import export_design_descriptors_excel, get_wide_descriptor_table
 from ovo.core.logic.design_logic import collect_storage_paths
 from ovo.core.utils.formatting import get_hash_of_bytes
@@ -45,7 +46,12 @@ def download_job_designs_component(
         download_fields.update(WorkflowType.get_download_fields())
     # Add available file descriptor paths
     available_descriptors = get_cached_available_descriptors(design_ids)
-    file_descriptors = [d for d in ALL_DESCRIPTORS if isinstance(d, FileDescriptor) and d.key in available_descriptors]
+    # Dont consider descriptors that depend on descriptor job (ambiguous values without it)
+    file_descriptors = [
+        d
+        for d in ALL_DESCRIPTORS
+        if isinstance(d, FileDescriptor) and not d.required_descriptor_job and d.key in available_descriptors
+    ]
     for file_descriptor in file_descriptors:
         download_fields[file_descriptor.name] = (DescriptorValue, file_descriptor.key)
 
@@ -67,7 +73,7 @@ def download_job_designs_component(
 
     # Descriptor table
     with first:
-        download_descriptor_table(filename, design_ids, key=key, width="stretch")
+        download_descriptor_table(filename, design_ids, descriptor_keys=available_descriptors, key=key, width="stretch")
 
     # All files in one zip
     with second:
@@ -94,7 +100,9 @@ def download_job_designs_component(
 
 
 @st.fragment
-def download_descriptor_table(filename, design_ids, descriptor_keys=None, key="default", width="content"):
+def download_descriptor_table(
+    filename, design_ids, descriptor_keys=None, key="default", width="content", descriptor_job_id=None
+):
     if st.button(
         "Download descriptor table" if len(design_ids) > 1 else "Download descriptors",
         key=f"prepare_descriptors_{key}",
@@ -103,7 +111,11 @@ def download_descriptor_table(filename, design_ids, descriptor_keys=None, key="d
         with st.spinner("Preparing descriptor table..."):
             # Get raw dataframe with single header, columns named with descriptor keys ("pipeline|tool_key|descriptor")
             df = get_wide_descriptor_table(
-                design_ids=design_ids, descriptor_keys=descriptor_keys, nested=False, human_readable=False
+                design_ids=design_ids,
+                descriptor_keys=descriptor_keys,
+                nested=False,
+                human_readable=False,
+                descriptor_job_id=descriptor_job_id,
             )
             excel_bytes = export_design_descriptors_excel(df)
         confirm_download_button(

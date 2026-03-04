@@ -805,3 +805,46 @@ def visualize_scaffold_alignment(
             contig_identity
         )
     )
+
+
+def visualize_align_structure_selection(
+    design_ids: list[str], chains, max_examples: int = 15, key="struct_visualization"
+):
+    # If list of designs too large, align only subset (max_examples) of designs
+    max_examples = min(max_examples, len(design_ids))
+    example_designs: list[Design] = get_cached_designs(design_ids[:max_examples])
+
+    aligned_subset_pdb_strs, rmsd = align_multiple_proteins_pdb(
+        pdb_strs=[storage.read_file_str(design.structure_path) for design in example_designs],
+        # Allign atoms of provided chains
+        chain_residue_mappings=[[(chain, None)] for chain in chains] * len(example_designs),
+    )
+
+    molstar_custom_component(
+        structures=[
+            StructureVisualization(
+                pdb=aligned_pdb_str,
+                representation_type=None,
+                chains=[
+                    ChainVisualization(
+                        chain_id=chain,
+                        color="secondary-structure",
+                        representation_type="cartoon",
+                    )
+                    for chain in chains
+                ],
+            )
+            for aligned_pdb_str in aligned_subset_pdb_strs
+        ],
+        key=key,
+        height="400px",
+    )
+
+    if len(design_ids) > max_examples:
+        st.warning(
+            f"Showing only first {max_examples} out of {len(design_ids):,} selected designs for performance reasons."
+        )
+    st.text(
+        f"The RMSD for the aligned structures is {round(rmsd, 3)}",
+        help="The root mean square deviation (RMSD) of Cα atom positions after optimal rotational and translational superposition relative to a reference structure for all members of the cluster.",
+    )

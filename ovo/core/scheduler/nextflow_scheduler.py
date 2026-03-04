@@ -525,7 +525,10 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
         if not os.path.exists(pid_file):
             raise JobNotFound(f"Job {job_id} PID file not found: {pid_file}")
         with open(pid_file, "r") as f:
-            pid = int(f.read())
+            pid_text = f.read()
+            if not pid_text:
+                raise JobNotFound(f"Job {job_id} PID file is empty: {pid_file}")
+            pid = int(pid_text)
         return pid
 
     def get_job_start_time(self, job_id: str) -> datetime | None:

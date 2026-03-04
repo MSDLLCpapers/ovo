@@ -223,9 +223,11 @@ class SqlDBEngine(CacheClearingEngine):
             query = self._create_query(session, model=model, limit=limit, order_by=order_by, **kwargs)
             return pd.read_sql_query(query.statement, query.session.bind, index_col=index_col)
 
-    def select_descriptor_values(self, descriptor_key: str, design_ids: list[str]) -> pd.Series:
+    def select_descriptor_values(
+        self, descriptor_key: str, design_ids: list[str], descriptor_job_id: str | None = None
+    ) -> pd.Series:
         """Select values of a single descriptor for multiple designs."""
-        # TODO this does not handle the case when a descriptor was computed multiple times for the same design
+        # TODO this does not handle the case when a descriptor was computed multiple times for the same design and descriptor_job_id is not provided
         #  same as in select_wide_descriptor_table below
         with self._create_session() as session:
             assert isinstance(descriptor_key, str), (
@@ -247,6 +249,8 @@ class SqlDBEngine(CacheClearingEngine):
                     .filter(DescriptorValue.descriptor_key == descriptor_key)
                     .filter(*self._create_filters(DescriptorValue, dict(design_id__in=batch)))
                 )
+                if descriptor_job_id is not None:
+                    query = query.filter(DescriptorValue.descriptor_job_id == descriptor_job_id)
                 values.update({design_id: value for design_id, value in query})
             series = pd.Series(values)
             try:
@@ -259,9 +263,11 @@ class SqlDBEngine(CacheClearingEngine):
             # Reindex to keep the original order, adding NaN for missing designs
             return series.reindex(design_ids)
 
-    def select_design_descriptors(self, design_id: str, descriptor_keys: list[str]) -> pd.Series:
+    def select_design_descriptors(
+        self, design_id: str, descriptor_keys: list[str], descriptor_job_id: str | None = None
+    ) -> pd.Series:
         """Select values of multiple descriptors for a single design."""
-        # TODO this does not handle the case when a descriptor was computed multiple times for the same design
+        # TODO this does not handle the case when a descriptor was computed multiple times for the same design and descriptor_job_id is not provided
         #  same as in select_wide_descriptor_table below
         with self._create_session() as session:
             for key in descriptor_keys:
@@ -271,6 +277,8 @@ class SqlDBEngine(CacheClearingEngine):
                 .filter(DescriptorValue.design_id == design_id)
                 .filter(*self._create_filters(DescriptorValue, {"descriptor_key__in": descriptor_keys}))
             )
+            if descriptor_job_id is not None:
+                query = query.filter(DescriptorValue.descriptor_job_id == descriptor_job_id)
             result = query.all()
             series = pd.Series({descriptor_key: value for descriptor_key, value in result})
             try:
@@ -282,8 +290,10 @@ class SqlDBEngine(CacheClearingEngine):
                 pass
             return series.reindex(descriptor_keys)
 
-    def select_wide_descriptor_table(self, design_ids: list[str], descriptor_keys: list[str], **kwargs) -> pd.DataFrame:
-        # TODO this does not handle the case when a descriptor was computed multiple times for the same design
+    def select_wide_descriptor_table(
+        self, design_ids: list[str], descriptor_keys: list[str], descriptor_job_id: str | None = None, **kwargs
+    ) -> pd.DataFrame:
+        # TODO this does not handle the case when a descriptor was computed multiple times for the same design and descriptor_job_id is not provided
         #  this can happen when we implement multiple descriptor jobs with different settings.
         #  To solve this, some descriptor job key could be incorporated in the column name or used as a filter.
         with self._create_session() as session:
@@ -313,6 +323,8 @@ class SqlDBEngine(CacheClearingEngine):
                     .filter(*self._create_filters(DescriptorValue, kwargs))
                     .group_by(DescriptorValue.design_id)
                 )
+                if descriptor_job_id is not None:
+                    query = query.filter(DescriptorValue.descriptor_job_id == descriptor_job_id)
                 results += query.all()
             session.close()
             df = pd.DataFrame(results)

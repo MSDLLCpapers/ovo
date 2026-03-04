@@ -90,7 +90,6 @@ def proteinqc_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
     with right:
         histogram_source = source_selectbox(st.query_params.get("ref"), key_prefix="proteinqc_reference")
         st.query_params["ref"] = histogram_source
-
     descriptor_overview_tiles(
         descriptors_df, descriptors_by_key, design_id=design_id, histogram_source=histogram_source
     )
