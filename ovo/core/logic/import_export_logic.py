@@ -303,24 +303,33 @@ def export_project(project_id: str, output_zip_path: str = None, accepted_only: 
     return temp_zip_path
 
 
-def import_project(home_dir: str, project_id: str = None, count_only=False) -> dict[str, int]:
+def import_project(
+    home_dir: str, project_id: str = None, count_only=False, init_and_migrate: bool = False
+) -> dict[str, int]:
     """
     Import project from extracted directory.
 
     Args:
         home_dir: Path to extracted directory containing ovo.db, storage files and config.yml
         project_id: ID of the project to import (if None, import all projects)
+        count_only: If True, only compute how many records would be imported without modifying the destination database.
+        init_and_migrate: If True, initialize the database and run migrations before importing (modifies the db in provided home_dir)
 
     Returns:
-        counts: number of
+        counts: Dictionary mapping each imported entity type to the number of records that were (or would be) imported.
     """
 
     # Load config from the extracted directory
     source_config = load_config(home_dir)
 
+    # Initialize the source DB object
+    source_db = SqlDBEngine(db_url=source_config.db.url)
+    if init_and_migrate:
+        source_db.init()
+
     # Use unified function to copy project data (no metadata transform)
     return export_import_project(
-        source_db=SqlDBEngine(db_url=source_config.db.url),
+        source_db=source_db,
         source_storage=Storage(storage_root=source_config.storage.path, aws=None),
         dest_db=db,
         dest_dir=config.storage.path,

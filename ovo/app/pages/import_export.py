@@ -191,7 +191,9 @@ def import_tab():
             if not len(paths) == 1 or not os.path.isdir(os.path.join(temp_root, paths[0])):
                 raise ValueError(f"Invalid ZIP file structure: expected a single root directory, got: {paths}")
             st.session_state.import_temp_dir = os.path.join(temp_root, paths[0])
-            st.session_state.import_counts = import_project(st.session_state.import_temp_dir, count_only=True)
+            st.session_state.import_counts = import_project(
+                st.session_state.import_temp_dir, count_only=True, init_and_migrate=True
+            )
             st.session_state.import_done = False
 
     if not st.session_state.get("import_counts"):
