@@ -1,5 +1,6 @@
 from ovo import db, design_logic
 from ovo.core.database.models_refolding import RefoldingWorkflow
+from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, FoldseekParams
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
@@ -9,6 +10,7 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.core.database import (
     descriptors_refolding,
     descriptors_rfdiffusion,
+    descriptors_clustering,
 )
 from ovo.core.logic import descriptor_logic
 from ovo.core.utils.resources import RESOURCES_DIR
@@ -97,3 +99,21 @@ def test_scaffold_end_to_end_logic(project_data):
     design_rmsd = db.select_descriptor_values(f"refolding|{test}|design_backbone_rmsd", design_ids)
     assert len(design_rmsd.dropna()) == 2
     assert (design_rmsd < 15).all()
+
+    # Clustering
+    clustering: FoldseekClusteringWorkflow = FoldseekClusteringWorkflow(
+        chains=["A"],
+        design_ids=[design.id for design in designs],
+        params=FoldseekParams(
+            exhaustive_search=True,
+            e=100,
+        )
+    )
+    clustering.validate()
+    descriptor_job = descriptor_logic.submit_descriptor_workflow(
+        workflow=clustering, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
+    )
+    descriptor_logic.process_results(descriptor_job)
+
+    cluster_id = db.select_descriptor_values(descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key, design_ids)
+    assert len(cluster_id.dropna()) == 2

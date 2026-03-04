@@ -94,7 +94,7 @@ def submit_clustering_dialog(design_ids: list[str]):
                 with col1:
                     workflow_class = CLUSTERING_WORKFLOWS_BY_TOOL_KEY[tool.tool_key]
 
-                    workflow = workflow_class(chains=list(chains), design_ids=design_ids, tool_key=tool.tool_key)
+                    workflow = workflow_class(chains=list(chains), design_ids=design_ids)
 
                     if tool == FOLDSEEK_UMAP_PIPELINE:
                         # Use instance_id in keys to make them unique

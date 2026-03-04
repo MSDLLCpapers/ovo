@@ -410,7 +410,6 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
     design_visualization_fragment(cluster_design_ids)
 
 
-
 def display_clustering_job_params(job: DescriptorJob):
     """Display clustering job parameters"""
 

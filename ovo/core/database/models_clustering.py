@@ -43,6 +43,20 @@ class ProteinClusteringWorkflow(DescriptorWorkflow):
             )
 
 
+@dataclass(frozen=True)
+class ProteinClusteringTool:
+    name: str = None
+    tool_key: str = None
+    supports_conda: bool = False
+
+
+FOLDSEEK_UMAP_PIPELINE = ProteinClusteringTool(
+    name="Foldseek with UMAP",
+    tool_key="foldseek_clustering",
+    supports_conda=True,
+)
+
+
 @dataclass
 class FoldseekParams(WorkflowParams):
     e: float = 10.0
@@ -58,8 +72,7 @@ class FoldseekParams(WorkflowParams):
 @WorkflowTypes.register("Foldseek Clustering workflow")
 @dataclass
 class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
-    # TODO: Implement passing target (optional) structures to run foldseek search against these target designs
-    # instead of running the search against itself (default is empty list -> in nextflow 'designs_query' copied into designs_target)
+    tool_key: str = FOLDSEEK_UMAP_PIPELINE.tool_key
     designs_target: List[Design] = field(default_factory=list)
     params: FoldseekParams = field(default_factory=FoldseekParams, metadata=dict(tool_name="Foldseek Clustering"))
 
@@ -91,19 +104,6 @@ class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
         if len(self.chains) > 1:
             raise NotImplementedError("Currently only single chain clustering is supported.")
 
-
-@dataclass(frozen=True)
-class ProteinClusteringTool:
-    name: str = None
-    tool_key: str = None
-    supports_conda: bool = False
-
-
-FOLDSEEK_UMAP_PIPELINE = ProteinClusteringTool(
-    name="Foldseek with UMAP",
-    tool_key="foldseek_clustering",
-    supports_conda=True,
-)
 
 PROTEIN_CLUSTERING_TOOLS = [FOLDSEEK_UMAP_PIPELINE]
 PROTEIN_CLUSTERING_TOOLS_BY_KEY = {tool.tool_key: tool for tool in PROTEIN_CLUSTERING_TOOLS}
