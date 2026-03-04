@@ -151869,7 +151869,7 @@ function XI1(Z) {
       u6.loadingPdb = !1;
     }
   }, K = (T) => {
-    return T.includes("http");
+    return T.startsWith("http://") || T.startsWith("https://");
   }, G = (T, w, V) => {
     if (T === "uniform")
       return {

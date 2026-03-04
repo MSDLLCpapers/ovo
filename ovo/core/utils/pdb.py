@@ -1,4 +1,5 @@
 from collections import defaultdict
+import dataclasses
 import gzip
 import json
 
@@ -916,6 +917,210 @@ def filter_pdb_str(pdb_input_string: str, segments: list[str], add_ter=False) ->
     else:
         io.save(stringIO, select=PDBSegmentSelector(segments))
     return stringIO.getvalue()
+
+
+def _strip_cif_quotes(val: str) -> str:
+    """Strip surrounding single or double quotes from a CIF value."""
+    if len(val) >= 2 and ((val[0] == '"' and val[-1] == '"') or (val[0] == "'" and val[-1] == "'")):
+        return val[1:-1]
+    return val
+
+
+def _format_pdb_atom_name(atom_name: str, element: str) -> str:
+    """Format atom name for PDB columns 13-16.
+
+    PDB convention: single-character elements get a leading space (name starts at col 14),
+    two-character elements start at col 13.
+    """
+    if len(element) == 1 and len(atom_name) < 4:
+        return f" {atom_name:<3}"
+    return f"{atom_name:<4}"
+
+
+_ALLOWED_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+
+@dataclasses.dataclass
+class CifToPdbResult:
+    """Result of converting mmCIF to PDB format."""
+
+    pdb_string: str
+    warnings: list[str]
+
+
+def mmcif_to_pdb(mmcif_data: str) -> CifToPdbResult:
+    """Converts mmCIF format to PDB format.
+
+    Parses _atom_site loop from mmCIF data and outputs PDB-formatted ATOM/HETATM records.
+    Only coordinate data is converted; other mmCIF sections (cell, symmetry, etc.) are ignored.
+
+    Returns a CifToPdbResult with the PDB string and any warnings about data loss
+    (e.g. atom count overflow, residue number overflow, chain ID collisions).
+    """
+    pdb_lines: list[str] = []
+    warnings: list[str] = []
+    state = "scanning"
+    atom_headers: list[str] = []
+    header_indices: dict[str, int] = {}
+    prev_chain_id: str | None = None
+    atom_count = 0
+    atom_serial = 0
+    atom_serial_wrapped = False
+    has_residue_overflow = False
+    # track multi-char chain IDs that map to the same single character
+    chain_id_map: dict[str, str] = {}
+
+    for line in mmcif_data.splitlines():
+        line = line.strip()
+
+        if line == "loop_":
+            state = "collecting_headers"
+            atom_headers = []
+            header_indices = {}
+            continue
+
+        if state == "collecting_headers":
+            if line.startswith("_atom_site."):
+                atom_headers.append(line)
+                header_indices[line] = len(atom_headers) - 1
+                continue
+            elif line.startswith("_"):
+                state = "skipping_loop"
+                continue
+            elif atom_headers:
+                state = "reading_data"
+                # fall through to process this first data line
+            else:
+                state = "scanning"
+                continue
+
+        if state == "skipping_loop":
+            if line.startswith("#") or line == "":
+                state = "scanning"
+            elif line == "loop_":
+                state = "collecting_headers"
+                atom_headers = []
+                header_indices = {}
+            continue
+
+        if state != "reading_data":
+            continue
+
+        if line.startswith("#") or line == "" or line == "stop_":
+            state = "scanning"
+            continue
+
+        parts = line.split()
+        if len(parts) < len(atom_headers):
+            continue
+
+        try:
+
+            def _get(field: str) -> str | None:
+                idx = header_indices.get(field)
+                if idx is None or idx >= len(parts):
+                    return None
+                val = _strip_cif_quotes(parts[idx])
+                return None if val in ("?", ".") else val
+
+            model_num = _get("_atom_site.pdbx_PDB_model_num") or "1"
+            if model_num != "1":
+                continue
+
+            record_type = _get("_atom_site.group_PDB") or "ATOM"
+            if record_type not in ("ATOM", "HETATM"):
+                record_type = "ATOM"
+            element = _get("_atom_site.type_symbol") or "C"
+            atom_name = _get("_atom_site.label_atom_id") or "CA"
+            alt_loc = _get("_atom_site.label_alt_id") or " "
+            res_name = _get("_atom_site.label_comp_id") or "UNK"
+            cif_chain_id = _get("_atom_site.auth_asym_id") or _get("_atom_site.label_asym_id") or "A"
+            res_seq_str = _get("_atom_site.auth_seq_id") or _get("_atom_site.label_seq_id") or "1"
+            res_seq = int(res_seq_str) if res_seq_str.lstrip("-").isdigit() else 1
+            icode = _get("_atom_site.pdbx_PDB_ins_code") or " "
+            x = float(_get("_atom_site.Cartn_x") or "0.0")
+            y = float(_get("_atom_site.Cartn_y") or "0.0")
+            z = float(_get("_atom_site.Cartn_z") or "0.0")
+            occupancy = float(_get("_atom_site.occupancy") or "1.0")
+            b_factor = float(_get("_atom_site.B_iso_or_equiv") or "0.0")
+
+            # truncate atom name to 4 chars for PDB compatibility
+            atom_name = atom_name[:4]
+
+            # map mmCIF chain IDs to unique single-character PDB chain IDs
+            if cif_chain_id not in chain_id_map:
+                preferred = cif_chain_id if len(cif_chain_id) == 1 else None
+                used_ids = set(chain_id_map.values())
+                if preferred and preferred in _ALLOWED_CHAIN_IDS and preferred not in used_ids:
+                    chain_id_map[cif_chain_id] = preferred
+                else:
+                    for candidate in _ALLOWED_CHAIN_IDS:
+                        if candidate not in used_ids:
+                            chain_id_map[cif_chain_id] = candidate
+                            break
+                    else:
+                        raise ValueError("Exceeded maximum number of distinct chains representable in PDB format")
+            chain_id = chain_id_map[cif_chain_id]
+
+            # sequential atom numbering, wrap at 99999 - those are the limits of the PDB format
+            atom_count += 1
+            atom_serial += 1
+            if atom_serial > 99999:
+                atom_serial = 1
+                atom_serial_wrapped = True
+
+            if abs(res_seq) > 9999:
+                has_residue_overflow = True
+                res_seq = res_seq % 10000
+
+            # insert TER record at chain boundaries
+            if prev_chain_id is not None and chain_id != prev_chain_id:
+                pdb_lines.append("TER")
+
+            prev_chain_id = chain_id
+
+            pdb_line = (
+                f"{record_type:<6}"
+                f"{atom_serial:>5}"
+                " "
+                f"{_format_pdb_atom_name(atom_name, element)}"
+                f"{alt_loc}"
+                f"{res_name[:3]:>3}"
+                " "
+                f"{chain_id}"
+                f"{res_seq:>4}"
+                f"{icode}"
+                "   "
+                f"{x:>8.3f}{y:>8.3f}{z:>8.3f}"
+                f"{occupancy:>6.2f}{b_factor:>6.2f}"
+                "          "
+                f"{element:>2}"
+            )
+            pdb_lines.append(pdb_line)
+        except (ValueError, IndexError):
+            continue
+
+    pdb_lines.append("END")
+
+    if atom_count == 0:
+        warnings.append(
+            "No atoms were parsed from the mmCIF data (_atom_site loop not found or empty). "
+            "The resulting PDB contains only an END record."
+        )
+
+    if atom_serial_wrapped:
+        warnings.append(
+            f"Structure has more than 99,999 atoms ({atom_count:,} total). "
+            "Atom serial numbers have been wrapped, which may affect some tools."
+        )
+
+    if has_residue_overflow:
+        warnings.append(
+            "Some residue numbers exceed 9,999 and have been wrapped. "
+            "This may cause issues with residue identification in downstream workflows."
+        )
+
+    return CifToPdbResult(pdb_string="\n".join(pdb_lines), warnings=warnings)
 
 
 def check_rfdiffusion_input(

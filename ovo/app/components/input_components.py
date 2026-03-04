@@ -8,7 +8,7 @@ from ovo.app.components.molstar_custom_component.dataclasses import ContigSegmen
 from ovo.core.database import WorkflowTypes, Workflow
 from ovo.core.utils.residue_selection import parse_selections, from_segments_to_hotspots
 from ovo.core.utils.formatting import safe_filename
-from ovo.core.utils.pdb import get_pdb, filter_pdb_str
+from ovo.core.utils.pdb import get_pdb, filter_pdb_str, mmcif_to_pdb
 
 from ovo import storage
 from ovo.core.utils.pdb import add_glycan_to_pdb
@@ -57,12 +57,24 @@ def pdb_input_component(old_pdb_code: str | None) -> tuple[str, bytes] | None:
         )
         st.button("Confirm")
 
-    uploaded_file = st.file_uploader("...or upload a PDB file", type=["pdb", "pdb1"], key="input_pdb_file")
+    uploaded_file = st.file_uploader(
+        "...or upload a structure file",
+        type=["pdb", "pdb1", "cif", "mmcif"],
+        key="input_pdb_file",
+    )
 
     # Check if a file has just been uploaded
     if uploaded_file is not None:
         pdb_input_bytes = uploaded_file.getvalue()
-        filename, _ = os.path.splitext(safe_filename(uploaded_file.name))
+        filename, ext = os.path.splitext(safe_filename(uploaded_file.name))
+
+        if ext.lower() in (".cif", ".mmcif"):
+            result = mmcif_to_pdb(pdb_input_bytes.decode("utf-8"))
+            pdb_input_bytes = result.pdb_string.encode("utf-8")
+            for warning in result.warnings:
+                st.warning(warning)
+            st.warning("The uploaded CIF file has been converted to PDB format.")
+
         return filename, pdb_input_bytes
 
     elif new_pdb_code and new_pdb_code != old_pdb_code:

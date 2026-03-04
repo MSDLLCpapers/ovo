@@ -1,16 +1,15 @@
 import os
 import re
+import zipfile
 
 import streamlit as st
 
-from ovo import storage, get_username, config
+from ovo import storage, get_username, config, db
 from ovo.core.database.models import Pool, Design
+from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
-from ovo.core.database.models_proteinqc import ProteinQCWorkflow
-
-from ovo import db
-import zipfile
+from ovo.core.utils.pdb import mmcif_to_pdb
 
 
 @st.dialog("Upload new pool of designs", width="large")
@@ -31,9 +30,9 @@ def create_new_pool():
         )
 
         files = st.file_uploader(
-            "PDB files *",
+            "Structure files *",
             accept_multiple_files=True,
-            type=["pdb", "zip"],
+            type=["pdb", "cif", "mmcif", "zip"],
             key="uploader",
         )
 
@@ -90,12 +89,19 @@ def create_new_pool():
             project_id=project_id,
             pool_id=pool.id,
         )
+        cif_converted = False
+        conversion_warnings: list[str] = []
         designs = []
         for file in files:
-            if file.name.endswith(".pdb"):
+            if file.name.lower().endswith(".pdb"):
                 designs.append(Design.from_pdb_file(filename=file.name, pdb_str=file.read().decode(), **shared_args))
-            elif file.name.endswith(".zip"):
-                # iterate over files in zip
+            elif file.name.lower().endswith((".cif", ".mmcif")):
+                cif_converted = True
+                pdb_filename = os.path.splitext(file.name)[0] + ".pdb"
+                result = mmcif_to_pdb(file.read().decode())
+                conversion_warnings.extend(result.warnings)
+                designs.append(Design.from_pdb_file(filename=pdb_filename, pdb_str=result.pdb_string, **shared_args))
+            elif file.name.lower().endswith(".zip"):
                 found = False
                 with zipfile.ZipFile(file) as z:
                     for zip_info in z.infolist():
@@ -104,7 +110,7 @@ def create_new_pool():
                         filename = os.path.basename(zip_info.filename)
                         if filename.startswith("."):
                             continue
-                        if filename.endswith(".pdb"):
+                        if filename.lower().endswith(".pdb"):
                             found = True
                             print("Reading", zip_info.filename)
                             pdb_str = z.read(zip_info.filename).decode()
@@ -115,8 +121,22 @@ def create_new_pool():
                                     **shared_args,
                                 )
                             )
+                        elif filename.lower().endswith((".cif", ".mmcif")):
+                            found = True
+                            cif_converted = True
+                            print("Reading and converting", zip_info.filename)
+                            pdb_filename = os.path.splitext(filename)[0] + ".pdb"
+                            result = mmcif_to_pdb(z.read(zip_info.filename).decode())
+                            conversion_warnings.extend(result.warnings)
+                            designs.append(
+                                Design.from_pdb_file(
+                                    filename=pdb_filename,
+                                    pdb_str=result.pdb_string,
+                                    **shared_args,
+                                )
+                            )
                 if not found:
-                    raise ValueError(f"No PDB files found in zip archive '{file.name}'")
+                    raise ValueError(f"No PDB or CIF files found in zip archive '{file.name}'")
 
         if len(designs) > 1:
             st.text(f"Saving {len(designs):,} designs to DB...")
@@ -135,6 +155,11 @@ def create_new_pool():
             scheduler_key=config.local_scheduler,
             project_id=project_id,
         )
+
+        if cif_converted:
+            st.warning("Some CIF files were converted to PDB format.")
+            for warning in conversion_warnings:
+                st.warning(warning)
 
         st.session_state.files = None
         st.text("✅ Done")

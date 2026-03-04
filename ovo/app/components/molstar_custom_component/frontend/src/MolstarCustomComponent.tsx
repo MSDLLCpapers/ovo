@@ -274,7 +274,7 @@ function MolstarCustomComponent(props: Props) {
   };
 
   const isUrl = (pdb: string) => {
-    return pdb.includes("http");
+    return pdb.startsWith("http://") || pdb.startsWith("https://");
   };
 
   const getColorParameters = (color: string, colorParams: ColorParameters | null, plugin: PluginUIContext) => {
