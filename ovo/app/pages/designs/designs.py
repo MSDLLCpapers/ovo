@@ -52,6 +52,7 @@ views = {
     "🔎 ProteinQC": "ovo.app.pages.designs.proteinqc:proteinqc_fragment",
     "🎯 Interface analyzer": "ovo.app.pages.designs.interface:interface_fragment",
     "🔁 Refolding": "ovo.app.pages.designs.refolding:refolding_fragment",
+    "📉 Regression": "ovo.app.pages.designs.regression:regression_fragment",
     "🫧 Clustering": "ovo.app.pages.designs.clustering:clustering_fragment",
     # "🧬 Structure prediction": "TODO",
     # "🧩 Plugins": "TODO",
