@@ -1,5 +1,10 @@
 # Developer Quickstart
 
+This page provides instructions for setting up a local development environment 
+for OVO and contributing to the [OVO repository](https://github.com/MSDLLCpapers/ovo).
+
+For instructions on how to develop a separate plugin for OVO, please refer to the [plugin development guide](plugin_development.md).
+
 ## 1. Clone the OVO repository
 
 Clone the OVO repository from GitHub:
@@ -47,21 +52,36 @@ echo 'RUN=" "' >> .env
 Run Streamlit app with live reload:
 ```
 just run
+# or using ovo cli
+ovo app --server.runOnSave=1
 ```
 
 Run unit tests:
 ```
 just test
+# or using pytest directly 
+pytest tests/unit_tests
 ```
 
-Run Ruff linter (optional):
+Run full workflow tests (using the default scheduler from your local OVO config):
 ```
-just lint
+just integration-test
+# or using pytest directly (-s to print detailed output)
+pytest -s tests/integration_tests
 ```
 
 Run Ruff formatter:
 ```
 just format
+# or using ruff directly
+ruff format .
+```
+
+Run Ruff linter (optional):
+```
+just lint-check
+# or using ruff directly
+ruff check .
 ```
 
 ## 4. Contribute your first issue and pull request

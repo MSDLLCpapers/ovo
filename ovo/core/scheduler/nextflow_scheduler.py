@@ -554,11 +554,10 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
         if not log:
             return None
 
-        for line in log.splitlines():
+        # read log backwards to find the latest timestamp
+        for line in log.splitlines()[::-1]:
             # Regex to match timestamps
-            match_stop = re.search(
-                r"(\w{3}-\d{1,2} \d{2}:\d{2}:\d{2}\.\d{3}) \[main\] DEBUG nextflow.Session - Session completed", line
-            )
+            match_stop = re.search(r"(\w{3}-\d{1,2} \d{2}:\d{2}:\d{2}\.\d{3}) \[main\]", line)
             if match_stop:
                 stop_time = match_stop.group(1)
                 local_date = datetime.strptime(f"{datetime.now().year} {stop_time}", "%Y %b-%d %H:%M:%S.%f")

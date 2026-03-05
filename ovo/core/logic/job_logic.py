@@ -25,7 +25,7 @@ def update_job_status(job: JobMixin, save_on_success: bool = False) -> bool | No
         if job_result is not None:
             # Finished state - Successful or Failed
             job.job_result = job_result
-            job.job_finished_date_utc = scheduler.get_job_stop_time(job.job_id)
+            job.job_finished_date_utc = scheduler.get_job_stop_time(job.job_id) or datetime.utcnow()
             if job.job_result == False or save_on_success:
                 # Save the job if failed or if we want to save successful jobs
                 # (job status is not saved in case we want to process the results and save them atomically)

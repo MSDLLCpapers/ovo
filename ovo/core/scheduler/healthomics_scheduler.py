@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 import pandas as pd
+from dateutil import tz
 from mypy_boto3_logs.type_defs import OutputLogEventTypeDef
 
 from ovo.core.auth import get_username
@@ -219,14 +220,14 @@ class HealthOmicsScheduler(Scheduler):
         """Get job start time"""
         run = self.aws.omics.get_run(id=job_id)
         if "startTime" in run:
-            return run["startTime"].replace(tzinfo=None)
+            return run["startTime"].astimezone(tz.UTC).replace(tzinfo=None)
         return None
 
     def get_job_stop_time(self, job_id: str) -> datetime | None:
         """Get job end time"""
         run = self.aws.omics.get_run(id=job_id)
         if "stopTime" in run:
-            return run["stopTime"].replace(tzinfo=None)
+            return run["stopTime"].astimezone(tz.UTC).replace(tzinfo=None)
         return None
 
     def get_startup_time_minutes(self):
