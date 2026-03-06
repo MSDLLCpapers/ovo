@@ -62,7 +62,9 @@ class DBEngine(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def select_descriptor_values(self, descriptor_key: str, design_ids: list[str]) -> pd.Series:
+    def select_descriptor_values(
+        self, descriptor_key: str, design_ids: list[str], descriptor_job_id: str | None = None
+    ) -> pd.Series:
         raise NotImplementedError()
 
     @abstractmethod

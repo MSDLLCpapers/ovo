@@ -5,6 +5,8 @@ import re
 import string
 from collections import deque
 from typing import Collection, Any
+from datetime import datetime
+import time
 
 import numpy as np
 import pandas as pd
@@ -25,6 +27,12 @@ def format_duration(td):
         parts.append(f"{minutes} minute{'s' if minutes > 1 else ''}")
 
     return " and ".join(parts) if parts else "0 minutes"
+
+
+def datetime_from_utc_to_local(utc_datetime):
+    now_timestamp = time.time()
+    offset = datetime.fromtimestamp(now_timestamp) - datetime.utcfromtimestamp(now_timestamp)
+    return utc_datetime + offset
 
 
 def generate_id(previous_ids: Collection[str]) -> str:

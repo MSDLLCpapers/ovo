@@ -13,7 +13,8 @@ from ovo.core.utils.residue_selection import (
     create_partial_diffusion_binder_contig,
     parse_contig_for_input_structure,
     parse_contig_for_output_structure,
-    ContigSegment, MappedContigSegment,
+    ContigSegment,
+    MappedContigSegment,
 )
 
 

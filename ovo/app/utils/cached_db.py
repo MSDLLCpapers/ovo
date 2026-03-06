@@ -3,10 +3,10 @@ from typing import List, Collection
 
 from ovo import db, config
 from ovo.core.database.cache_clearing import clear_when_modified
-from ovo.core.database.models import Project, DescriptorValue, Descriptor, Pool, Round, Design, DesignJob
+from ovo.core.database.models import Project, DescriptorValue, Descriptor, Pool, Round, Design, DesignJob, DescriptorJob
 import streamlit as st
 
-from ovo.core.logic.descriptor_logic import get_available_descriptors
+from ovo.core.logic.descriptor_logic import get_available_descriptors, get_available_descriptors_per_job
 from ovo.core.logic.design_logic import get_design_jobs_table, get_pools_table
 
 
@@ -33,6 +33,31 @@ def get_cached_project_ids_and_names(username: str, extra_project_ids: Collectio
         return {project.id: project.name for project in projects}
 
 
+@clear_when_modified(DescriptorJob)
+@st.cache_data(max_entries=100, ttl="1h")
+def get_cached_descriptor_jobs_for_design_ids(
+    design_ids: Collection[str], workflow_names: List[str], project_id, only_exact_design_ids: bool = True
+) -> list[DescriptorJob]:
+    """Returns list of jobs where the processed design ids match the provided design ids and the workflow name is in the provided workflow names."""
+    finished_jobs = db.select(
+        DescriptorJob,
+        project_id=project_id,
+        job_result=True,
+        order_by="-created_date_utc",
+    )
+    finished_jobs = [
+        j
+        for j in finished_jobs
+        if j.workflow
+        and j.workflow.name in workflow_names
+        and len(set(design_ids).intersection(set(j.workflow.design_ids))) > 0
+    ]
+    # Only consider jobs with a Workflow that consists only of provided design_ids and workflow names
+    if only_exact_design_ids:
+        finished_jobs = [j for j in finished_jobs if set(design_ids) == set(j.workflow.design_ids)]
+    return finished_jobs
+
+
 @clear_when_modified(DescriptorValue)
 @st.cache_data(max_entries=100, ttl="1h")
 def get_cached_available_descriptors(design_ids: Collection[str]) -> dict[str, Descriptor]:
@@ -44,8 +69,21 @@ def get_cached_available_descriptors(design_ids: Collection[str]) -> dict[str, D
 
 @clear_when_modified(DescriptorValue)
 @st.cache_data(max_entries=100, ttl="1h")
-def get_cached_descriptor_values(descriptor_key: str, design_ids: list[str]) -> pd.Series():
-    return db.select_descriptor_values(descriptor_key, design_ids=design_ids)
+def get_cached_available_descriptors_per_job(
+    design_ids: Collection[str], descriptor_job_id: str
+) -> dict[str, Descriptor]:
+    """
+    Return all descriptor keys found in DB for the given design ids and descriptor job id.
+    """
+    return get_available_descriptors_per_job(design_ids, descriptor_job_id)
+
+
+@clear_when_modified(DescriptorValue)
+@st.cache_data(max_entries=100, ttl="1h")
+def get_cached_descriptor_values(
+    descriptor_key: str, design_ids: list[str], descriptor_job_id: str | None = None
+) -> pd.Series():
+    return db.select_descriptor_values(descriptor_key, design_ids=design_ids, descriptor_job_id=descriptor_job_id)
 
 
 @clear_when_modified(Design)

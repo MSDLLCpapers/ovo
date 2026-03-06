@@ -48,6 +48,7 @@ try:
         if config.storage.aws
         else None,
         num_copy_threads=config.storage.num_copy_threads,
+        archive_method=config.storage.archive_method,
     )
 
     os.environ["NXF_HOME"] = config.nextflow_home

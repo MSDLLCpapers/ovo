@@ -36,6 +36,7 @@ from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
 from ovo.core.database.models import WorkflowTypes, Pool, DesignJob
 from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.formatting import get_hashed_path_for_bytes, safe_filename
+from ovo.core.utils.pdb import mmcif_to_pdb
 from ovo.core.utils.residue_selection import get_chains_and_contigs
 
 
@@ -288,15 +289,21 @@ def initialize_workflow_input() -> RFdiffusionBinderDesignWorkflow | None:
     st.markdown("##### Or upload a custom structure")
 
     uploaded_file = st.file_uploader(
-        "Upload a PDB file with binder chain (A) and target chain (B)",
-        type=["pdb", "pdb1"],
+        "Upload a structure file with binder chain (A) and target chain (B)",
+        type=["pdb", "pdb1", "cif", "mmcif"],
         key="input_pdb_file",
     )
-
     # Check if a file has just been uploaded
     if uploaded_file is not None:
         pdb_input_bytes = uploaded_file.getvalue()
-        filename, _ = os.path.splitext(safe_filename(uploaded_file.name))
+        filename, ext = os.path.splitext(safe_filename(uploaded_file.name))
+
+        if ext.lower() in (".cif", ".mmcif"):
+            result = mmcif_to_pdb(pdb_input_bytes.decode("utf-8"))
+            pdb_input_bytes = result.pdb_string.encode("utf-8")
+            for warning in result.warnings:
+                st.warning(warning)
+            st.warning("The uploaded CIF file has been converted to PDB format.")
         workflow.input_name = filename
         workflow.rfdiffusion_params.input_pdb = storage.store_file_str(
             pdb_input_bytes.decode("utf-8"),

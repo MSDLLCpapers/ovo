@@ -12,6 +12,7 @@ from ovo.app.utils.cached_db import (
 )
 from ovo.core.database import Threshold, NumericGlobalDescriptor, Descriptor
 from ovo.core.database.descriptors import PRESETS
+from ovo.core.database.descriptors_clustering import PROTEIN_CLUSTERING_DESCRIPTORS
 
 
 @dataclass
@@ -63,8 +64,12 @@ class PlotSettings:
 def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSettings | None:
     descriptors_by_key = get_cached_available_descriptors(design_ids)
 
-    # select only global numeric descriptors
-    descriptors_by_key = {k: d for k, d in descriptors_by_key.items() if isinstance(d, NumericGlobalDescriptor)}
+    # select only global numeric descriptors that do not have ambient values due to of multiple job runs
+    descriptors_by_key = {
+        k: d
+        for k, d in descriptors_by_key.items()
+        if isinstance(d, NumericGlobalDescriptor) and not d.required_descriptor_job
+    }
 
     descriptor_options = list(descriptors_by_key.keys())
 
@@ -249,14 +254,19 @@ def descriptor_scatterplot_pool_details_component(
     design_ids: list[str],
     selected_thresholds: dict[str, Threshold] = None,
     highlight_accepted: bool = False,
+    key: str = "scatterplot",
 ) -> tuple[list[str], str | None]:
     if not settings.x or not settings.y:
         return design_ids, None
 
     x_values = get_cached_descriptor_values(settings.x.key, design_ids=design_ids)
     y_values = get_cached_descriptor_values(settings.y.key, design_ids=design_ids)
-    # FIXME
-    color_values = pd.Series([design_id.split("_")[1] for design_id in design_ids], index=design_ids)
+
+    if settings.color:
+        color_values = get_cached_descriptor_values(settings.color.key, design_ids=design_ids)
+    else:
+        # FIXME
+        color_values = pd.Series([design_id.split("_")[1] for design_id in design_ids], index=design_ids)
 
     values_by_name = {
         settings.x.name: x_values,
@@ -409,7 +419,7 @@ def descriptor_scatterplot_pool_details_component(
             )
 
     fig.update_layout(dragmode="select")
-    event = st.plotly_chart(fig, on_select="rerun", width="content", key="scatterplot")
+    event = st.plotly_chart(fig, on_select="rerun", width="content", key=key)
 
     if not event["selection"]["box"] and not event["selection"]["lasso"]:
         return design_ids, None

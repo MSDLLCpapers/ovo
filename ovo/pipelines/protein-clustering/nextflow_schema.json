@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "Folseek protein usage: clustering and similarity search",
+  "description": "",
+  "type": "object",
+  "required": ["chains", "query_pdb", "n_neighbors"],
+  "properties": {
+    "chains": {
+      "type": "string",
+      "description": "List of chains, separated by comma, to be used for clustering and similarity search"
+    },
+    "query_pdb": {
+      "type": "string",
+      "description": "Input PDB folder (ending with /) or .txt file containing multiple PDB paths (one per line)"
+    },
+    "target_pdb": {
+      "type": "string",
+      "description": "Input PDB folder (ending with /) or .txt file containing multiple PDB paths (one per line) to be used as target database for similarity search (default: same as query_pdb_dir)"
+    },
+     "foldseek_exhaustive_search": {
+      "type": "boolean",
+      "description": "Foldseek: Skips prefilter and performs an all-vs-all alignment (more sensitive but much slower) (default: false)"
+    },
+    "foldseek_e": {
+      "type": "number",
+      "description": "Foldseek: List matches below this E-value (range 0.0-inf, default: 10); increasing it reports more distant structures"
+    },
+    "foldseek_alignment_type": {
+      "type": "integer",
+      "description": "Foldseek: Alignment to use; 0: 3Di Gotoh-Smith-Waterman (local, not recommended), 1: TMalign (global, slow), 2: 3Di+AA Gotoh-Smith-Waterman (local, default)"
+    },
+    "foldseek_embedding_metric": {
+      "type": "string",
+      "description": "Foldseek easy-search output metric to use for computing similarity matrix for UMAP embedding (qtmscore, alntmscore, fident, ...)"
+    },
+    "foldseek_c": {
+      "type": "number",
+      "description": "Foldseek: List matches above this fraction of aligned (covered) residues (see --cov-mode) (default: 0.0); higher coverage = more global alignment"
+    },
+    "foldseek_tmscore_threshold": {
+      "type": "number",
+      "description": "Foldseek: TM-score threshold for accepting alignments"
+    },
+    "foldseek_min_seq_id": {
+      "type": "number",
+      "description": "Minimum sequence identity for alignments to be clustered (default: 0.0)"
+    },
+    "foldseek_s": {
+      "type": "number",
+      "description": "Foldseek: Adjust sensitivity to speed trade-off; lower is faster, higher more sensitive (fast: 7.5, default: 9.5)"
+    },
+    "n_neighbors": {
+      "type": "string",
+      "description": "List of numbers specifying the neighbors to use for computation of UMAP; the larger the number the more global structure is preserved"
+    },
+    "workflow_name": {
+      "type": "string",
+      "description": "Name of the clustering workflow to run",
+      "enum": ["foldseek"]
+    }
+  }
+}

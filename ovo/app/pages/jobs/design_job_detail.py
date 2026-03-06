@@ -155,6 +155,7 @@ def workflow_detail_fragment(job: DesignJob, pool: Pool, first=False):
                     if st.button("Re-submit", key=f"retry_{pool.id}", type="primary"):
                         # Resume and update job ID (might be the same or a new one depending on the scheduler)
                         job.job_result = None
+                        job.job_finished_date_utc = None
                         job.job_id = scheduler.resume(job.job_id)
                         db.save(job)
                         st.rerun()

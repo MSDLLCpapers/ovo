@@ -12,6 +12,7 @@ for descriptor_path in [
     "ovo.core.database.descriptors_rfdiffusion",
     "ovo.core.database.descriptors_bindcraft",
     "ovo.core.database.descriptors_proteinqc",
+    "ovo.core.database.descriptors_clustering",
 ] + plugin_descriptors:
     module_name = descriptor_path.split(".")[0]
     # Load DESCRIPTORS from plugin and extend ALL_DESCRIPTORS

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "Foldseek protein similarity search",
+  "description": "",
+  "type": "object",
+  "required": ["chains", "query_pdb_dir","target_pdb_dir", "output_dir"],
+  "properties": {
+    "chains": {
+      "type": "string",
+      "description": "List of chains, separated by comma, to be used for clustering and similarity search"
+    },
+    "query_pdb_dir": {
+      "type": "string",
+      "description": "Path to directory with PDB files to be used as query"
+    },
+    "target_pdb_dir": {
+      "type": "string",
+      "description": "Path to directory with PDB files to be used as target"
+    },
+    "output_dir": {
+      "type": "string",
+      "description": "Path to output directory"
+    },
+    "exhaustive_search": {
+      "type": "boolean",
+      "description": "Skips prefilter and performs an all-vs-all alignment (more sensitive but much slower) (default: false)"
+    },
+    "e": {
+      "type": "float",
+      "description": "List matches below this E-value (range 0.0-inf, default: 10); increasing it reports more distant structures"
+    },
+    "alignment_type": {
+      "type": "integer",
+      "description": "Alignment to use; 0: 3Di Gotoh-Smith-Waterman (local, not recommended), 1: TMalign (global, slow), 2: 3Di+AA Gotoh-Smith-Waterman (local, default)"
+    },
+    "format_output": {
+      "type": "string",
+      "description": "Output columns, for example: query,target,fident,qtmscore,alntmscore,u,t"
+    },
+    "c": {
+      "type": "float",
+      "description": "List matches above this fraction of aligned (covered) residues (see --cov-mode) (default: 0.0); higher coverage = more global alignment"
+    },
+    "s": {
+      "type": "float",
+      "description": "Adjust sensitivity to speed trade-off; lower is faster, higher more sensitive (fast: 7.5, default: 9.5)"
+    }
+  }
+}

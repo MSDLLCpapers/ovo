@@ -10,6 +10,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from ovo import db, storage, get_scheduler, config
 from ovo.core.auth import get_username
 from ovo.core.database.descriptors_proteinqc import PROTEINQC_MAIN_DESCRIPTORS
+from ovo.core.database.models_clustering import FoldseekClusteringWorkflow
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.database.models_refolding import RefoldingWorkflow, RefoldingSupportedDesignWorkflow
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY, ALL_DESCRIPTOR_KEYS_SET
@@ -26,6 +27,8 @@ from ovo.core.database.models import (
 from ovo.core.logic.job_logic import update_job_status
 from ovo.core.logic.proteinqc_logic import get_descriptor_cmap, get_descriptor_comment
 from ovo.core.utils.export import write_sheet
+from ovo.core.database.models_clustering import ProteinClusteringTool
+from ovo.core.scheduler.base_scheduler import Scheduler
 
 
 def get_available_descriptors(design_ids: list[str]) -> dict[str, Descriptor]:
@@ -43,6 +46,23 @@ def get_available_descriptors(design_ids: list[str]) -> dict[str, Descriptor]:
     }
 
 
+def get_available_descriptors_per_job(design_ids: list[str], descriptor_job_id: str) -> dict[str, Descriptor]:
+    """
+    Return all descriptor keys found in DB for the given design ids and the specified descriptor job.
+    """
+    design_ids = list(set(design_ids))
+    if not design_ids:
+        return {}
+    descriptor_keys = db.select_unique_values(
+        DescriptorValue, "descriptor_key", design_id__in=design_ids, descriptor_job_id=descriptor_job_id
+    )
+    return {
+        descriptor_key: ALL_DESCRIPTORS_BY_KEY[descriptor_key]
+        for descriptor_key in ALL_DESCRIPTORS_BY_KEY
+        if descriptor_key in descriptor_keys
+    }
+
+
 def get_wide_descriptor_table(
     *,  # disallow positional arguments
     pool_ids: Collection[str] = None,
@@ -50,6 +70,7 @@ def get_wide_descriptor_table(
     descriptor_keys: Collection[str] = None,
     human_readable=True,
     nested=False,
+    descriptor_job_id: str = None,
     **filters,
 ) -> pd.DataFrame:
     """
@@ -67,6 +88,7 @@ def get_wide_descriptor_table(
     df = db.select_wide_descriptor_table(
         design_ids=design_ids,
         descriptor_keys=list(ALL_DESCRIPTORS_BY_KEY.keys()) if descriptor_keys is None else list(descriptor_keys),
+        descriptor_job_id=descriptor_job_id,
     )
     if df.empty:
         return df
@@ -194,6 +216,56 @@ def prepare_refolding_params(workflow: RefoldingWorkflow, workdir: str) -> dict:
         "input_designs": input_designs_txt,
         "native_pdb": native_pdb_path,
         "tests": ",".join(workflow.tests),
+    }
+
+
+def prepare_foldseek_clustering_workflow_params(workflow: FoldseekClusteringWorkflow, workdir: str) -> dict:
+    workflow.validate()
+
+    designs = db.select(Design, id__in=workflow.design_ids)
+
+    designs_query = designs
+    designs_target = workflow.designs_target
+    chains = list(workflow.chains)
+    n_neighbors = workflow.n_neighbors
+
+    storage_paths = []
+    design_ids = []
+    for design in designs_query:
+        if not design.structure_path:
+            print(f"Design {design.id} has no structure path. Skipping...")
+            continue
+        storage_paths.append(design.structure_path)
+        design_ids.append(design.id)
+
+    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
+    input_query_path = storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
+
+    storage_paths = []
+    design_ids = []
+    for design in designs_target:
+        if not design.structure_path:
+            print(f"Design {design.id} has no pdb path. Skipping...")
+            continue
+        storage_paths.append(design.structure_path)
+        design_ids.append(design.id)
+
+    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
+    input_target_path = (
+        storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids) if designs_target else None
+    )
+
+    optional_params = workflow.params.to_dict()
+    # Add "foldseek_" prefix to optional parameters
+    optional_params = {f"foldseek_{k}": v for k, v in optional_params.items()}
+
+    return {
+        "query_pdb": input_query_path,
+        "target_pdb": input_target_path,
+        "n_neighbors": ",".join(map(str, n_neighbors)),
+        "chains": ",".join(chains),
+        "workflow_name": "foldseek",
+        **optional_params,
     }
 
 
@@ -520,3 +592,21 @@ def export_design_descriptors_excel(df: pd.DataFrame, output_path=None) -> Bytes
         buffer.seek(0)
         return buffer
     return None
+
+
+def tool_supports_scheduler(tool: ProteinClusteringTool, scheduler: Scheduler) -> bool:
+    if "conda" in scheduler.submission_args and scheduler.submission_args["conda"]:
+        return tool.supports_conda
+    return True
+
+
+def get_available_schedulers(tools: List[ProteinClusteringTool]) -> List[Scheduler]:
+    """
+    Get available schedulers based on the clustering tools selected by the user.
+    """
+    available_schedulers = {}
+
+    for scheduler_key, scheduler in config.schedulers.items():
+        if all(tool_supports_scheduler(tool, scheduler) for tool in tools):
+            available_schedulers[scheduler_key] = scheduler
+    return available_schedulers

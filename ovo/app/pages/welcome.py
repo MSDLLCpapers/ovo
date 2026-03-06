@@ -40,7 +40,8 @@ physicochemical properties, sequence composition, and fitness from protein langu
 ### Learning resources
 
 - [User Guide](https://ovo.dichlab.org/docs/user_guide/)
-- [Ovo Overview Video](https://github.com/user-attachments/assets/7b339fa6-c6de-467d-90d0-5cd15f83c498)
+- [Ovo 2-Minute Overview Video](https://github.com/user-attachments/assets/7b339fa6-c6de-467d-90d0-5cd15f83c498)
+- [Ovo Protein Design Workflows Webinar](https://www.youtube.com/watch?v=qzACZcLWnTs)
 """)
 
 if config.templates.welcome_appendix:

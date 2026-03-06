@@ -1,0 +1,17 @@
+
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - llvmlite
+  - numba
+  - bioconda::foldseek
+  - pip:
+      - pandas
+      - numpy
+      - scipy
+      - scikit-learn
+      - umap-learn
+      - seaborn
+      - biopython==1.85

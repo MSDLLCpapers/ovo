@@ -135,7 +135,10 @@ def process_workflow_results(
     designs = []
     design_id_mapping = {}
     descriptor_values = []
-    with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
+    with (
+        ThreadPoolExecutor(config.storage.num_copy_threads) as executor,
+        storage.archive_context(delete_if_exists=True),
+    ):
         futures = [
             executor.submit(
                 process_rfdiffusion_design,
@@ -315,7 +318,7 @@ def process_rfdiffusion_design(
         design.structure_path = sequence_design_pdb_path
         design.structure_descriptor_key = sequence_design_descriptor.key
         design.spec = DesignSpec.from_pdb_str(
-            pdb_data=storage.read_file_str(design.structure_path), chains=["A"], cyclic=cyclic
+            pdb_data=storage.read_file_str(mpnn_full_source_path), chains=["A"], cyclic=cyclic
         )
         shared_args = dict(
             design_id=design.id,

@@ -88,5 +88,10 @@ def initialize_page(page_title=None):
         if "selection_history" not in st.session_state:
             st.session_state["selection_history"] = {}
 
+        if "user_df" not in st.session_state:
+            st.session_state["user_df"] = None
+        if "clustering_tool_instances" not in st.session_state:
+            st.session_state.clustering_tool_instances = []
+
         # Select project
         project_sidebar_component()
