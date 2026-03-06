@@ -1,10 +1,13 @@
 import shutil
+import warnings
 import zipfile
 import io
 import pickle
-from typing import List
+from typing import List, Literal
 
 from urllib.parse import urlparse
+from zipfile import ZipFile
+
 from botocore.exceptions import ClientError
 from concurrent.futures import ThreadPoolExecutor
 
@@ -14,6 +17,10 @@ import weakref
 from collections import OrderedDict
 from ovo.core.aws import AWSSessionManager
 from ovo.core.utils.formatting import get_hashed_path_for_bytes
+import threading
+from contextlib import contextmanager
+from typing import Optional
+import multiprocessing
 
 
 class Storage:
@@ -25,6 +32,7 @@ class Storage:
         aws: AWSSessionManager | None,
         verbose: bool = False,
         num_copy_threads: int | None = None,
+        archive_method: Literal["zip", None] = None,
         memory_cache_limit_bytes=50 * 1024 * 1024,
         disk_cache_limit_bytes=200 * 1024 * 1024,
         memory_cache_limit_per_file_bytes=5 * 1024 * 1024,
@@ -33,6 +41,7 @@ class Storage:
         self.aws: AWSSessionManager | None = aws
         self.verbose = verbose
         self.num_copy_threads = num_copy_threads
+        self.archive_method = archive_method
         # caching
         self.memory_cache_limit = memory_cache_limit_bytes
         self.disk_cache_limit = disk_cache_limit_bytes
@@ -43,9 +52,94 @@ class Storage:
         self.disk_cache_size = 0
         self._temp_dir = tempfile.TemporaryDirectory()
         weakref.finalize(self, self._clear_temp_dir)
+        # zip context
+        self._zip_write_context: Optional[ZipWriteContext] = None
+        self._zip_read_context: Optional[ZipReadContext] = None
+
+    @contextmanager
+    def archive_context(self, *extensions: str, delete_if_exists=False):
+        """
+        Activate an archive context for all store_...() calls
+        for files ending with any of the provided extensions (or all files if not provided).
+        Only one context may be active at a time.
+        """
+        if self.archive_method is None:
+            yield
+            return
+        elif self.archive_method == "zip":
+            if self._zip_write_context is not None:
+                raise RuntimeError(f"Another zip_context is already active for {self._zip_write_context.extensions}")
+            ctx = ZipWriteContext(*extensions, delete_if_exists=delete_if_exists)
+            self._zip_write_context = ctx
+
+            try:
+                yield
+            finally:
+                self._zip_write_context = None
+                ctx.close()
+        else:
+            raise ValueError(f"Invalid archive method configured: {self.archive_method}")
+
+    def _get_zip_write_context(self, storage_abs_path: str) -> Optional["ZipWriteContext"]:
+        """
+        Return a ZipWriteContext to write to, else None. Raises RuntimeError if called from a different process.
+        """
+        ctx = self._zip_write_context
+        if ctx is None:
+            return None
+
+        storage_scheme, *_ = self.parse_path(self.storage_root)
+        if storage_scheme == "s3":
+            return None
+
+        if not ctx.accepts_path(storage_abs_path):
+            return None
+
+        return ctx
+
+    @contextmanager
+    def bulk_read_context(self):
+        """Context manager for speeding up reading files from zip and other archives
+
+        Each zip file is opened only once and reused for all reads within the context,
+        and closed at the end of the context.
+        """
+        if self._zip_read_context is not None:
+            # already in bulk read context, do nothing
+            yield
+            return
+        ctx = ZipReadContext()
+        self._zip_read_context = ctx
+        try:
+            yield
+        finally:
+            self._zip_read_context = None
+            ctx.close()
+
+    @contextmanager
+    def _get_zip_read_file(self, zip_abs_path: str):
+        """Return a ZipFile for reading, given its absolute path.
+
+        If bulk_read_context is active, reuse the same ZipFile for the same zip_abs_path, otherwise open and close it for each read.
+        """
+        if self._zip_read_context is None:
+            warnings.warn(
+                "Accessing zip files without bulk_read_context may be slow, "
+                "consider using 'with storage.bulk_read_context():' "
+                "when reading multiple files from the same archive"
+            )
+            with ZipFile(zip_abs_path) as f:
+                yield f
+            return
+        # bulk read context enabled, delegate to context
+        with self._zip_read_context.get_zip_file(zip_abs_path) as f:
+            yield f
 
     def _clear_temp_dir(self):
         self._temp_dir.cleanup()
+
+    def _cache_exists(self, file_path):
+        return file_path in self._cache_memory or file_path in self._cache_disk
 
     def _cache_read(self, file_path):
         if file_path in self._cache_memory:
@@ -92,6 +186,15 @@ class Storage:
     def parse_path(path: str) -> tuple[str, str, str]:
         parsed = urlparse(str(path), allow_fragments=False)
         return parsed.scheme, parsed.netloc, parsed.path.lstrip("/")
+
+    @staticmethod
+    def _parse_zip_path(abs_path: str) -> tuple[str, str]:
+        if not abs_path.startswith("zip://") or ":" not in abs_path.removeprefix("zip://"):
+            raise ValueError(
+                f"Invalid zip path, expected format: zip://path/to/zipfile.zip:internal/path/in/zip, got: {abs_path}"
+            )
+        zip_abs_path, arcpath = abs_path.removeprefix("zip://").split(":", 1)
+        return zip_abs_path, arcpath
 
     def list_dir(self, abs_path: str, only_dir=False, recursive=False) -> list[str]:
         """List all files in the directory, return list of paths relative to provided path
@@ -180,6 +283,22 @@ class Storage:
                 else:
                     print("S3 ERROR", e, e.response)
                     raise e
+        elif scheme == "zip":
+            zip_abs_path, arcpath = self._parse_zip_path(abs_path)
+            if self._zip_write_context and self._zip_write_context.zip_files.get(zip_abs_path):
+                raise ZipIsBeingWrittenError(
+                    f"Cannot check existence of {storage_path} while the zip is still being written"
+                )
+            try:
+                with self._get_zip_read_file(zip_abs_path) as zip_file:
+                    try:
+                        zip_file.getinfo(arcpath)
+                        return True
+                    except KeyError:
+                        return False
+            except FileNotFoundError:
+                # The ZIP archive itself does not exist, so the file cannot exist.
+                return False
         return os.path.exists(abs_path)
 
     def read_file_bytes(self, storage_path, cache_store: bool = True) -> bytes:
@@ -208,7 +327,18 @@ class Storage:
                     raise FileNotFoundError(f"File not found: {abs_path}") from e
                 raise
             return content
-
+        elif scheme == "zip":
+            if self.verbose:
+                print(f"Reading {storage_path} from ZIP")
+            zip_abs_path, arcpath = self._parse_zip_path(abs_path)
+            if self._zip_write_context and self._zip_write_context.zip_files.get(zip_abs_path):
+                raise ZipIsBeingWrittenError(f"Cannot read {storage_path} while the zip is still being written")
+            with self._get_zip_read_file(zip_abs_path) as zip_file:
+                with zip_file.open(arcpath) as f:
+                    content = f.read()
+                    if cache_store:
+                        self._cache_store(abs_path, content)
+                    return content
         if self.verbose:
             print(f"Reading {storage_path} from FS")
         with open(abs_path, "rb") as f:
@@ -234,6 +364,9 @@ class Storage:
         :return: absolute path to the file in the local filesystem or S3 bucket
         """
         scheme, _, _ = self.parse_path(storage_path)
+        if scheme == "zip":
+            abspath = os.path.join(self.storage_root, storage_path.removeprefix("zip://"))
+            return f"zip://{abspath}"
         if not os.path.isabs(storage_path) and not scheme:
             # Convert relative path to absolute
             return os.path.join(self.storage_root, storage_path)
@@ -252,8 +385,26 @@ class Storage:
             return storage_rel_path
 
         storage_abs_path = self.resolve_path(storage_rel_path)
-        source_scheme, source_bucket, source_path = self.parse_path(source_abs_path)
         storage_scheme, storage_bucket, storage_path = self.parse_path(storage_abs_path)
+        source_scheme, source_bucket, source_path = self.parse_path(source_abs_path)
+
+        if ctx := self._get_zip_write_context(storage_abs_path):
+            arcname = os.path.basename(storage_abs_path)
+            if source_scheme == "s3":
+                content = self.read_file_bytes(source_abs_path)
+                with ctx.get_zip_file(storage_abs_path) as f:
+                    zip_rel_path = f.filename.removeprefix(self.storage_root).lstrip("/")
+                    if self.verbose:
+                        print(f"Writing {source_abs_path} to zip {zip_rel_path}:{arcname}")
+                    f.writestr(arcname, content)
+            else:
+                with ctx.get_zip_file(storage_abs_path) as f:
+                    zip_rel_path = f.filename.removeprefix(self.storage_root).lstrip("/")
+                    if self.verbose:
+                        print(f"Writing {source_abs_path} to zip {zip_rel_path}:{arcname}")
+                    f.write(source_abs_path, arcname=arcname)
+            return f"zip://{zip_rel_path}:{arcname}"
+
         if source_scheme == "s3":
             if self.verbose:
                 print(f"Downloading {source_abs_path} to {storage_abs_path}")
@@ -291,6 +442,14 @@ class Storage:
 
         storage_abs_path = self.resolve_path(storage_rel_path)
         storage_scheme, storage_bucket, storage_path = self.parse_path(storage_abs_path)
+
+        if ctx := self._get_zip_write_context(storage_abs_path):
+            arcname = os.path.basename(storage_abs_path)
+            with ctx.get_zip_file(storage_abs_path) as f:
+                zip_rel_path = f.filename.removeprefix(self.storage_root).lstrip("/")
+                f.writestr(arcname, file_bytes)
+            return f"zip://{zip_rel_path}:{arcname}"
+
         if storage_scheme == "s3":
             if self.verbose:
                 print(f"Uploading content to {storage_abs_path}")
@@ -577,3 +736,97 @@ class Storage:
             return self.prepare_workflow_input(
                 storage_path="input_pdb_paths.txt", workdir=workdir, input_bytes="\n".join(paths).encode("utf-8")
             )
+
+
+class ZipWriteContext:
+    def __init__(self, *extensions: str, delete_if_exists: bool = False):
+        if extensions and isinstance(extensions[0], list):
+            raise ValueError(f"Got list, expected individual string arguments for file extensions")
+        self.extensions = tuple(extensions)
+        self.zip_files: dict[str, ZipFile] = {}
+        self.zip_locks = {}
+        self.lock = threading.Lock()
+        self.process_name = multiprocessing.current_process().name
+        self.delete_if_exists = delete_if_exists
+
+    def close(self):
+        for zip_file in self.zip_files.values():
+            zip_file.close()
+
+    @contextmanager
+    def get_zip_file(self, storage_abs_path: str):
+        """Return a ZipFile for writing to the provided storage path.
+
+        Will keep the file open until the whole context is closed, allowing multiple files to be written to the same zip file without reopening it.
+
+        Given a storage path (e.g. "/path/to/storage/dir/file.txt"), return a ZipFile object for writing to "ovo/storage/dir.zip"
+
+        Raises RuntimeError if called from a different process (please use a thread pool for parallelism).
+        """
+        dir_path = os.path.dirname(storage_abs_path)
+
+        current_process = multiprocessing.current_process().name
+        if current_process != self.process_name:
+            raise RuntimeError(
+                f"Storage zip write context created in process '{self.process_name}' "
+                f"cannot be used from process '{current_process}'. Please use a thread pool for parallelism instead."
+            )
+        zip_file_path = dir_path.rstrip("/") + ".zip"
+        if zip_file_path not in self.zip_locks:
+            with self.lock:
+                if zip_file_path not in self.zip_locks:  # double check inside lock
+                    self.zip_locks[zip_file_path] = threading.Lock()
+        # only one thread can write to the same zip file at a time
+        with self.zip_locks[zip_file_path]:
+            if zip_file_path not in self.zip_files:
+                os.makedirs(os.path.dirname(zip_file_path), exist_ok=True)
+                if not self.delete_if_exists and os.path.exists(zip_file_path):
+                    # Note we are defensive here to make sure that users do not delete previous storage files by mistake
+                    raise FileExistsError(
+                        f"Zip file already exists: {zip_file_path}. Use delete_if_exists=True to allow recreating archive."
+                    )
+                self.zip_files[zip_file_path] = ZipFile(zip_file_path, "w", zipfile.ZIP_DEFLATED)
+            # yield without closing (will be closed when whole ZipWriteContext is closed)
+            yield self.zip_files[zip_file_path]
+
+    def accepts_path(self, storage_abs_path: str) -> bool:
+        assert os.path.isabs(storage_abs_path), f"Expected absolute path, got: {storage_abs_path}"
+
+        if self.extensions and not storage_abs_path.endswith(self.extensions):
+            return False
+
+        dir_path = os.path.dirname(storage_abs_path)
+        if not dir_path:
+            # do not zip files in the root directory
+            return False
+        return True
+
+
+class ZipReadContext:
+    def __init__(self):
+        self.zip_files: dict[str, ZipFile] = {}
+        self.lock = threading.Lock()
+
+    def close(self):
+        for zip_file in self.zip_files.values():
+            zip_file.close()
+
+    @contextmanager
+    def get_zip_file(self, zip_abs_path: str):
+        """Return a ZipFile for reading from the provided zip file path.
+
+        Will keep the file open until the whole context is closed, allowing multiple files to be read from the same zip file without reopening it.
+
+        Raises RuntimeError if called from a different process (please use a thread pool for parallelism).
+        """
+        # reuse opened ZipFile if already opened, otherwise open it and keep it open
+        if zip_abs_path not in self.zip_files:
+            with self.lock:
+                if zip_abs_path not in self.zip_files:  # double check inside lock
+                    self.zip_files[zip_abs_path] = ZipFile(zip_abs_path)
+        # yield without closing, it will be closed when whole ZipReadContext is closed
+        yield self.zip_files[zip_abs_path]
+
+
+class ZipIsBeingWrittenError(Exception):
+    pass

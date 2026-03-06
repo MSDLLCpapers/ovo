@@ -1,4 +1,4 @@
-from ovo import db, design_logic
+from ovo import db, design_logic, storage
 from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, FoldseekParams
 from ovo.core.database.models_rfdiffusion import (
@@ -75,6 +75,11 @@ def test_scaffold_end_to_end_logic(project_data):
     design_rmsd = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_DESIGN_RMSD.key, design_ids)
     assert len(design_rmsd.dropna()) == 2
     assert (design_rmsd < 20).all()
+
+    af2_pdbs = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH.key, design_ids)
+    assert len(af2_pdbs.dropna()) == 2
+    assert af2_pdbs[0].endswith(".pdb")
+    assert "ATOM " in storage.read_file_str(af2_pdbs[0])
 
     # Refolding
     test = "af2_model_1_ptm_nt_3rec"

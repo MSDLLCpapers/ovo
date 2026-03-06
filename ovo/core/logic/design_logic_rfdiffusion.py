@@ -101,41 +101,42 @@ def process_workflow_results(
     num_sequence_designs = workflow.protein_mpnn_params.num_sequences
     num_fastrelax_cycles = workflow.protein_mpnn_params.fastrelax_cycles
 
-    designs = []
-    design_id_mapping = {}
-    descriptor_values = []
-    with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
-        futures = [
-            executor.submit(
-                process_rfdiffusion_design,
-                pool_id=pool.id,
-                batch_size=batch_size,
-                contig_idx=contig_idx,
-                num_contigs=num_contigs,
-                total_idx_backbone=total_idx_backbone,
-                num_backbone_designs=num_backbone_designs,
-                num_sequence_designs=num_sequence_designs,
-                num_fastrelax_cycles=num_fastrelax_cycles,
-                source_output_path=source_output_path,
-                destination_dir=destination_dir,
-                alphafold_file_suffix=alphafold_file_suffix,
-                esmfold_file_suffix=esmfold_file_suffix,
-                cyclic=workflow.rfdiffusion_params.cyclic_offset,
-            )
-            for contig_idx in range(num_contigs)
-            for total_idx_backbone in range(num_backbone_designs)
-        ]
-
-        for i, future in enumerate(futures):
-            new_designs, new_mapping, new_values = future.result()
-            designs.extend(new_designs)
-            design_id_mapping.update(new_mapping)
-            descriptor_values.extend(new_values)
-            if callback and new_designs:
-                callback(
-                    value=(i + 1) / len(futures),
-                    text=f"Downloading design {new_designs[0].id}",
+    with storage.archive_context(delete_if_exists=True):
+        designs = []
+        design_id_mapping = {}
+        descriptor_values = []
+        with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
+            futures = [
+                executor.submit(
+                    process_rfdiffusion_design,
+                    pool_id=pool.id,
+                    batch_size=batch_size,
+                    contig_idx=contig_idx,
+                    num_contigs=num_contigs,
+                    total_idx_backbone=total_idx_backbone,
+                    num_backbone_designs=num_backbone_designs,
+                    num_sequence_designs=num_sequence_designs,
+                    num_fastrelax_cycles=num_fastrelax_cycles,
+                    source_output_path=source_output_path,
+                    destination_dir=destination_dir,
+                    alphafold_file_suffix=alphafold_file_suffix,
+                    esmfold_file_suffix=esmfold_file_suffix,
+                    cyclic=workflow.rfdiffusion_params.cyclic_offset,
                 )
+                for contig_idx in range(num_contigs)
+                for total_idx_backbone in range(num_backbone_designs)
+            ]
+
+            for i, future in enumerate(futures):
+                new_designs, new_mapping, new_values = future.result()
+                designs.extend(new_designs)
+                design_id_mapping.update(new_mapping)
+                descriptor_values.extend(new_values)
+                if callback and new_designs:
+                    callback(
+                        value=(i + 1) / len(futures),
+                        text=f"Downloading design {new_designs[0].id}",
+                    )
 
     # Create descriptor job on the fly
     descriptor_job = save_descriptor_job_for_design_job(
@@ -258,7 +259,7 @@ def process_rfdiffusion_design(
         design.structure_path = sequence_design_pdb_path
         design.structure_descriptor_key = sequence_design_descriptor.key
         design.spec = DesignSpec.from_pdb_str(
-            pdb_data=storage.read_file_str(design.structure_path), chains=["A"], cyclic=cyclic
+            pdb_data=storage.read_file_str(mpnn_full_source_path), chains=["A"], cyclic=cyclic
         )
         shared_args = dict(
             design_id=design.id,

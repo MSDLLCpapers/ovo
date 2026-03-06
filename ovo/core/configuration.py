@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import model_validator
@@ -41,6 +42,7 @@ class StorageConfig:
     verbose: bool = False
     aws: AWSConfig | None = field(default=None)
     num_copy_threads: int | None = None
+    archive_method: Literal["zip", None] = None
 
 
 @dataclass
