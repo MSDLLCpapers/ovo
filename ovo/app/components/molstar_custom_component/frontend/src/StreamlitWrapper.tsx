@@ -111,7 +111,7 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
                 </div>
                 {!this.state.isFullscreen && allContigsParsed.map((parsedContigs, outerIdx) => {
                     if (parsedContigs.length > 0) return (
-                        <div class="msp-layout-contig" style={{ color: "black", fontSize: "14px", cursor: "default" }} key={outerIdx}>
+                        <div className="msp-layout-contig" style={{ color: "black", fontSize: "14px", cursor: "default" }} key={outerIdx}>
                             Segments: {parsedContigs.map((e, idx) => {
                                 if (e.middle_label || e.start_label) {
                                     const contigDescription = e.middle_label ? `${e.middle_label} ` : `${e.start_label}-${e.end_label} `;

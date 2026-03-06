@@ -152158,10 +152158,10 @@ function fI1(Z) {
       return;
     l6.loadingPdb = !0;
     try {
-      l6.representations = new Array(_.length).fill([]), l6.structures = new Array(_.length).fill(null), console.log("MolStar loading structures", _);
+      l6.representations = new Array(_.length).fill([]), l6.structures = new Array(_.length).fill(null);
       for (let j = 0;j < _.length; j++) {
         let V = _[j];
-        if (await H(V, j), Z.contigs[j])
+        if (await H(V, j), Z.contigs[j] && Z.contigs[j].length)
           await N(j), U(j), L(j), F(j);
         if ("highlighted_selections" in _[j])
           Y(_[j].highlighted_selections, j);
@@ -152171,17 +152171,10 @@ function fI1(Z) {
     } finally {
       l6.loadingPdb = !1;
     }
-<<<<<<<< HEAD:ovo/app/components/molstar_custom_component/frontend/build/chunk-1v6zm202.js
   }, K = (_) => {
-    return _.includes("http");
+    return _.startsWith("http://") || _.startsWith("https://");
   }, G = (_, j, V) => {
     if (_ === "uniform")
-========
-  }, K = (T) => {
-    return T.startsWith("http://") || T.startsWith("https://");
-  }, G = (T, w, V) => {
-    if (T === "uniform")
->>>>>>>> origin/develop:ovo/app/components/molstar_custom_component/frontend/build/chunk-48fxsdac.js
       return {
         color: _,
         colorParams: {
@@ -152412,7 +152405,7 @@ COMPND   3 CHAIN: ${m.chain_id};`;
     }
   };
   dU.useEffect(() => {
-    J(), console.log("CONTIGS", Z.contigs);
+    J();
   }, []), dU.useEffect(() => {
     if (!Z.highlightedContig)
       return;
@@ -152496,7 +152489,7 @@ class rb0 extends zn {
     })), !this.state.isFullscreen && N.map((q, U) => {
       if (q.length > 0)
         return /* @__PURE__ */ cH.default.createElement("div", {
-          class: "msp-layout-contig",
+          className: "msp-layout-contig",
           style: { color: "black", fontSize: "14px", cursor: "default" },
           key: U
         }, "Segments: ", q.map((F, E) => {

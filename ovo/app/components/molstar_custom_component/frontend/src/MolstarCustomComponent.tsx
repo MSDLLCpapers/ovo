@@ -250,12 +250,11 @@ function MolstarCustomComponent(props: Props) {
     try {
       innerProps.representations = new Array(structures.length).fill([]);
       innerProps.structures = new Array(structures.length).fill(null);
-      console.log("MolStar loading structures", structures);
 
       for (let i = 0; i < structures.length; i++) {
         const structToLoad = structures[i];
         await loadPdb(structToLoad, i);
-        if (props.contigs[i]) {
+        if (props.contigs[i] && props.contigs[i].length) {
           await overPaintStructureByContigs(i);
           addContigLabelsAtEnds(i);
           addContigLabelsInMiddle(i);
@@ -460,7 +459,6 @@ function MolstarCustomComponent(props: Props) {
     props.contigs[structureIdx].forEach((e, i) => {
       const range = Array.from(new Array(e.end - e.start + 1), (x, i) => i + e.start);
       const bundle = Bundle.fromSelection(getSelectionFromChainAuthId(innerProps.plugin!, e.chain, range, structureIdx));
-
       params.push({ bundle: bundle, color: Color.fromHexString(e.color.replace("#", "0x")), clear: false });
     });
 
@@ -669,7 +667,6 @@ function MolstarCustomComponent(props: Props) {
 
   useEffect(() => {
     initPlugin();
-    console.log('CONTIGS', props.contigs);
     // to fix this warning, we might move initPlugin into the effect, but this would mean almost everything is in the effect...
     // this happens almost everywhere
     // eslint-disable-next-line react-hooks/exhaustive-deps

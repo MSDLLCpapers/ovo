@@ -13,7 +13,6 @@
 .msp-layout-contig {
   z-index: 1;
   position: absolute;
-  zIndex: 10;
   top: 4px;
   left: 5px;
 }
