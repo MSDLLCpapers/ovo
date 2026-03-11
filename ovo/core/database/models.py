@@ -48,7 +48,7 @@ class MetadataMixin(MappedAsDataclass):
         nullable=False,
         index=True,
         default_factory=lambda: datetime.now(timezone.utc),
-        server_default=func.datetime("now"),
+        server_default=func.now(),
     )
 
 
