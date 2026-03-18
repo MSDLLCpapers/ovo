@@ -332,6 +332,15 @@ def parse_contig_for_input_structure(contig: str, include_generated: bool = Fals
     return input_segments
 
 
+def split_subcontig(subcontig: str) -> list[str]:
+    """Split a single-chain subcontig into list of segments (not including the trailing /0)
+
+    Given "A1-5/5-10/A11-15/0", returns ["A1-5", "5-10", "A11-15"]
+    """
+    assert " " not in subcontig, f"Expected single-chain subcontig with no spaces, got: '{subcontig}'"
+    return subcontig.removesuffix("/0").replace(",", "/").split("/")
+
+
 def parse_contig_for_output_structure(contig: str) -> list[MappedContigSegment]:
     """Parse contig string and return segment annotations mapping to our standardized RFdiffusion OUTPUT structure numbering.
 
@@ -347,7 +356,7 @@ def parse_contig_for_output_structure(contig: str) -> list[MappedContigSegment]:
     color_picker = ColorPicker()
     prev_is_fixed = False
     for output_chain, subcontig in zip(string.ascii_uppercase, contig.split()):
-        segments = subcontig.removesuffix("/0").replace(",", "/").split("/")
+        segments = split_subcontig(subcontig)
         is_fixed_chain = all(segment[0].isalpha() for segment in segments if segment)
         if prev_is_fixed and not is_fixed_chain:
             raise ValueError(

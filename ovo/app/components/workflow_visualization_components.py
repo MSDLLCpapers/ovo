@@ -84,7 +84,7 @@ def select_structure_prediction_descriptor(paths: dict[str, str]) -> StructureFi
 def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     design: Design = get_cached_design(design_id)
 
-    chain_contigs = [c.contig + "/0" for c in design.spec.chains]
+    chain_contigs = [c.contig for c in design.spec.chains]
     st.write(f"Contig: **{' '.join(chain_contigs)}**")
 
     show_design_metrics(
@@ -281,7 +281,11 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
                 storage.read_file_str(paths[sequence_design_descriptor.key]),
                 prediction_pdb,
             ],
-            chain_residue_mappings=[[("A", None)], [("A", None)]],
+            chain_residue_mappings=[
+                # align on all chains (sequences of design and prediction are identical)
+                [(chain_id, None) for c in design.spec.chains for chain_id in c.chain_ids],
+                [(chain_id, None) for c in design.spec.chains for chain_id in c.chain_ids],
+            ],
             all_atom=False,
         )
         aligned_str = structures[1]

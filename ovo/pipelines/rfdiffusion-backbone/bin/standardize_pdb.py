@@ -185,11 +185,11 @@ def renumber_rfdiffusion_pdb(pdb_file: str, trb_file: str, output_pdb: str):
         trb_ref_pdb_idx = trb["complex_con_ref_pdb_idx"]
         # Order first designed chains and after fixed chains
         ordered_contig_chains = order_designed_contig(masked_contig_chains, trb_ref_pdb_idx)
-        standardized_contig = " ".join(ordered_contig_chains)
     else:
         # If no complex_con_ref_pdb_idx, use the masked segments as is
         ordered_contig_chains = masked_contig_chains
-        standardized_contig = ordered_contig_chains[0]
+
+    standardized_contig = " ".join(ordered_contig_chains)
 
     input_num, output_num, standard_num = input_output_standard_mapping(ordered_contig_chains)
 

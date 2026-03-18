@@ -173,8 +173,14 @@ def process_workflow_results(
                 )
 
     # Create descriptor job on the fly
+    designed_chain_ids = sorted(
+        set(chain_id for design in designs for c in design.spec.chains for chain_id in c.chain_ids)
+    )
     descriptor_job = save_descriptor_job_for_design_job(
-        design_job=job, project_id=project_round.project_id, chains=["A"], design_ids=list(design_id_mapping.keys())
+        design_job=job,
+        project_id=project_round.project_id,
+        chains=designed_chain_ids,
+        design_ids=list(design_id_mapping.keys()),
     )
     for value in descriptor_values:
         value.descriptor_job_id = descriptor_job.id
@@ -318,12 +324,13 @@ def process_rfdiffusion_design(
         design.structure_path = sequence_design_pdb_path
         design.structure_descriptor_key = sequence_design_descriptor.key
         design.spec = DesignSpec.from_pdb_str(
-            pdb_data=storage.read_file_str(mpnn_full_source_path), chains=["A"], cyclic=cyclic
+            pdb_data=storage.read_file_str(mpnn_full_source_path),
+            cyclic=cyclic,
         )
         shared_args = dict(
             design_id=design.id,
             descriptor_job_id=None,
-            chains="A",
+            chains=",".join(chain_id for c in design.spec.chains for chain_id in c.chain_ids),
         )
         descriptor_values.extend(
             [
