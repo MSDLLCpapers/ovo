@@ -14,6 +14,7 @@ from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
     parse_partial_diffusion_binder_contig,
     create_partial_diffusion_binder_contig,
+    parse_contig_for_input_structure,
 )
 
 MODEL_WEIGHTS_SCAFFOLD = ["Base", "ActiveSite"]
@@ -83,15 +84,28 @@ class RFdiffusionParams(WorkflowParams):
             assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
             if not all(re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in self.hotspots.split(",")):
                 raise ValueError(f"Invalid hotspots format, expected 'A123,A124,A131', got: '{self.hotspots}'")
+            hotspot_positions = self.hotspots.split(",")
+            for contig in self.contigs:
+                contig_segments = [f"{s.chain}{s.start}-{s.end}" for s in parse_contig_for_input_structure(contig)]
+                contig_positions = from_segments_to_hotspots(contig_segments).split(",")
+                hotspots_missing_in_contig = set(hotspot_positions).difference(set(contig_positions))
+                if hotspots_missing_in_contig:
+                    raise ValueError(
+                        f"Hotspot positions {hotspots_missing_in_contig} are not included in contig segments {contig_segments}. "
+                        f"Please make sure that all hotspots are included in the contig segments."
+                    )
         if self.custom_backbones:
             # Do not validate if this stage is skipped
             return
         if not self.contig:
             raise ValueError("Please provide a contig")
-        if "/0 " not in self.contig and " " in self.contig:
-            raise ValueError(
-                f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{self.contig}"'
-            )
+        for contig in self.contigs:
+            if "/0 " not in contig and " " in contig:
+                raise ValueError(
+                    f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{contig}"'
+                )
+            # verify that contig can be parsed
+            parse_contig_for_input_structure(contig)
         if self.contigmap_length:
             assert isinstance(self.contigmap_length, (int, str)), (
                 f"Expected int or str, got {self.contigmap_length} for contigmap_length"
