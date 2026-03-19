@@ -17,7 +17,7 @@ authors = [
 dependencies = [
     "numpy",
     "pandas>=2.2.3",
-    "streamlit>=1.52",
+    "streamlit>=1.55",
     "authlib",
     "boto3",
     "mypy-boto3",
@@ -26,7 +26,7 @@ dependencies = [
     "mypy-boto3-logs",
     "biopython",
     "plotly",
-    "streamlit-timeago",
+    "streamlit-timeago>=0.1.3",
     "timeago",
     "sqlalchemy",
     "appdirs",
@@ -34,7 +34,7 @@ dependencies = [
     "humanize",
     "cmap",
     "biopandas",
-    "nextflow",
+    "nextflow < 26", # to avoid enabling strict parser by default
     "psutil",
     "typer",
     "rich",

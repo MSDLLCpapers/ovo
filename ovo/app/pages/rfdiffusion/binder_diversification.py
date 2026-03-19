@@ -16,7 +16,7 @@ from ovo.app.components.submission_components import (
     show_rfdiffusion_binder_seq_design_inputs,
 )
 
-from ovo.app.pages import jobs_page, designs_page, rf_binder_design_page
+from ovo.app.pages import jobs_page, designs_page
 from ovo.app.utils.page_init import initialize_page
 from ovo import (
     config,
@@ -80,8 +80,8 @@ of timesteps, the more the generated backbones will diverge from the original bi
         - Backbone metrics
         - Sequence composition
 
-You can run this workflow as a next step after {rf_binder_design_page.title} — besides partial diffusion, the methods and computed 
-metrics are the same.
+You can run this workflow as a next step after the RFdiffusion binder design workflow — besides partial diffusion, 
+the methods and computed metrics are the same.
 
 ### Features
                 

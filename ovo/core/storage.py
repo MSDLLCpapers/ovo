@@ -475,6 +475,22 @@ class Storage:
         """
         return self.store_file_bytes(file_str.encode(), storage_rel_path, overwrite=overwrite)
 
+    def get_project_path(
+        self, project_id: str, pool_id: str = None, input_bytes: bytes = None, absolute: bool = False
+    ) -> str:
+        """Get the storage path for a project or a specific section within a project."""
+        if pool_id:
+            path = f"project/{project_id}/pools/{pool_id}"
+        elif input_bytes:
+            hash_str = get_hashed_path_for_bytes(input_bytes)
+            path = f"project/{project_id}/inputs/{hash_str}"
+        else:
+            path = f"project/{project_id}"
+
+        if absolute:
+            return self.resolve_path(path)
+        return path
+
     def store_input(
         self,
         project_id: str,
@@ -504,8 +520,7 @@ class Storage:
         elif file_str is not None:
             assert filename is not None, "filename must be provided when loading from string"
             file_bytes = file_str.encode()
-        hash_str = get_hashed_path_for_bytes(file_bytes)
-        storage_rel_path = os.path.join("project", project_id, "inputs", hash_str, filename)
+        storage_rel_path = os.path.join(self.get_project_path(project_id, input_bytes=file_bytes), filename)
         return self.store_file_bytes(file_bytes, storage_rel_path)
 
     def create_zip(self, storage_paths_by_dir: dict[str, list[str]]) -> bytes:

@@ -1,5 +1,6 @@
 [server]
 folderWatchList = ["ovo"]
+maxUploadSize = 300
 
 [logger]
 enableRich = false

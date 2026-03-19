@@ -1,19 +1,7 @@
 import streamlit as st
 import os
-from ovo import config
 
 ASSETS_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "assets")
-
-CSS = None
-
-
-def read_css():
-    """Cache CSS contents to speed up page load"""
-    global CSS
-    if CSS is None:
-        with open(os.path.join(ASSETS_PATH, "styles.css"), "r") as f:
-            CSS = f.read()
-    return CSS
 
 
 @st.dialog("Welcome to OVO!")
@@ -52,18 +40,6 @@ def initialize_page(page_title=None):
         page_icon=os.path.join(ASSETS_PATH, "ovo-favicons32x32.png"),
     )
 
-    st.markdown(f"<style>{read_css()}</style>", unsafe_allow_html=True)
-
-    if config.auth.streamlit_auth:
-        if not st.user.get("is_logged_in"):
-            show_login_dialog()
-            st.stop()
-
-    if login_token := os.environ.get("OVO_LOGIN_TOKEN"):
-        if st.session_state.get("login_token") != login_token:
-            show_login_dialog(token=login_token)
-            st.stop()
-
     from ovo.app.components.sidebar import project_sidebar_component
 
     if st.session_state.get("flash_success"):
@@ -79,8 +55,8 @@ def initialize_page(page_title=None):
         if "pool_inputs" not in st.session_state:
             st.session_state.pool_inputs = {}
 
-        if "new_project_name" not in st.session_state:
-            st.session_state.new_project_name = None
+        if "flash_project" not in st.session_state:
+            st.session_state.flash_project = None
 
         if "project" not in st.session_state:
             st.session_state.project = None  # filled in project_sidebar() below

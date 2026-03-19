@@ -503,6 +503,7 @@ def update_and_process_descriptors(descriptor_jobs: List[DescriptorJob], error_c
     """
     Update descriptor jobs and process finished descriptor jobs
     """
+    processed_jobs = []
     for descriptor_job in descriptor_jobs:
         job_result = update_job_status(descriptor_job)
 
@@ -510,12 +511,14 @@ def update_and_process_descriptors(descriptor_jobs: List[DescriptorJob], error_c
             workflow_name = descriptor_job.workflow.name or "workflow"
             try:
                 process_results(descriptor_job, wait=False)
+                processed_jobs.append(descriptor_job)
             except Exception as e:
                 # Print exception and continue processing other jobs
                 error_callback(
                     f"Unexpected error processing result of {workflow_name} (job {descriptor_job.job_id}): {e}"
                 )
                 traceback.print_exc()
+    return processed_jobs
 
 
 def export_proteinqc_excel(design_ids: list[str], output_path: str = None):

@@ -1,9 +1,7 @@
 from datetime import datetime
 
-import pandas as pd
 import streamlit as st
 from humanize import precisedelta
-from streamlit_timeago import time_ago
 
 from ovo import db, get_scheduler, Pool, Design, WorkflowTypes, DesignWorkflow
 from ovo.app.components.acceptance_thresholds_components import (
@@ -13,6 +11,8 @@ from ovo.app.components.acceptance_thresholds_components import (
     filter_designs_by_thresholds_cached,
 )
 import streamlit.components.v1 as components
+
+from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_scatterplot import (
@@ -82,8 +82,7 @@ def design_job_detail(pool_ids):
     num_pools_in_progress = sum(job.job_result is None for job in design_jobs)
 
     if num_pools_in_progress:
-        st.button(":material/refresh: Refresh", key="refresh1")
-        time_ago(datetime.now(), prefix="Refreshed", key="refreshed1")
+        refresh_button("refresh_top")
 
     if "show_all" not in st.session_state:
         st.session_state.show_all = False
@@ -114,8 +113,7 @@ def design_job_detail(pool_ids):
             f"Not including results of {num_pools_in_progress} ongoing workflow"
             + ("s" if num_pools_in_progress > 1 else "")
         )
-        st.button(":material/refresh: Refresh", key="refresh2")
-        time_ago(datetime.now(), prefix="Refreshed", key="refreshed2")
+        refresh_button("refresh_bottom")
 
     all_design_ids = sorted(db.select_unique_values(Design, "id", pool_id__in=pool_ids))
 

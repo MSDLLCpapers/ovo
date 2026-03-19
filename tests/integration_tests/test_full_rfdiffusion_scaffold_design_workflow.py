@@ -112,7 +112,7 @@ def test_scaffold_end_to_end_logic(project_data):
         params=FoldseekParams(
             exhaustive_search=True,
             e=100,
-        )
+        ),
     )
     clustering.validate()
     descriptor_job = descriptor_logic.submit_descriptor_workflow(

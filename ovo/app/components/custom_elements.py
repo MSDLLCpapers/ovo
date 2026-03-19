@@ -1,9 +1,13 @@
+import re
+from datetime import datetime
+
 import streamlit as st
 import html
 from typing import Iterable
 from humanize import naturalsize
 from streamlit.delta_generator import DeltaGenerator
 from streamlit_js_eval import streamlit_js_eval
+from streamlit_timeago import time_ago
 
 
 def heading_with_value(heading: str, secondary_text: str, level: int = 2, font_weight: int = 800):
@@ -73,3 +77,29 @@ def wrapped_columns(n: int, wrap=4, divider=False, **kwargs) -> list[DeltaGenera
 def confirm_download_button(data, **kwargs):
     size_suffix = f" ({naturalsize(len(data))})" if len(data) > 1024 * 1024 else ""
     st.download_button("Confirm download" + size_suffix, type="primary", data=data, **kwargs)
+
+
+def highlight_query(text: str, query: str) -> str:
+    """Highlight all occurrences of query in text with **:primary-background[query]**"""
+    if not text or not query or not query.strip():
+        return text
+    return re.sub(
+        re.escape(query),
+        lambda match: f" **:primary-background[{match.group(0)}]** ",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def refresh_button(key: str, text="Refresh"):
+    with st.container(horizontal=True, vertical_alignment="center"):
+        just_refreshed = st.button(f":material/refresh: {text}", key=f"refresh-{key}")
+        with st.container(width=400):
+            iframe_key = f"refreshed-{key}"
+            # css to avoid margin below iframe
+            st.html(
+                """<style>
+                   .st-key-KEY iframe { display: block; }
+                   </style>""".replace("KEY", iframe_key)
+            )
+            time_ago(datetime.now(), prefix="Refreshed", key=iframe_key, flash=just_refreshed)

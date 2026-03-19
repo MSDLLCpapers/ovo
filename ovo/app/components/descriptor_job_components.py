@@ -1,7 +1,7 @@
 from datetime import datetime
 import streamlit as st
-from streamlit_timeago import time_ago
 from ovo import db, get_scheduler
+from ovo.app.components.custom_elements import refresh_button
 from ovo.core.database.models import DescriptorJob
 from ovo.core.logic.descriptor_logic import update_and_process_descriptors
 
@@ -31,24 +31,28 @@ def refresh_descriptors(design_ids: list[str] | set[str], workflow_names: list[s
             ]
 
         pending_jobs = [j for j in pending_or_failed_jobs if j.job_result is None]
-        update_and_process_descriptors(descriptor_jobs=pending_jobs, error_callback=st.error)
+
+        processed_jobs = update_and_process_descriptors(descriptor_jobs=pending_jobs, error_callback=st.error)
+        for processed_job in processed_jobs:
+            st.success(f"{processed_job.workflow.name} job has finished")
 
         failed_jobs = [j for j in pending_or_failed_jobs if j.job_result is False]
 
         if num_pending_jobs := sum(j.job_result is None for j in pending_jobs):
-            st.info(
-                f"Not including results of {num_pending_jobs} ongoing descriptor job"
-                + ("s" if num_pending_jobs > 1 else "")
-            )
-            st.button(":material/refresh: Refresh", key="refresh_details_page")
-            time_ago(datetime.now(), prefix="Refreshed", key="refreshed")
-            with st.expander("Log output"):
-                for job in pending_jobs:
-                    st.write(job.workflow.name)
-                    if st.button("Show log", key=f"show_log_{job.job_id}"):
-                        with st.container(height=400):
-                            scheduler = get_scheduler(job.scheduler_key)
-                            st.code(scheduler.get_log(job.job_id))
+            if num_pending_jobs > 1:
+                st.info(f"{num_pending_jobs} descriptor jobs are in progress")
+            else:
+                st.info("Descriptor job is in progress")
+
+            refresh_button("refresh_descriptors")
+
+            for job in pending_jobs:
+                log_expander = st.expander(
+                    f"Log output: {job.workflow.name}", on_change="rerun", key=f"expander_{job.job_id}"
+                )
+                if log_expander.open:
+                    with log_expander:
+                        descriptor_log_fragment(job)
 
         for job in failed_jobs:
             failed_design_ids = sorted(set(design_ids).intersection(job.workflow.design_ids))
@@ -62,3 +66,13 @@ def refresh_descriptors(design_ids: list[str] | set[str], workflow_names: list[s
                     with st.container(height=400):
                         scheduler = get_scheduler(job.scheduler_key)
                         st.code(scheduler.get_log(job.job_id))
+
+
+def descriptor_log_fragment(job: DescriptorJob):
+    with st.container(height=400):
+        scheduler = get_scheduler(job.scheduler_key)
+        st.code(scheduler.get_log(job.job_id))
+        if st.button(":material/refresh: Refresh", key=f"refresh_{job.job_id}", type="tertiary"):
+            if job.job_result is None and scheduler.get_result(job.job_id) is not None:
+                # Workflow just finished, re-run whole page
+                st.rerun(scope="app")

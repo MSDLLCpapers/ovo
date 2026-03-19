@@ -4,10 +4,6 @@ import streamlit as st
 from ovo import config
 from ovo.app.utils.page_init import initialize_page
 
-# We have to initialize at every page because of 2 reasons:
-# - importing the styles (for the OVO logo etc., contigs styling, setting the favicon...)
-# - to make sure that the st.session_state contains all variables used throughout the app
-
 initialize_page("OVO, where new proteins hatch!")
 
 st.title("Welcome to OVO" + (f", {st.user.given_name}!" if st.user.get("given_name") else "!"))

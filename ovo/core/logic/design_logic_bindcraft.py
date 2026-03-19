@@ -63,8 +63,7 @@ def process_workflow_results(
     extra_filenames = extra_filenames or {}
 
     # this is where result files will be stored in our storage
-    # make sure to remove trailing slash otherwise S3 will keep two slashes in the path
-    destination_dir = os.path.join("project", project_round.project_id, "pools", pool.id, "designs").rstrip("/")
+    destination_dir = storage.get_project_path(project_round.project_id, pool.id)
 
     source_output_path = scheduler.get_output_dir(job.job_id)
 
