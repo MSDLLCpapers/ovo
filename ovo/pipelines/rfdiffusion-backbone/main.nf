@@ -31,7 +31,7 @@ process RFdiffusion {
     mkdir -p output
     export HYDRA_FULL_ERROR=1
 
-    echo WORKFLOW: ${workflow}
+    echo WORKFLOW: "${workflow}"
     exit 2
     # Initialize lib directory
 	if [[ ${workflow.containerEngine} == "null" ]]; then
