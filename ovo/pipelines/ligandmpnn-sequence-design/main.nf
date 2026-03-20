@@ -23,10 +23,11 @@ process LigandMpnn {
     """
     set -euxo pipefail
 
-    # Initialize models directory
-    ${workflow.containerEngine == null
-      ? "echo 'Using conda environment'; ligandmpnn=ligandmpnn"
-      : "ln -s /opt/LigandMPNN/model_params ./model_params; ligandmpnn='python /opt/LigandMPNN/run.py'"}
+    if [[ ! -d /opt/LigandMPNN ]]; then
+        ligandmpnn=ligandmpnn # assume available on PATH (conda version)
+    else
+        ln -s /opt/LigandMPNN/model_params ./model_params; ligandmpnn='python /opt/LigandMPNN/run.py'
+    fi
 
     mkdir ${batch_name}
 

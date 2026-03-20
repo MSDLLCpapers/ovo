@@ -20,11 +20,13 @@ process proteinQCPepPatch {
   output:
     path "${batch_dir}/*", emit: output_csv
   script:
-  if (workflow.containerEngine == null) {
-    throw new RuntimeException("Conda environment not supported for Pep-Patch. Please use a container profile like docker or singularity.")
-  }
   """
   set -euxo pipefail
+
+  if [[ ! -d /opt/resources ]]; then
+      echo "PepPatch is only supported with containers (Docker/Singularity/Apptainer/...)";
+      exit 1;
+  fi
 
   # Calculate memory limit = requested memory - 100MB
   mem_limit_kb=\$(( (${task.memory.toMega()} - 100) * 1024 ))
