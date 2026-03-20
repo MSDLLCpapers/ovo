@@ -31,6 +31,8 @@ process RFdiffusion {
     mkdir -p output
     export HYDRA_FULL_ERROR=1
 
+    echo WORKFLOW: ${workflow}
+    exit 2
     # Initialize lib directory
 	if [[ ${workflow.containerEngine} == "null" ]]; then
 	    SITE=\$(python -c "import site; print(site.getsitepackages()[0])")
