@@ -22,7 +22,7 @@ process ProteinMPNN_Fast_Relax {
     set -euxo pipefail
 
     # Initialize lib directory
-    if [[ ${workflow.containerEngine} == "null" ]]; then
+    if [[ ! -d /opt/ProteinMPNN ]]; then
         SITE=\$(python -c "import site; print(site.getsitepackages()[0])")
         if [[ ! -d "\$SITE/dl_binder_design" ]]; then
             git clone --depth 1 https://github.com/nrbennet/dl_binder_design.git "\$SITE/dl_binder_design"

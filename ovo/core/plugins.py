@@ -42,7 +42,8 @@ class OVOPlugin(BaseModel):
     @classmethod
     def from_dict(cls, plugin_dict: dict, module_name: str) -> "OVOPlugin":
         """Create OVOPlugin from legacy dict format with original validation logic"""
-
+        # avoid modifying original dict
+        plugin_dict = plugin_dict.copy()
         if "extension_points" not in plugin_dict:
             # backwards compatibility: if "extension_points" are not present,
             # try to create them from legacy keys like "pages" and "design_views"
