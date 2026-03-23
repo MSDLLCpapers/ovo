@@ -660,7 +660,13 @@ def bindcraft_binder_design_visualization(design_id: str):
     )
 
     molstar_custom_component(
-        structures=[StructureVisualization(pdb=storage.read_file_str(design.structure_path))], key="bindcraft_1"
+        structures=[
+            StructureVisualization(
+                pdb=storage.read_file_str(design.structure_path),
+                color="chain-id",
+            )
+        ],
+        key="bindcraft_1",
     )
 
 

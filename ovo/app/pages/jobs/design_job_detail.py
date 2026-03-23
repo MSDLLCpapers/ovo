@@ -73,9 +73,28 @@ def design_job_detail(pool_ids):
                 if job.job_result:
                     st.success(f"Workflow finished: {pool.name}")
 
-    st.subheader("Workflow parameters")
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="bottom"):
+        st.subheader("Workflow parameters")
+
+        show_distinct = (
+            st.segmented_control(
+                "Distinct",
+                options=["All parameters", "Distinct parameters"],
+                key="show_distinct",
+                default="All parameters",
+                label_visibility="collapsed",
+            )
+            == "Distinct parameters"
+            if len(pool_ids) > 1
+            else False
+        )
+
     table = get_cached_design_jobs_table(round_ids=sorted(set(p.round_id for p in pools)), id__in=pool_ids)
     table.index = [pools_by_design_job[j.id].id for j in design_jobs]
+
+    if show_distinct:
+        table = table[table.columns[table.astype(str).nunique() > 1]]
+
     st.dataframe(table)
 
     num_pools_failed = sum(job.job_result == False for job in design_jobs)
