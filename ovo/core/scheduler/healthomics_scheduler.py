@@ -261,10 +261,13 @@ class HealthOmicsScheduler(Scheduler):
                 "instanceType": "instance_type",
             }
         )
-        tasks["duration_seconds"] = tasks.apply(
-            lambda row: (row["stop_time"] - row["start_time"]).total_seconds()
-            if row["stop_time"] and row["start_time"]
-            else None,
-            axis=1,
-        )
+        if "start_time" in tasks.columns and "stop_time" in tasks.columns:
+            tasks["duration_seconds"] = tasks.apply(
+                lambda row: (row["stop_time"] - row["start_time"]).total_seconds()
+                if row["stop_time"] and row["start_time"]
+                else None,
+                axis=1,
+            )
+        else:
+            tasks["duration_seconds"] = None
         return tasks
