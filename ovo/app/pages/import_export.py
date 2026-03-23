@@ -82,8 +82,8 @@ def export_tab():
         st.metric("Visibility", "Public" if project.public else "Private")
 
     selection_options = {
-        "all": "All designs",
         "accepted": "Accepted designs",
+        "all": "All designs",
     }
     selection = st.radio(
         "Export", options=selection_options.keys(), format_func=selection_options.get, key="export_selection"

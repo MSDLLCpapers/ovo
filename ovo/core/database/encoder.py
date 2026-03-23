@@ -39,7 +39,11 @@ class DataclassType(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        result = json.loads(value)
+        # PostgreSQL JSONB returns dict directly, SQLite returns JSON string
+        if isinstance(value, dict):
+            result = value  # PostgreSQL case
+        else:
+            result = json.loads(value)  # SQLite case
         if hasattr(self.base_cls, "from_dict"):
             return self.base_cls.from_dict(result)
         return self.base_cls(**result)

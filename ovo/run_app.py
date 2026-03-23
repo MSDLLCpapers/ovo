@@ -2,73 +2,67 @@
 # Run everything including imports only in __main__ block
 # This is done to avoid subprocesses initializing streamlit
 #
-import importlib
 import os
+
+from ovo.app.utils.page_init import show_login_dialog
+from ovo.core.logic.user_settings_logic import get_or_create_user_settings
+
+ASSETS_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), "app", "assets")
+
+CSS = None
+
+
+def read_css():
+    """Cache CSS contents to speed up page load"""
+    global CSS
+    if CSS is None:
+        with open(os.path.join(ASSETS_PATH, "styles.css"), "r") as f:
+            CSS = f.read()
+    return CSS
+
 
 if __name__ == "__main__":
     import streamlit as st
-    from ovo import config, get_username
-    from ovo.core.plugins import plugin_pages
+    from ovo import config
+    from ovo.app.pages import main_pages, hidden_pages, workflow_page_tuples
 
-    from ovo.app.pages import (
-        welcome_page,
-        jobs_page,
-        designs_page,
-        rf_scaffold_design_page,
-        rf_binder_design_page,
-        rf_binder_diversification_page,
-        bindcraft_binder_design_page,
-        admin_debug_page,
-        admin_import_export_page,
+    st.markdown(f"<style>{read_css()}</style>", unsafe_allow_html=True)
+
+    # Create navigation manually for selected pages
+    for group, group_pages in main_pages.items():
+        for page in group_pages:
+            st.sidebar.page_link(page)
+
+    if config.auth.streamlit_auth:
+        if not st.user.get("is_logged_in"):
+            show_login_dialog()
+            st.stop()
+
+    if login_token := os.environ.get("OVO_LOGIN_TOKEN"):
+        if st.session_state.get("login_token") != login_token:
+            show_login_dialog(token=login_token)
+            st.stop()
+
+    if "pinned_workflow_pages" not in st.session_state:
+        user_settings = get_or_create_user_settings()
+        st.session_state["pinned_workflow_pages"] = user_settings.props.get("ovo.pinned_workflow_pages", [])
+    pages_by_path = {workflow_page.path: (workflow_page, st_page) for workflow_page, st_page in workflow_page_tuples}
+    pinned_pages = [pages_by_path[path] for path in st.session_state["pinned_workflow_pages"] if path in pages_by_path]
+    if pinned_pages:
+        st.sidebar.caption("Pinned workflows")
+        for _, st_page in pinned_pages[:5]:
+            st.sidebar.page_link(st_page)
+
+    st.sidebar.divider()
+
+    # HIDDEN navigation (only used to enable programmatic page switching)
+    # Actual navigation is created manually above
+    pg = st.navigation(
+        pages={
+            **main_pages,
+            **hidden_pages,
+            "Workflows": [page for _, page in workflow_page_tuples],
+        },
+        position="hidden",
     )
-
-    pages = {
-        "Browse": [
-            welcome_page,
-            jobs_page,
-            designs_page,
-        ],
-        "RFdiffusion": [
-            rf_scaffold_design_page,
-            rf_binder_design_page,
-            rf_binder_diversification_page,
-        ],
-        "BindCraft": [
-            bindcraft_binder_design_page,
-        ],
-    }
-
-    if plugin_pages:
-        url_paths = set(page._url_path for group in pages.values() for page in group)
-        for group_label, module_pages in plugin_pages.items():
-            for page_dict in module_pages:
-                assert isinstance(page_dict, dict), (
-                    f"Expected dictionaries in '{module_name}.pages, found: {type(page_dict).__name__}: {page_dict}"
-                )
-                page_module_path = page_dict["page"]
-                assert "/" not in page_module_path and not page_module_path.endswith(".py"), (
-                    f"Plugin page should be defined by module path (my_tool.page_module), got {page_module_path}"
-                )
-                module_name = page_module_path.split(".")[0]
-                module = importlib.import_module(module_name)
-                url_path = page_module_path.split(".")[-1]
-                while url_path in url_paths:
-                    url_path += "_copy"
-                url_paths.add(url_path)
-                page_file_path = page_module_path.removeprefix(module_name).removeprefix(".").replace(".", "/") + ".py"
-                pages[group_label] = pages.get(group_label, []) + [
-                    st.Page(
-                        page=os.path.join(os.path.dirname(module.__file__), page_file_path),
-                        url_path=url_path,
-                        **{k: v for k, v in page_dict.items() if k != "page"},
-                    )
-                ]
-
-    if get_username() in config.auth.admin_users:
-        pages["Admin section"] = [
-            admin_debug_page,
-            admin_import_export_page,
-        ]
-
-    pg = st.navigation(pages)
     pg.run()

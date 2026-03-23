@@ -22,7 +22,7 @@ process proteinQCProteinSol {
   mkdir "${batch_dir}"
 
   # Initialize lib directory
-  if [[ ${workflow.containerEngine} == "null" ]]; then
+  if [[ ! -d /opt/protein-sol-sequence-prediction-software ]]; then
       SITE=\$(python -c "import site; print(site.getsitepackages()[0])")
       if [[ ! -d "\$SITE/protein-sol-sequence-prediction-software" ]]; then
           wget -O "\$SITE/proteinsol.zip" https://protein-sol.manchester.ac.uk/cgi-bin/utilities/download_sequence_code.php

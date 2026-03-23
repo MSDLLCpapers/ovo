@@ -1,6 +1,6 @@
 from collections import Counter
 from ovo.core.database.models import StructureFileDescriptor
-from ovo.core.plugins import load_variable, plugin_descriptors
+from ovo.core.plugins import load_variable, get_extension_points
 
 # Add descriptors and presets from plugins
 # key -> { label: str, x: Descriptor, y: Descriptor }
@@ -13,7 +13,10 @@ for descriptor_path in [
     "ovo.core.database.descriptors_bindcraft",
     "ovo.core.database.descriptors_proteinqc",
     "ovo.core.database.descriptors_clustering",
-] + plugin_descriptors:
+] + get_extension_points("ovo.descriptors", str):
+    assert isinstance(descriptor_path, str), (
+        f"Expected descriptor path to be a string (my_module.descriptor_submodule), got {descriptor_path}"
+    )
     module_name = descriptor_path.split(".")[0]
     # Load DESCRIPTORS from plugin and extend ALL_DESCRIPTORS
     _descriptors = load_variable(f"{descriptor_path}:DESCRIPTORS")

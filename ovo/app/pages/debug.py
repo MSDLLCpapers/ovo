@@ -5,10 +5,11 @@ from io import StringIO
 import yaml
 from ovo import Design, Pool, Project, DesignJob, DescriptorJob, Round
 from ovo import db, get_username, config
+from ovo.app.utils.page_init import initialize_page
 
-st.set_page_config(layout="wide", page_title="Debug", page_icon="🖥️")
+initialize_page(page_title="Debug")
 
-st.title("🧬 Debug")
+st.title("🖥️ Debug")
 
 st.write("This page is visible only to selected admin users.")
 
