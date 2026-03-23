@@ -78,7 +78,7 @@ def project_sidebar_component():
     dropdown_style = """
     <style>
     .stTooltipContent {
-    pointer-events: none;
+    cursor: pointer !important;
     }
     </style>
     """
