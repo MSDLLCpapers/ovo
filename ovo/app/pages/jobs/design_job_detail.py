@@ -319,118 +319,20 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
         default=st.query_params.get("show", "Accepted designs"),
     )
 
-    if show_mode == "Accepted designs":
-        accepted_design_ids = db.select_values(Design, "id", id__in=all_design_ids, accepted=True)
-
-        if st.session_state.selected_thresholds != saved_thresholds:
-            st.header("Editing thresholds")
-        elif accepted_design_ids:
-            st.header(
-                f"Showing {len(accepted_design_ids)} accepted {'designs' if len(accepted_design_ids) > 1 else 'design'}"
-            )
-        else:
-            st.header("No accepted designs")
-            st.warning(
-                """
-                None of the designs met the acceptance thresholds. 
-                You may adjust to less strict thresholds below, or try submitting more designs.
-
-                To see all generated designs, select 'All designs' above.
-                """
-            )
-
-        new_accepted_design_ids, num_accepted_by_descriptor = filter_designs_by_thresholds_cached(
-            all_design_ids=all_design_ids,
-            thresholds=st.session_state.selected_thresholds,
-        )
-
-        if st.session_state.selected_thresholds != saved_thresholds:
-            st.write(
-                f"Accepted designs based on new thresholds: **{len(new_accepted_design_ids):,} / {len(all_design_ids):,}** ({len(new_accepted_design_ids) / len(all_design_ids):.0%})"
-            )
-        else:
-            st.write(
-                f"Accepted designs: **{len(accepted_design_ids):,} / {len(all_design_ids):,}** ({len(accepted_design_ids) / len(all_design_ids):.2%})"
-            )
-
-        display_current_thresholds(
-            selected_thresholds=st.session_state.selected_thresholds,
-            all_design_ids=all_design_ids,
-            num_accepted_by_descriptor=num_accepted_by_descriptor,
-        )
-
-        if st.session_state.selected_thresholds != saved_thresholds:
-            if inconsistent_threshold_keys:
-                st.warning(
-                    f"Selected pools currently use different thresholds for {' & '.join(inconsistent_threshold_keys)}, confirming will override these with the selected threshold value."
-                )
-            left, mid, _, _ = st.columns(4)
-            if left.button("Confirm thresholds", key="confirm_designs_btn", type="primary", width="stretch"):
-                accept_designs_dialog(
-                    pools=pools,
-                    jobs=jobs,
-                    all_design_ids=all_design_ids,
-                    new_accepted_design_ids=new_accepted_design_ids,
-                    num_accepted_by_descriptor=num_accepted_by_descriptor,
-                    selected_thresholds=st.session_state.selected_thresholds,
-                )
-            if mid.button("Discard changes", width="stretch"):
-                st.session_state.selected_thresholds = saved_thresholds
-                st.rerun()
-
-        st.subheader("Acceptance thresholds")
-        if inconsistent_threshold_keys:
-            st.warning(
-                f"Looking at multiple workflows with different thresholds for {' & '.join(inconsistent_threshold_keys)}, using the first values."
-            )
-        new_thresholds = thresholds_and_histograms_component(
-            selected_thresholds=st.session_state.selected_thresholds,
-            saved_thresholds=saved_thresholds,
-            all_design_ids=all_design_ids,
-        )
-
-        if st.session_state.selected_thresholds != new_thresholds:
-            # User just changed one of the thresholds, update them in session state
-            st.session_state.selected_thresholds = new_thresholds
-            st.rerun()
-
-        if st.session_state.selected_thresholds != saved_thresholds:
-            st.header(
-                f"{len(new_accepted_design_ids):,} accepted {'design' if len(new_accepted_design_ids) == 1 else 'designs'} based on new thresholds"
-            )
-            st.warning(
-                "Thresholds have been changed, showing preview of accepted designs based on new thresholds. "
-                "Please save using the 'Confirm thresholds' button above to apply changes."
-            )
-            displayed_design_ids = new_accepted_design_ids
-        else:
-            displayed_design_ids = accepted_design_ids
-
-    elif show_mode == "All designs":
+    if show_mode != "Accepted designs":
+        # Add show mode to query params (but only when changed, to avoid polluting the URL)
         st.query_params["show"] = show_mode
-        scatterplot_settings = descriptor_scatterplot_input_component(all_design_ids)
-        if not scatterplot_settings:
-            return
 
-        selected_design_ids, selection_label = descriptor_scatterplot_pool_details_component(
-            settings=scatterplot_settings,
-            design_ids=all_design_ids,
-            highlight_accepted=True,
-            selected_thresholds=st.session_state.selected_thresholds,
+    if show_mode == "Accepted designs":
+        displayed_design_ids = show_accepted_designs_and_thresholds(
+            all_design_ids,
+            saved_thresholds,
+            pools,
+            jobs,
+            inconsistent_threshold_keys,
         )
-
-        if selection_label:
-            st.info(f"Selected region: {selection_label}")
-            displayed_design_ids = selected_design_ids
-            st.header(
-                f"Showing {len(displayed_design_ids):,} {'design' if len(displayed_design_ids) == 1 else 'designs'} selected in scatterplot"
-            )
-        else:
-            st.caption(
-                ":material/info: Select a region in the scatterplot to display designs that fall within the selected range."
-            )
-            displayed_design_ids = all_design_ids
-            st.header(f"Showing all {len(displayed_design_ids):,} designs")
+    elif show_mode == "All designs":
+        displayed_design_ids = show_all_designs(all_design_ids)
 
     else:
         st.error("Select a mode.")
@@ -450,6 +352,128 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
         design_ids=displayed_design_ids,
         shared_workflow_name=list(workflow_names)[0] if len(workflow_names) == 1 else None,
     )
+
+
+def show_accepted_designs_and_thresholds(
+    all_design_ids: list[str],
+    saved_thresholds: dict,
+    pools: list[Pool],
+    jobs: list[DesignJob],
+    inconsistent_threshold_keys: set[str],
+):
+    accepted_design_ids = db.select_values(Design, "id", id__in=all_design_ids, accepted=True)
+
+    if st.session_state.selected_thresholds != saved_thresholds:
+        st.header("Editing thresholds")
+    elif accepted_design_ids:
+        st.header(
+            f"Showing {len(accepted_design_ids)} accepted {'designs' if len(accepted_design_ids) > 1 else 'design'}"
+        )
+    else:
+        st.header("No accepted designs")
+        st.warning(
+            """
+            None of the designs met the acceptance thresholds. 
+            You may adjust to less strict thresholds below, or try submitting more designs.
+
+            To see all generated designs, select 'All designs' above.
+            """
+        )
+
+    new_accepted_design_ids, num_accepted_by_descriptor = filter_designs_by_thresholds_cached(
+        all_design_ids=all_design_ids,
+        thresholds=st.session_state.selected_thresholds,
+    )
+
+    if st.session_state.selected_thresholds != saved_thresholds:
+        st.write(
+            f"Accepted designs based on new thresholds: **{len(new_accepted_design_ids):,} / {len(all_design_ids):,}** ({len(new_accepted_design_ids) / len(all_design_ids):.0%})"
+        )
+    else:
+        st.write(
+            f"Accepted designs: **{len(accepted_design_ids):,} / {len(all_design_ids):,}** ({len(accepted_design_ids) / len(all_design_ids):.2%})"
+        )
+
+    display_current_thresholds(
+        selected_thresholds=st.session_state.selected_thresholds,
+        all_design_ids=all_design_ids,
+        num_accepted_by_descriptor=num_accepted_by_descriptor,
+    )
+
+    if st.session_state.selected_thresholds != saved_thresholds:
+        if inconsistent_threshold_keys:
+            st.warning(
+                f"Selected pools currently use different thresholds for {' & '.join(inconsistent_threshold_keys)}, confirming will override these with the selected threshold value."
+            )
+        left, mid, _, _ = st.columns(4)
+        if left.button("Confirm thresholds", key="confirm_designs_btn", type="primary", width="stretch"):
+            accept_designs_dialog(
+                pools=pools,
+                jobs=jobs,
+                all_design_ids=all_design_ids,
+                new_accepted_design_ids=new_accepted_design_ids,
+                num_accepted_by_descriptor=num_accepted_by_descriptor,
+                selected_thresholds=st.session_state.selected_thresholds,
+            )
+        if mid.button("Discard changes", width="stretch"):
+            st.session_state.selected_thresholds = saved_thresholds
+            st.rerun()
+
+    st.subheader("Acceptance thresholds")
+    if inconsistent_threshold_keys:
+        st.warning(
+            f"Looking at multiple workflows with different thresholds for {' & '.join(inconsistent_threshold_keys)}, using the first values."
+        )
+    new_thresholds = thresholds_and_histograms_component(
+        selected_thresholds=st.session_state.selected_thresholds,
+        saved_thresholds=saved_thresholds,
+        all_design_ids=all_design_ids,
+    )
+
+    if st.session_state.selected_thresholds != new_thresholds:
+        # User just changed one of the thresholds, update them in session state
+        st.session_state.selected_thresholds = new_thresholds
+        st.rerun()
+
+    if st.session_state.selected_thresholds != saved_thresholds:
+        st.header(
+            f"{len(new_accepted_design_ids):,} accepted {'design' if len(new_accepted_design_ids) == 1 else 'designs'} based on new thresholds"
+        )
+        st.warning(
+            "Thresholds have been changed, showing preview of accepted designs based on new thresholds. "
+            "Please save using the 'Confirm thresholds' button above to apply changes."
+        )
+        displayed_design_ids = new_accepted_design_ids
+    else:
+        displayed_design_ids = accepted_design_ids
+    return displayed_design_ids
+
+
+def show_all_designs(all_design_ids: list):
+    scatterplot_settings = descriptor_scatterplot_input_component(all_design_ids)
+    if not scatterplot_settings:
+        return
+
+    selected_design_ids, selection_label = descriptor_scatterplot_pool_details_component(
+        settings=scatterplot_settings,
+        design_ids=all_design_ids,
+        highlight_accepted=True,
+        selected_thresholds=st.session_state.selected_thresholds,
+    )
+
+    if selection_label:
+        st.info(f"Selected region: {selection_label}")
+        displayed_design_ids = selected_design_ids
+        st.header(
+            f"Showing {len(displayed_design_ids):,} {'design' if len(displayed_design_ids) == 1 else 'designs'} selected in scatterplot"
+        )
+    else:
+        st.caption(
+            ":material/info: Select a region in the scatterplot to display designs that fall within the selected range."
+        )
+        displayed_design_ids = all_design_ids
+        st.header(f"Showing all {len(displayed_design_ids):,} designs")
+    return displayed_design_ids
 
 
 @st.fragment
