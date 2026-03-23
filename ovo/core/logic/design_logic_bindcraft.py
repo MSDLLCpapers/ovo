@@ -168,7 +168,7 @@ def process_workflow_results(
             f"No designs found! Please use a higher time limit. You can inspect discarded trajectories in the output path: {source_output_path}"
         )
         # Job will be saved by caller
-        return
+        return []
 
     # ID, Rank, Model, Average_i_pTM, ...
     final_df = pd.DataFrame(final_rows).set_index("ID")
