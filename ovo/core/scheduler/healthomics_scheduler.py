@@ -238,7 +238,7 @@ class HealthOmicsScheduler(Scheduler):
         """Get job tasks as a DataFrame with columns: task_id, name, status, duration_seconds + custom columns from the scheduler"""
         items = []
         kwargs = dict(
-            runId=job_id,
+            id=job_id,
             maxResults=100,
         )
         while True:
