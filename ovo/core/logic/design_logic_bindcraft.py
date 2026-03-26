@@ -70,12 +70,10 @@ def _include_trajectory_designs(
     designs: list[Design],
     callback: Callable = None,
 ):
-    # Mock descriptors to reflect the same descriptors as are in the Accepted/Rejected (from MPNN) 
+    # Mock descriptors to reflect the same descriptors as are in the Accepted/Rejected (from MPNN)
     # to be able to show the visualizations of the rejected trajectories.
     original_mock = {
-        desc.key.split("|")[-1]: None
-        for desc in DESCRIPTORS
-        if desc.key.split("|")[-1] not in {"DesignVariant"}
+        desc.key.split("|")[-1]: None for desc in DESCRIPTORS if desc.key.split("|")[-1] not in {"DesignVariant"}
     }
     original_mock["TrajectoryPlaceholder"] = "TrajectoryPlaceholder"
 
