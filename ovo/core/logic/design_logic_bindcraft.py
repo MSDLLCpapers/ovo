@@ -11,6 +11,8 @@ from ovo.core.database.models_bindcraft import BindCraftBinderDesignWorkflow
 from ovo.app.utils.bindcraft_utils import load_json_from_file, merge_dictionaries
 from ovo.core.logic.descriptor_logic import read_descriptor_file_values, save_descriptor_job_for_design_job
 
+from ovo.core.database.descriptors_bindcraft import DESCRIPTORS
+
 
 def prepare_bindcraft_params(workflow: BindCraftBinderDesignWorkflow, workdir: str) -> dict:
     input_dict = {
@@ -26,10 +28,12 @@ def prepare_bindcraft_params(workflow: BindCraftBinderDesignWorkflow, workdir: s
     settings_advanced, settings_filters = workflow.get_settings_paths()
 
     merged_advanced_dict = merge_dictionaries(
-        load_json_from_file(settings_advanced), workflow.bindcraft_params.custom_advanced_settings
+        load_json_from_file(settings_advanced),
+        workflow.bindcraft_params.custom_advanced_settings,
     )
     merged_filter_dict = merge_dictionaries(
-        load_json_from_file(settings_filters), workflow.bindcraft_params.custom_filter_settings
+        load_json_from_file(settings_filters),
+        workflow.bindcraft_params.custom_filter_settings,
     )
 
     return {
@@ -54,6 +58,100 @@ def prepare_bindcraft_params(workflow: BindCraftBinderDesignWorkflow, workdir: s
     }
 
 
+def _include_trajectory_designs(
+    source_output_path: str,
+    batch_dir: str,
+    pool,
+    num_replicas,
+    replica,
+    design_id_mapping,
+    destination_dir,
+    final_rows: pd.DataFrame,
+    designs: list[Design],
+    callback: Callable = None,
+):
+    # Mock descriptors to reflect the same descriptors as are in the Accepted/Rejected (from MPNN) 
+    # to be able to show the visualizations of the rejected trajectories.
+    original_mock = {
+        desc.key.split("|")[-1]: None
+        for desc in DESCRIPTORS
+        if desc.key.split("|")[-1] not in {"DesignVariant"}
+    }
+    original_mock["TrajectoryPlaceholder"] = "TrajectoryPlaceholder"
+
+    trajectory_dir_names = [
+        "Relaxed",
+        "LowConfidence",
+        "Clashing",
+    ]
+    # All trajectory variants and paths to their directories.
+    trajectory_dir_paths = {
+        trajectory_dir_name: os.path.join(
+            source_output_path,
+            f"{batch_dir}/bindcraft/Trajectory/{trajectory_dir_name}",
+        )
+        for trajectory_dir_name in trajectory_dir_names
+    }
+    # All files in each trajectory directory. We compute this beforehand to be
+    # able to show accurate progress in the callback.
+    all_trajectory_filenames = {
+        trajectory_dir_name: [filename for filename in storage.list_dir(trajectory_dir) if filename.endswith(".pdb")]
+        for trajectory_dir_name, trajectory_dir in trajectory_dir_paths.items()
+    }
+
+    total_trajectory_files = sum(len(filenames) for filenames in all_trajectory_filenames.values())
+    trajectory_count = 1
+    for trajectory_dir_name, trajectory_dir in trajectory_dir_paths.items():
+        # Iterate through all Trajectory variants.
+        for filename in all_trajectory_filenames[trajectory_dir_name]:
+            # Iterate through
+            design = filename.removesuffix(".pdb")
+
+            if callback:
+                callback(
+                    value=(trajectory_count) / total_trajectory_files,
+                    text=f"Downloading design {design}",
+                )
+
+            id_prefix = f"ovo_{pool.id}"
+            if num_replicas > 1:
+                replica_str = str(replica).zfill(len(str(num_replicas)))
+                id_prefix += f"_batch{replica_str}"
+
+            structure_path = os.path.join(trajectory_dir, filename)
+            trajectory_count_str = str(trajectory_count).zfill(max(2, len(str(trajectory_count))))
+            design_id = f"{id_prefix}_trajectory-{trajectory_dir_name}{trajectory_count_str}_bindcraft"
+            design_id_mapping[design_id] = (
+                design_id,
+                filename.removesuffix(".pdb"),
+            )
+
+            final_rows.append(
+                {
+                    "ID": design_id,
+                    "Rank": None,
+                    "Model": "rejected trajectory (no model)",  # model
+                    "DesignVariant": f"Trajectory-{trajectory_dir_name}",
+                    # TODO: How to resolve this?
+                    # **mock_descriptor,
+                    **original_mock,
+                    # **row[final_designs.columns].to_dict(),
+                }
+            )
+            design = Design(
+                id=design_id,
+                pool_id=pool.id,
+                accepted=False,
+                structure_path=storage.store_file_path(
+                    structure_path,
+                    os.path.join(destination_dir, f"{design_id}.pdb"),
+                ),
+            )
+            design.spec = DesignSpec.from_pdb_str(pdb_data=storage.read_file_str(design.structure_path), chains=["B"])
+            designs.append(design)
+            trajectory_count += 1
+
+
 def process_workflow_results(
     job: DesignJob, callback: Callable = None, extra_filenames: dict | None = None
 ) -> list[Base]:
@@ -74,7 +172,7 @@ def process_workflow_results(
     final_rows = []
     design_id_mapping = {}
     for replica in range(1, num_replicas + 1):
-        batch_dir = f"batch{replica}"
+        batch_dir = f"contig1_batch{replica}"
         accepted_dir = os.path.join(source_output_path, f"{batch_dir}/bindcraft/Accepted")
         accepted_filenames = [filename for filename in storage.list_dir(accepted_dir) if filename.endswith(".pdb")]
         accepted_designs = [filename.split("_model")[0] for filename in accepted_filenames]
@@ -139,12 +237,16 @@ def process_workflow_results(
                     rejected_str = str(rejected).zfill(max(2, len(str(rejected))))
                     design_id = f"{id_prefix}_rejected{rejected_str}_bindcraft"
                     rejected += 1
-                design_id_mapping[design_id] = design_id
+                design_id_mapping[design_id] = (
+                    design_id,
+                    filename.removesuffix(".pdb"),
+                )
                 final_rows.append(
                     {
                         "ID": design_id,
                         "Rank": rank if accepted else None,
                         "Model": model,
+                        "DesignVariant": "Accepted" if accepted else "Rejected",
                         **row[final_designs.columns].to_dict(),
                     }
                 )
@@ -163,10 +265,29 @@ def process_workflow_results(
                 designs.append(design)
 
     if not final_rows:
-        # Case when no trajectories proceeded to filtering stage
+        # Case when no trajectories proceeded to filtering stage.
         job.job_result = False
         job.warnings.append(
-            f"No designs found! Please use a higher time limit. You can inspect discarded trajectories in the output path: {source_output_path}"
+            "No designs found! Please use a higher time limit. The rejected trajectories will be visualized."
+        )
+
+    _include_trajectory_designs(
+        source_output_path,
+        batch_dir,
+        pool,
+        num_replicas,
+        replica,
+        design_id_mapping,
+        destination_dir,
+        final_rows,
+        designs,
+    )
+
+    if not final_rows:
+        # Case when no trajectories proceeded to filtering stage nor any trajectories were generated.
+        job.job_result = False
+        job.warnings.append(
+            f"No designs nor rejected trajectories found! Please use a higher time limit. You can inspect the current results in the output path: {source_output_path}"
         )
         # Job will be saved by caller
         return
@@ -197,6 +318,7 @@ def process_workflow_results(
             "bindcraft|mpnn": final_df,
             "bindcraft|interface": final_df,
             "bindcraft|dssp": final_df,
+            "bindcraft|designs": final_df,
         },
         filenames=extra_filenames,
     )

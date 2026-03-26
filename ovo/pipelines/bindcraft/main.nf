@@ -9,7 +9,7 @@ process BindCraft {
     label 'bindcraft'
     cpus 4
     memory "16 GB"
-    accelerator 1, type: "nvidia-tesla-t4"
+    accelerator 1, type: "nvidia-tesla-a10g"
     publishDir { params.publish_dir }
 
     input:
@@ -18,7 +18,7 @@ process BindCraft {
         val time_limit_seconds
         val alphafold_single_model
     output:
-        path "${batch_name}/bindcraft/"
+        tuple val(batch_name), path ("${batch_name}/bindcraft"), emit: pdb_dir
     script:
     if (workflow.containerEngine == null) {
       throw new RuntimeException("Conda environment not supported for BindCraft. Please use a container profile like docker or singularity.")
@@ -77,7 +77,7 @@ workflow {
     }
 
     def inputs = (1..params.num_replicas).collect { i ->
-        ["batch${i}", params.input_pdb, params.input_json_path, params.settings_advanced, params.settings_filters]
+        ["contig1_batch${i}", params.input_pdb, params.input_json_path, params.settings_advanced, params.settings_filters]
     }
 
     BindCraft(
@@ -87,4 +87,3 @@ workflow {
         params.alphafold_single_model,
     )
 }
-

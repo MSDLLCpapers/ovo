@@ -1,4 +1,8 @@
-from ovo.core.database.models import NumericGlobalDescriptor, ResidueNumberDescriptor
+from ovo.core.database.models import (
+    NumericGlobalDescriptor,
+    ResidueNumberDescriptor,
+    StringGlobalDescriptor,
+)
 
 DESCRIPTORS = [
     NumericGlobalDescriptor(
@@ -302,6 +306,41 @@ DESCRIPTORS = [
         description="Comma-separated list of binder residue numbers on the interface",
         tool="BindCraft",
         key="bindcraft|interface|InterfaceResidues",
+    ),
+    StringGlobalDescriptor(
+        name="Design Variant",
+        description="String indicating the design variant classification, distinguishing between Accepted, Rejected, and Trajectory types (including Relaxed, LowConfidence, and Clashing variants).",
+        tool="Bindcraft",
+        key="bindcraft|designs|DesignVariant",
+        required_descriptor_job=False,
+    ),
+    StringGlobalDescriptor(
+        name="Desriptor Placeholder AF2",
+        description="Descriptor placeholder for Trajectory designs to work correctly in OVO.",
+        tool="Bindcraft",
+        key="bindcraft|af2|TrajectoryPlaceholder",
+        required_descriptor_job=False,
+    ),
+    StringGlobalDescriptor(
+        name="Desriptor Placeholder MPNN",
+        description="Descriptor placeholder for Trajectory designs to work correctly in OVO.",
+        tool="Bindcraft",
+        key="bindcraft|mpnn|TrajectoryPlaceholder",
+        required_descriptor_job=False,
+    ),
+    StringGlobalDescriptor(
+        name="Desriptor Placeholder Interface",
+        description="Descriptor placeholder for Trajectory designs to work correctly in OVO.",
+        tool="Bindcraft",
+        key="bindcraft|interface|TrajectoryPlaceholder",
+        required_descriptor_job=False,
+    ),
+    StringGlobalDescriptor(
+        name="Desriptor Placeholder DSSP",
+        description="Descriptor placeholder for Trajectory designs to work correctly in OVO.",
+        tool="Bindcraft",
+        key="bindcraft|dssp|TrajectoryPlaceholder",
+        required_descriptor_job=False,
     ),
 ]
 
