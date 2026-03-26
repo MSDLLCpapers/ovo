@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "RFdiffusion3 backbone pipeline parameters",
+  "description": "RFdiffusion3 backbone generation pipeline",
+  "type": "object",
+  "required": ["input_pdb", "contig"],
+  "properties": {
+    "input_pdb": {
+      "type": "string",
+      "description": "Input PDB file for RFdiffusion3"
+    },
+    "contig": {
+      "type": "string",
+      "description": "The contig map string, e.g. 'A52-156/0 50-60' for binder design or 'A20-30/10-20/A40-50' for scaffold design",
+      "pattern": "^[A-Z0-9\\-\\/ ]+$"
+    },
+    "num_designs": {
+      "type": "integer",
+      "description": "Number of backbones to generate"
+    },
+    "hotspot": {
+      "type": "string",
+      "description": "Binding hotspot residues, e.g. C123,C124"
+    },
+    "run_parameters": {
+      "type": "string",
+      "description": "Additional CLI arguments for RFdiffusion3"
+    },
+    "publish_dir": {
+      "type": "string"
+    },
+    "docker_repository": {
+      "type": "string"
+    },
+    "max_memory": {
+      "type": "string"
+    }
+  }
+}
