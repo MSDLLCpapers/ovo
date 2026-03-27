@@ -37,6 +37,16 @@
       "type": "string",
       "description": "Binding hotspot for RFdiffusion and downstream evaluation, including chain ids e.g. C123,C124"
     },
+    "backbone_generator": {
+      "type": "string",
+      "enum": ["rfdiffusion", "rfdiffusion3"],
+      "description": "Backbone design model to use",
+      "default": "rfdiffusion"
+    },
+    "rfdiffusion3_models_path": {
+      "type": "string",
+      "description": "Path to RFdiffusion3 checkpoint file (auto-derived from reference_files_dir if not set)"
+    },
     "rfdiffusion_run_parameters": {
       "type": "string",
       "description": "Additional CLI arguments for RFdiffusion"

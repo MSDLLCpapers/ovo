@@ -1,4 +1,5 @@
 include { RFdiffusion } from params.getSharedPipelinePath("ovo.rfdiffusion-backbone")
+include { RFdiffusion3 } from params.getSharedPipelinePath("ovo.rfdiffusion3-backbone")
 include { LigandMpnn } from params.getSharedPipelinePath("ovo.ligandmpnn-sequence-design")
 include { ProteinMPNN_Fast_Relax } from params.getSharedPipelinePath("ovo.proteinmpnn-fastrelax")
 include { BackboneMetrics } from params.getSharedPipelinePath("ovo.backbone-metrics")
@@ -50,19 +51,33 @@ workflow {
 	println "Batches:"
 	batches.each { println it }
 
-	RFdiffusion(
-        Channel.fromList(batches),
-    	params.rfdiffusion_models_path,
-		params.hotspot,
-		false,
-		params.save_traj,
-		params.rfdiffusion_run_parameters
-    )
+	def backbone_standardized_pdb_dir
+	if (params.backbone_generator == "rfdiffusion3") {
+        RFdiffusion3(
+            Channel.fromList(batches),
+            params.rfdiffusion3_models_path,
+            params.hotspot,
+            false,
+            params.rfdiffusion_run_parameters,
+            file("NO_FILE")
+        )
+        backbone_standardized_pdb_dir = RFdiffusion3.out.standardized_pdb_dir
+    } else {
+        RFdiffusion(
+            Channel.fromList(batches),
+            params.rfdiffusion_models_path,
+            params.hotspot,
+            false,
+            params.save_traj,
+            params.rfdiffusion_run_parameters
+        )
+        backbone_standardized_pdb_dir = RFdiffusion.out.standardized_pdb_dir
+    }
 
     // TODO Here we assume that the rfdiffusion file produces a single binder chain (A) and single target chain (B)
     def updatedHotspots = params.hotspot ? params.hotspot.split(',').collect { r -> "B" + r.trim().substring(1) }.join(',') : ""
     BackboneMetrics(
-        RFdiffusion.out.standardized_pdb_dir,
+        backbone_standardized_pdb_dir,
         updatedHotspots,
         false,
         params.backbone_filters
