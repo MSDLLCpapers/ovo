@@ -14,45 +14,108 @@ process RFdiffusion3 {
     publishDir { params.publish_dir }
 
     input:
-        tuple val (batch_name), path (input_pdb), val (contig), val (num_designs)
+        tuple val(batch_name), path(input_pdb), val(contig), val(num_designs)
         path rfdiffusion3_models_path
         val hotspot
+        val dump_trajectories
         val run_parameters
+        path input_json
     output:
-        tuple val (batch_name), path ("${batch_name}/rfdiffusion3_pdb/"), emit: pdb_dir
-        tuple val (batch_name), path ("${batch_name}/rfdiffusion3_standardized_pdb/"), emit: standardized_pdb_dir
+        tuple val(batch_name), path("${batch_name}/rfdiffusion3_pdb/"), emit: pdb_dir
+        tuple val(batch_name), path("${batch_name}/rfdiffusion3_standardized_pdb/"), emit: standardized_pdb_dir
+        path "${batch_name}/rfdiffusion3_json/", emit: json_dir
+        path "${batch_name}/rfdiffusion3_traj/", emit: traj_dir
     script:
     """
     set -euxo pipefail
-    mkdir -p output
     export HYDRA_FULL_ERROR=1
+    mkdir -p output
 
-    # TODO: Add RFdiffusion3 inference command
-    echo "RFdiffusion3 inference placeholder"
-    echo "Input PDB: ${input_pdb}"
-    echo "Contig: ${contig}"
-    echo "Num designs: ${num_designs}"
-    echo "Models path: ${rfdiffusion3_models_path}"
+    # Resolve checkpoint path: if it's a directory, find the .ckpt file inside
+    CKPT_PATH="${rfdiffusion3_models_path}"
+    if [[ -d "\$CKPT_PATH" ]]; then
+        CKPT_FILE=\$(find "\$CKPT_PATH/" -name "*.ckpt" | head -1)
+        if [[ -z "\$CKPT_FILE" ]]; then
+            echo "ERROR: No .ckpt file found in \$CKPT_PATH" >&2
+            exit 1
+        fi
+        CKPT_PATH="\$CKPT_FILE"
+    fi
 
+    # Build or use the input spec JSON
+    INPUT_JSON_BASENAME=\$(basename "${input_json}")
+    if [[ "\$INPUT_JSON_BASENAME" != "NO_FILE" ]]; then
+        cp "${input_json}" input_spec.json
+        echo "Using provided input JSON: ${input_json}"
+    else
+        python3 ${moduleDir}/bin/build_input_json.py \
+            --input_pdb "${input_pdb}" \
+            --contig "${contig}" \
+            --hotspot "${hotspot}" \
+            --output_json input_spec.json
+    fi
+
+    # Run RFdiffusion3 inference
+    rfd3 design \
+        out_dir=output \
+        inputs=input_spec.json \
+        ckpt_path="\$CKPT_PATH" \
+        diffusion_batch_size=${num_designs} \
+        dump_trajectories=${dump_trajectories} \
+        global_prefix=${batch_name} \
+        skip_existing=False \
+        ${run_parameters}
+
+    ls -al output/
+
+    # Organize outputs
     mkdir -p ${batch_name}/rfdiffusion3_pdb
+    mkdir -p ${batch_name}/rfdiffusion3_json
+
+    mv output/*.cif.gz ${batch_name}/rfdiffusion3_pdb/ 2>/dev/null || true
+    mv output/*.json ${batch_name}/rfdiffusion3_json/ 2>/dev/null || true
+
+    if [[ "${dump_trajectories}" == "true" ]]; then
+        mkdir -p ${batch_name}/rfdiffusion3_traj
+        find output/ -name "*.traj*" -exec mv {} ${batch_name}/rfdiffusion3_traj/ \\; 2>/dev/null || true
+        find output/ -name "trajectories" -type d -exec cp -r {} ${batch_name}/rfdiffusion3_traj/ \\; 2>/dev/null || true
+    else
+        mkdir -p ${batch_name}/rfdiffusion3_traj
+    fi
+
+    # Standardize: CIF.gz -> standardized PDB
     mkdir -p ${batch_name}/rfdiffusion3_standardized_pdb
+    python3 ${moduleDir}/bin/standardize_cif.py \
+        --cif_dir ${batch_name}/rfdiffusion3_pdb/ \
+        --spec_json input_spec.json \
+        --output_dir ${batch_name}/rfdiffusion3_standardized_pdb/ \
+        --input_contig "${contig}" \
+        --hotspot "${hotspot}"
     """
 }
 
+
 workflow {
 
-    [
-        'input_pdb',
-        'contig',
-    ].each { param ->
-        params[param] = null
-        if (!params[param]) {
-            throw new IllegalArgumentException("Argument --${param} is required!")
+    if (!params.input_json) {
+        ["input_pdb", "contig"].each { param ->
+            params[param] = null
+            if (!params[param]) {
+                throw new IllegalArgumentException("Argument --${param} is required (or provide --input_json)!")
+            }
         }
     }
-    RFdiffusion3(['rfdiffusion3', params.input_pdb, params.contig, params.num_designs],
-                params.rfdiffusion3_models_path,
-                params.hotspot,
-                params.run_parameters
-                )
+
+    def input_pdb = params.input_json ? file("NO_FILE") : file(params.input_pdb)
+    def input_json = params.input_json ? file(params.input_json) : file("NO_FILE")
+    def contig = params.contig ?: ""
+
+    RFdiffusion3(
+        ["rfdiffusion3", input_pdb, contig, params.num_designs],
+        params.rfdiffusion3_models_path,
+        params.hotspot,
+        params.dump_trajectories,
+        params.run_parameters,
+        input_json
+    )
 }
