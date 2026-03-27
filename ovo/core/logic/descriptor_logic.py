@@ -216,6 +216,7 @@ def prepare_refolding_params(workflow: RefoldingWorkflow, workdir: str) -> dict:
         "input_designs": input_designs_txt,
         "native_pdb": native_pdb_path,
         "tests": ",".join(workflow.tests),
+        "designed_chains": ",".join(list(workflow.chains)),
     }
 
 

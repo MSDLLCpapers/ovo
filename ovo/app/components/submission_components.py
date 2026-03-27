@@ -281,17 +281,6 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
 
 
 def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
-    #
-    # FIXME remove this hack
-    #
-    if not config.props.pyrosetta_license:
-        for key, threshold in workflow.acceptance_thresholds.items():
-            if "rosetta" in key and threshold.enabled:
-                st.warning(f"Disabling PyRosetta acceptance threshold as PyRosetta license is not available: {key}")
-                threshold.enabled = False
-    #
-    #
-
     st.markdown("Advanced settings")
 
     with st.expander(label="Show advanced settings"):

@@ -310,6 +310,9 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
 
         return {d.id: d.structure_path for d in db.select(Design, id__in=design_ids)}
 
+    def get_refolding_native_pdb_path(self, contig_index: int) -> str:
+        return self.get_input_pdb_path(contig_index=contig_index)
+
 
 @WorkflowTypes.register("RFdiffusion scaffold design")
 @dataclass
@@ -344,9 +347,9 @@ class RFdiffusionScaffoldDesignWorkflow(RFdiffusionWorkflow):
     def get_refolding_design_type(self) -> str:
         return "scaffold"
 
-    def get_refolding_native_pdb_path(self, contig_index: int) -> str:
-        # In binder design, we compare with fixed input motif from input PDB
-        return self.get_input_pdb_path(contig_index=contig_index)
+    def get_refolding_designed_chains(self) -> list[str]:
+        # TODO: fix for symmetric designs with multiple contigs, currently we just assume chain A is designed
+        return ["A"]
 
 
 @WorkflowTypes.register("RFdiffusion binder design")
@@ -461,6 +464,6 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
     def get_refolding_design_type(self) -> str:
         return "binder"
 
-    def get_refolding_native_pdb_path(self, contig_index: int) -> Optional[str]:
-        # In binder design, we don't compare with fixed input motif, so return None
-        return None
+    def get_refolding_designed_chains(self) -> list[str]:
+        # In binder design, we assume the binder is always chain A
+        return ["A"]

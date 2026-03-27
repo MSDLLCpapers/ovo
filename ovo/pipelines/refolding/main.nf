@@ -1,5 +1,6 @@
 include { AlphaFoldInitialGuess } from '../alphafold-initial-guess'
 include { ESMFold } from '../esmfold'
+include { BoltzRefolding } from '../boltz-refolding'
 
 process createDirs {
     executor 'local'
@@ -19,10 +20,10 @@ workflow Refolding {
         batches
         tests
         design_type
-        cyclic
     main:
         def alphafold_tests = []
         def esmfold_tests = []
+        def boltz_tests = []
 
         for (t in (tests ? tests.split(',') : [])) {
             def test = t // avoid groovy closure capture issue
@@ -69,10 +70,6 @@ workflow Refolding {
                       throw new IllegalArgumentException("Unexpected model ${model} in test ${test}")
                     }
 
-                    if (cyclic) {
-                        args += " --cyclic"
-                    }
-
                     args += " --num-recycles ${num_recycles}"
 
                     alphafold_tests.add([test, design_type, args])
@@ -82,7 +79,43 @@ workflow Refolding {
                     if (design_type != "scaffold") {
                         throw new IllegalArgumentException("ESMFold refolding currently only supports scaffold design_type, got: ${design_type}")
                     }
-                    esmfold_tests.add([test, 4])
+                    def args = ""
+                    // args += " --num-recycles ${num_recycles} "
+
+                    esmfold_tests.add([test, args])
+                    break
+                case ~"boltz.*":
+                    def version = null
+                    def template = null
+                    def args = ""
+                    def expected_design_type = null
+
+                    // Match naming convention: boltz<1|2>_<scaffold|binder>_<nt|tt>
+                    def matcher_new = (test =~ /boltz([12])_(scaffold|binder)_(nt|tt)/)
+
+                    if (matcher_new.matches()) {
+                        def design_type_suffix
+                        (version, design_type_suffix, template) = matcher_new[0][1..3]
+
+                        // Validate design type matches suffix
+                        if (design_type_suffix != design_type) {
+                            throw new IllegalArgumentException("Design type ${design_type} does not match test name ${test} (expected ${design_type_suffix})")
+                        }
+
+                        // Set template args based on suffix
+                        if (template == "nt") {
+                            args += " --no-template "
+                        } else if (template == "tt") {
+                            if (design_type != "binder") {
+                                throw new IllegalArgumentException("Template type 'tt' (target template) only valid for binder design_type, got: ${design_type}")
+                            }
+                            // Use target template (default behavior, no special args needed)
+                        }
+                    } else {
+                        throw new IllegalArgumentException("Test '${test}' does not match expected pattern: boltz<1|2>_<scaffold|binder>_<nt|tt>")
+                    }
+
+                    boltz_tests.add([test, design_type, args])
                     break
                 default:
                     throw new IllegalArgumentException("Unknown refolding test: ${test}")
@@ -96,11 +129,16 @@ workflow Refolding {
           alphafold_tests.each { println it }
 
           AlphaFoldInitialGuess(
-              batches.combine(Channel.fromList(alphafold_tests)).map { batch_name, batch_design_dir, native_pdb, test, design_type, args ->
+              batches.combine(Channel.fromList(alphafold_tests)).map { batch, test, design_type, args ->
                   [[
-                    batch_name: batch_name,
+                    batch_name: batch.batch_name,
                     test: test
-                  ], native_pdb, batch_design_dir, design_type, args]
+                  ],
+                  batch.native_pdb,
+                  batch.batch_design_dir,
+                  design_type,
+                  args + (batch.cyclic ? " --cyclic " :  "") + " --designed_chains ${batch.designed_chains} "
+                  ]
               },
               params.alphafold_models_path,
           )
@@ -111,19 +149,38 @@ workflow Refolding {
         esmfold_pdb_dir = null
         if (esmfold_tests) {
           ESMFold(
-              batches.combine(Channel.fromList(esmfold_tests)).map { batch_name, batch_design_dir, native_pdb, test, num_recycles ->
+              batches.combine(Channel.fromList(esmfold_tests)).map { batch, test, args ->
                   [[
-                    batch_name: batch_name,
+                    batch_name: batch.batch_name,
                     test: test,
-                  ], batch_design_dir, num_recycles]
+                  ], 
+                  batch.batch_design_dir, 
+                  args + " --chain ${batch.designed_chains} " + (params.esmfold_fp16 ? " --fp16 " : "")
+                  ]
               },
-              params.esmfold_models_path,
-              params.esmfold_fp16
+              params.esmfold_models_path
           )
           esmfold_pdb_dir = ESMFold.out.pdb_dir
           pdb_dir = esmfold_pdb_dir
         }
 
+        if (boltz_tests) {
+          BoltzRefolding(
+              // batches.combine(Channel.fromList(boltz_tests)).map { batch_name, batch_design_dir, native_pdb, test, design_type, args ->
+              batches.combine(Channel.fromList(boltz_tests)).map { batch, test, design_type, args ->
+                  [[
+                    batch_name: batch.batch_name,
+                    test: test
+                  ], 
+                  batch.batch_design_dir, 
+                  batch.native_pdb, 
+                  design_type, 
+                  args + (batch.cyclic ? " --cyclic " :  "") + " --designed_chains ${batch.designed_chains} "
+                  ]
+              },
+              params.boltz_models_path
+          )
+        }
         // TODO add RMSD calculation step based on param with yaml rmsd specs
     emit:
       pdb_dir = pdb_dir // pdb_dir is a shorthand when running only one refolding test
@@ -135,7 +192,8 @@ workflow {
     def requiredParams = [
         'input_designs',
         'tests',
-        'design_type'
+        'design_type',
+        'designed_chains'
     ]
     requiredParams.each { param ->
         params[param] = null
@@ -168,6 +226,15 @@ workflow {
 
     createDirs(inputBatches)
 
-    Refolding(createDirs.out, params.tests, params.design_type, params.cyclic)
+    Refolding(
+      createDirs.out.map({ batch_name, batch_design_dir, native_pdb -> [
+        batch_name: batch_name,
+        batch_design_dir: batch_design_dir,
+        native_pdb: native_pdb,
+        designed_chains: params.designed_chains,
+        cyclic: params.cyclic
+      ]}),
+      params.tests,
+      params.design_type
+    )
 }
-

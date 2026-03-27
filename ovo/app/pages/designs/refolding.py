@@ -155,7 +155,9 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
         for pool in pools:
             index_by_id = db.select_dict(Design, "id", "contig_index", id__in=design_ids, pool_id=pool.id)
             if not pool.design_job_id:
-                groups[None] += list(index_by_id.keys())
+                # Assume chain A is designed if no design workflow associated with the pool, and no native structure (e.g. for custom PDB uploads)
+                default_designed_chains = ["A"]
+                groups[(None, tuple(default_designed_chains))] += list(index_by_id.keys())
                 continue
             design_workflow = design_workflows_by_pool_id[pool.id]
             ids_by_index = defaultdict(list)
@@ -163,11 +165,16 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
                 ids_by_index[contig_index].append(design_id)
             for contig_index, ids in ids_by_index.items():
                 native_pdb_path = design_workflow.get_refolding_native_pdb_path(contig_index)
-                groups[native_pdb_path] += ids
+                designed_chains = design_workflow.get_refolding_designed_chains()
+                groups[(native_pdb_path, tuple(designed_chains))] += ids
 
-        for native_pdb_path, group_design_ids in groups.items():
+        for (native_pdb_path, designed_chains), group_design_ids in groups.items():
             workflow = RefoldingWorkflow(
-                design_type=design_type, tests=tests, design_ids=group_design_ids, native_pdb_path=native_pdb_path
+                design_type=design_type,
+                tests=tests,
+                design_ids=group_design_ids,
+                native_pdb_path=native_pdb_path,
+                chains=list(designed_chains),
             )
             submit_descriptor_workflow(workflow, scheduler_key, st.session_state.project.id)
         st.rerun()

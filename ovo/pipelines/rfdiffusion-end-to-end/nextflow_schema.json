@@ -67,6 +67,10 @@
       "type": "string",
       "description": "Comma-separated list of refolding tests to perform. Available tests: TODO"
     },
+    "refolding_chains": {
+      "type": "string",
+      "description": "Comma-separated list of chain IDs for the designed chains to use in refolding evaluation, e.g. 'A,B' for a heterodimer or 'A' for a monomer or homodimer. Used for evaluation and for parsing refolding test output."
+    },
     "esmfold_fp16": {
       "type": "boolean",
       "description": "Use fp16 precision in ESMFold (faster, less memory, potentially less accurate)"

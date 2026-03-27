@@ -114,7 +114,7 @@ def get_cached_designs(design_ids: Collection[str]) -> list[Design]:
 @clear_when_modified(Design)
 @st.cache_data(max_entries=10, ttl="1h")
 def get_cached_design_ids(pool_ids: list[str], **filters) -> list[str]:
-    """Get design ids matching the given filters, sorted from most recently created."""
+    """Get design ids matching the given filters, sorted in order of provided pool_ids."""
     ids = db.select_values(Design, "id", pool_id__in=pool_ids, **filters)
     order = dict(zip(pool_ids, range(len(pool_ids))))
     return sorted(ids, key=lambda design_id: order.get(Design.design_id_to_pool_id(design_id)))
