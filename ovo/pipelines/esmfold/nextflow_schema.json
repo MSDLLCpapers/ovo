@@ -12,15 +12,6 @@
       "type": "string",
       "description": "Path to input FASTA, PDB, or directory containing FASTA or PDB files"
     },
-    "fp16": {
-      "type": "boolean",
-      "description": "Use fp16 precision (faster, less memory, potentially less accurate)"
-    },
-    "num_recycles": {
-      "type": "integer",
-      "default": 4,
-      "description": "Number of ESMFold recycling iterations"
-    },
     "output_dir": {
       "type": "string",
       "description": "Output directory name"
@@ -33,6 +24,10 @@
     },
     "reference_files_dir": {
       "type": "string"
+    },
+    "run_parameters": {
+      "type": "string",
+      "description": "Additional parameters to pass to the esmfold script, e.g. --num_recycles=2 --chain=A"
     }
   }
 }

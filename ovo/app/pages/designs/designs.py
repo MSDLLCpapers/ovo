@@ -5,7 +5,7 @@ from ovo.app.components.navigation import project_round_selector, pool_selector_
 from ovo.app.utils.page_init import initialize_page
 from ovo.app.components.create_new_pool import create_new_pool
 from ovo.core.database import Design
-from ovo.core.plugins import load_variable, plugin_design_views
+from ovo.core.plugins import load_variable, get_extension_points, DesignView
 from ovo.app.utils.cached_db import get_cached_pools_table, get_cached_rounds
 
 initialize_page(page_title="Designs")
@@ -54,12 +54,10 @@ views = {
     "🔁 Refolding": "ovo.app.pages.designs.refolding:refolding_fragment",
     "📉 Regression": "ovo.app.pages.designs.regression:regression_fragment",
     "🫧 Clustering": "ovo.app.pages.designs.clustering:clustering_fragment",
-    # "🧬 Structure prediction": "TODO",
-    # "🧩 Plugins": "TODO",
 }
 
-# Update functions with
-views.update(plugin_design_views)
+# Update functions from plugins
+views.update({view.title: view.path for view in get_extension_points("ovo.design_view", DesignView)})
 
 if "design_view" not in st.session_state and "design_view" in st.query_params:
     st.session_state["design_view"] = st.query_params["design_view"]

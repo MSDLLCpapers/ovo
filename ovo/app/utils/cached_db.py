@@ -33,6 +33,18 @@ def get_cached_project_ids_and_names(username: str, extra_project_ids: Collectio
         return {project.id: project.name for project in projects}
 
 
+@clear_when_modified(Project)
+@st.cache_data(max_entries=100, ttl="10m")
+def get_cached_project(**kwargs) -> Project:
+    return db.get(Project, **kwargs)
+
+
+@clear_when_modified(Project)
+@st.cache_data(max_entries=100, ttl="1h")
+def get_cached_projects(project_ids: Collection[str], order_by="-created_date_utc", **kwargs) -> list[Project]:
+    return db.select(Project, id__in=project_ids, order_by=order_by, **kwargs)
+
+
 @clear_when_modified(DescriptorJob)
 @st.cache_data(max_entries=100, ttl="1h")
 def get_cached_descriptor_jobs_for_design_ids(
@@ -102,7 +114,7 @@ def get_cached_designs(design_ids: Collection[str]) -> list[Design]:
 @clear_when_modified(Design)
 @st.cache_data(max_entries=10, ttl="1h")
 def get_cached_design_ids(pool_ids: list[str], **filters) -> list[str]:
-    """Get design ids matching the given filters, sorted from most recently created."""
+    """Get design ids matching the given filters, sorted in order of provided pool_ids."""
     ids = db.select_values(Design, "id", pool_id__in=pool_ids, **filters)
     order = dict(zip(pool_ids, range(len(pool_ids))))
     return sorted(ids, key=lambda design_id: order.get(Design.design_id_to_pool_id(design_id)))
@@ -116,8 +128,17 @@ def get_cached_round(round_id: str) -> Round:
 
 @clear_when_modified(Round)
 @st.cache_data(max_entries=100, ttl="10m")
-def get_cached_rounds(project_id: str = None) -> list[Round]:
-    return db.select(Round, project_id=project_id, order_by="-created_date_utc")
+def get_cached_rounds(
+    project_id: str = None, project_ids: Collection[str] = None, order_by="-created_date_utc", **kwargs
+) -> list[Round]:
+    if project_id:
+        assert not project_ids, "Cannot provide both project_id and project_ids"
+        filter_args = dict(project_id=project_id)
+    elif project_ids:
+        filter_args = dict(project_id__in=project_ids)
+    else:
+        filter_args = {}
+    return db.select(Round, **filter_args, order_by=order_by, **kwargs)
 
 
 @clear_when_modified(Pool)
@@ -128,8 +149,14 @@ def get_cached_pool(pool_id: str) -> Pool:
 
 @clear_when_modified(Pool)
 @st.cache_data(max_entries=100, ttl="1h")
-def get_cached_pools(pool_ids: Collection[str]) -> list[Pool]:
-    return db.select(Pool, id__in=pool_ids, order_by="-created_date_utc")
+def get_cached_pools(pool_ids: Collection[str] = None, **kwargs) -> list[Pool]:
+    if pool_ids is not None:
+        filters = dict(id__in=pool_ids)
+    elif not kwargs:
+        raise ValueError("Must provide either pool_ids or filters to get_cached_pools")
+    else:
+        filters = {}
+    return db.select(Pool, **filters, order_by="-created_date_utc", **kwargs)
 
 
 @clear_when_modified(DesignJob)

@@ -98,7 +98,7 @@ def thresholds_input_component(
 def single_threshold_input_component(
     threshold: Threshold, descriptor: NumericDescriptor, descriptor_values: pd.Series | None = None
 ) -> Threshold:
-    with st.container(horizontal=True, vertical_alignment="bottom"):
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="bottom"):
         st.markdown(f"##### " + (descriptor.name if threshold.enabled else f":grey[{descriptor.name}]"))
         if not threshold.enabled:
             if st.toggle("Disabled", key=f"{descriptor.key}_toggle"):

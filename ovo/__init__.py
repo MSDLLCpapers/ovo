@@ -10,7 +10,7 @@ from ovo.core.configuration import (
     get_shell_config_path,
     get_source_command,
 )
-from ovo.core.plugins import plugin_modules
+from ovo.core.plugins import plugins
 from ovo.cli.common import console, OVONotInitializedError
 
 # note: ovo.core.logic modules are imported at the bottom to avoid circular dependencies
@@ -96,9 +96,10 @@ try:
         return schedulers[scheduler_key]
 
     # Load plugin modules to register their classes, use reload to support streamlit live reload
-    for submodule_name in plugin_modules:
-        submodule = importlib.import_module(submodule_name)
-        importlib.reload(submodule)
+    for plugin in plugins:
+        for submodule_name in plugin.submodule_names:
+            submodule = importlib.import_module(submodule_name)
+            importlib.reload(submodule)
 
     # Additional imports at the bottom to avoid circular dependencies
     from ovo.core.logic import design_logic, descriptor_logic, job_logic, project_logic, import_export_logic

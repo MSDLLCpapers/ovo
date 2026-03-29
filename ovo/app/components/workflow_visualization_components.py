@@ -660,7 +660,13 @@ def bindcraft_binder_design_visualization(design_id: str):
     )
 
     molstar_custom_component(
-        structures=[StructureVisualization(pdb=storage.read_file_str(design.structure_path))], key="bindcraft_1"
+        structures=[
+            StructureVisualization(
+                pdb=storage.read_file_str(design.structure_path),
+                color="chain-id",
+            )
+        ],
+        key="bindcraft_1",
     )
 
 
@@ -760,11 +766,11 @@ def visualize_scaffold_alignment(
             # TODO s.out_res_chain might not be correct when multiple chains are designed
             generated_seq = designed_sequences[s.out_res_chain][output_start - 1 : output_start + chunk_length - 1]
             if s.type == "generated":
-                label = s.value if chunk_offset == 0 else "&nbsp;"
+                label = s.value if chunk_offset == 0 else " "
                 input_seq = " " * chunk_length
                 input_seq_formatted = "Generated&nbsp;" if chunk_offset == 0 else "&nbsp;" * 10
                 generated_seq_formatted = generated_seq
-                fmt = f"background-color: {s.color}" if chunk_offset == 0 else ""
+                fmt = f"background-color: {s.color}"
             else:
                 input_start = chunk_offset + s.input_res_start
                 label = f"{s.input_res_chain}{input_start}-{input_start + chunk_length - 1}"

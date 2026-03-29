@@ -53,6 +53,34 @@ class SqlDBEngine(CacheClearingEngine):
                 session.execute(text("DROP INDEX IF EXISTS ix_descriptor_job_round_id"))
                 session.execute(text("ALTER TABLE descriptor_job DROP COLUMN round_id"))
                 session.commit()
+            project_columns = [c["name"] for c in inspector.get_columns("project")]
+            if "description" not in project_columns:
+                print("Applying automigration: adding description to project", file=sys.stderr)
+                session.execute(text("ALTER TABLE project ADD COLUMN description TEXT"))
+                session.commit()
+            user_setting_columns = [c["name"] for c in inspector.get_columns("user_setting")]
+            if "last_project_id" in user_setting_columns and "props" not in user_setting_columns:
+                print("Applying automigration: migrating last_project_id to props in user_setting", file=sys.stderr)
+                # Add props column
+                if self._db_url.startswith("postgresql://"):
+                    session.execute(text("ALTER TABLE user_setting ADD COLUMN props JSONB NOT NULL DEFAULT '{}'"))
+                    session.execute(
+                        text(
+                            "UPDATE user_setting SET props = "
+                            "jsonb_build_object('ovo.last_project_id', last_project_id) "
+                            "WHERE last_project_id IS NOT NULL"
+                        )
+                    )
+                else:
+                    session.execute(text("ALTER TABLE user_setting ADD COLUMN props TEXT NOT NULL DEFAULT '{}'"))
+                    session.execute(
+                        text(
+                            "UPDATE user_setting SET props = "
+                            "'{\"ovo.last_project_id\": \"' || last_project_id || '\"}' "
+                            "WHERE last_project_id IS NOT NULL"
+                        )
+                    )
+                session.commit()
 
     def _create_session(self) -> Session:
         return Session(bind=self._engine, expire_on_commit=False)

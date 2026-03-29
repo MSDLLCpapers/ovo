@@ -5,7 +5,7 @@ from copy import copy
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from datetime import timezone
-from typing import Callable, List, Literal, Union
+from typing import Callable, List, Literal, Union, Any
 
 import pandas as pd
 from sqlalchemy import String, Boolean, DateTime, func, Integer, UniqueConstraint, JSON
@@ -56,7 +56,7 @@ class UserSettings(Base):
     __tablename__ = "user_setting"
 
     username: Mapped[str] = mapped_column(String, primary_key=True)
-    last_project_id: Mapped[str] = mapped_column(String, default=None, nullable=True)
+    props: Mapped[dict[str, Any]] = mapped_column(JSON, default_factory=dict, nullable=False)
 
 
 class Project(Base, MetadataMixin):
@@ -67,6 +67,7 @@ class Project(Base, MetadataMixin):
     # TODO should project names be unique? Or conditionally - if they are public?
     name: Mapped[str] = mapped_column(String, default=None, nullable=False)
     public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(String, default=None, nullable=True)
 
 
 class Round(Base, MetadataMixin):
@@ -628,7 +629,7 @@ class Design(Base):
             pool_id=pool_id,
             spec=spec,
             structure_path=storage.store_file_str(
-                pdb_str, os.path.join("project", project_id, "pools", pool_id, "designs", f"{id}.pdb")
+                pdb_str, os.path.join(storage.get_project_path(project_id, pool_id), f"{id}.pdb")
             ),
             **kwargs,
         )

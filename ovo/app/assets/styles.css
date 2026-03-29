@@ -16,10 +16,11 @@
     font-family: monospace;
 }
 
-div[data-testid="stSidebarNav"]::before {
+div[data-testid="stSidebarUserContent"]::before {
     content: "";
     display: block;
     height: 160px;
+    margin-bottom: 10px;
     max-height: 20vh;
     max-width: 330px;
     margin-top: -30px;
@@ -29,13 +30,15 @@ div[data-testid="stSidebarNav"]::before {
     background-position: 50% 0%;
 }
 
-ul[data-testid="stSidebarNavItems"] {
-    /* set max height to pages list so that project dropdown is always visible */
-    max-height: calc(100vh - 400px);
-    min-height: 100px;
-    overflow-y: scroll;
+div[data-testid="stSidebarUserContent"] a {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
-div[data-testid="stSidebarUserContent"] {
-    padding-bottom: 1.5rem;
+div[data-testid="stSidebarUserContent"] a p {
+  font-size: 15px;
+}
+
+div[data-testid="stSidebarUserContent"] hr {
+  margin: 1em 0;
 }

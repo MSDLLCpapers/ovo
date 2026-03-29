@@ -7,7 +7,8 @@
   "required": [
     "design_type",
     "tests",
-    "input_designs"
+    "input_designs",
+    "designed_chains"
   ],
   "properties": {
     "design_type": {
@@ -39,6 +40,10 @@
     "cyclic": {
       "type": "boolean",
       "description": "Evaluate macrocyclic peptide chain"
+    },
+    "designed_chains": {
+      "type": "string",
+      "description": "Comma-separated list of chain IDs for the designed chains, e.g. 'A' or 'A,B'"
     },
     "publish_dir": {
       "type": "string"

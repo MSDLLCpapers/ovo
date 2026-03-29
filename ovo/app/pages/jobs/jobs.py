@@ -1,8 +1,7 @@
-from datetime import datetime
 import streamlit as st
-from streamlit_timeago import time_ago
 
 from ovo import db
+from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.navigation import project_round_selector
 from ovo.app.pages.jobs.design_job_detail import design_job_detail
 from ovo.app.utils.page_init import initialize_page
@@ -27,16 +26,32 @@ def overview():
 
     st.subheader("Design jobs")
 
-    st.button(":material/refresh: Refresh")
-    time_ago(datetime.now(), prefix="Refreshed", key="refreshed")
-
     with st.spinner("Checking workflow status..."):
         table = get_cached_design_jobs_table(round_ids=selected_round_ids)
         table = table.reset_index()
 
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="bottom"):
+        refresh_button(key="jobs")
+
+        show_distinct = (
+            st.segmented_control(
+                "Distinct",
+                options=["All parameters", "Distinct parameters"],
+                key="show_distinct",
+                default="All parameters",
+                label_visibility="collapsed",
+            )
+            == "Distinct parameters"
+            if len(table) > 1
+            else False
+        )
+
     if table.empty:
         st.write("No jobs submitted yet in this round")
         return
+
+    if show_distinct:
+        table = table[table.columns[table.astype(str).nunique() > 1]]
 
     table.insert(
         0, ("Pool", "actions"), [f"?pool_ids={pool_id}&project_id={project.id}" for pool_id in table[("Pool", "id")]]

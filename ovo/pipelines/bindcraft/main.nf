@@ -20,11 +20,13 @@ process BindCraft {
     output:
         tuple val(batch_name), path ("${batch_name}/bindcraft"), emit: pdb_dir
     script:
-    if (workflow.containerEngine == null) {
-      throw new RuntimeException("Conda environment not supported for BindCraft. Please use a container profile like docker or singularity.")
-    }
     """
     set -euxo pipefail
+
+    if [[ ! -d /content/bindcraft ]]; then
+        echo "BindCraft is only supported with containers (Docker/Singularity/Apptainer/...)";
+        exit 1;
+    fi
 
     # unpack if tar file
     if [[ "${alphafold_models_path}" =~ .*\\.tar\$ ]]; then

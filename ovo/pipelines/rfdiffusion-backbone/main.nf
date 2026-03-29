@@ -32,7 +32,7 @@ process RFdiffusion {
     export HYDRA_FULL_ERROR=1
 
     # Initialize lib directory
-	if [[ ${workflow.containerEngine} == "null" ]]; then
+	if [[ ! -d /opt/RFdiffusion ]]; then
 	    SITE=\$(python -c "import site; print(site.getsitepackages()[0])")
 	    if [[ ! -d "\$SITE/RFdiffusion" ]]; then
 	        git clone --depth 1 https://github.com/prihoda/RFdiffusion-fork "\$SITE/RFdiffusion"

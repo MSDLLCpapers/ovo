@@ -565,9 +565,9 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
         return None
 
     def _get_shared_module_paths(self):
-        from ovo.core.plugins import plugin_modules
+        from ovo.core.plugins import plugins
 
-        module_names = ["ovo"] + sorted(set([m.split(".")[0] for m in plugin_modules]))
+        module_names = ["ovo"] + sorted(set([plugin.module_name for plugin in plugins]))
         return [(module_name, self._get_module_path(module_name)) for module_name in module_names]
 
     def _get_shared_modules_string(self) -> str:
