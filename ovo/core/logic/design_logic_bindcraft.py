@@ -263,7 +263,6 @@ def process_workflow_results(
 
     if not final_rows:
         # Case when no trajectories proceeded to filtering stage.
-        job.job_result = False
         job.warnings.append(
             "No designs found! Please use a higher time limit. The rejected trajectories will be visualized."
         )
