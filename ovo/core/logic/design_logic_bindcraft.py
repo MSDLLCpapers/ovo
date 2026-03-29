@@ -103,12 +103,12 @@ def _include_trajectory_designs(
         # Iterate through all Trajectory variants.
         for filename in all_trajectory_filenames[trajectory_dir_name]:
             # Iterate through
-            design = filename.removesuffix(".pdb")
+            design_name = filename.removesuffix(".pdb")
 
             if callback:
                 callback(
                     value=(trajectory_count) / total_trajectory_files,
-                    text=f"Downloading design {design}",
+                    text=f"Downloading design {design_name}",
                 )
 
             id_prefix = f"ovo_{pool.id}"
@@ -266,18 +266,20 @@ def process_workflow_results(
         job.warnings.append(
             "No designs found! Please use a higher time limit. The rejected trajectories will be visualized."
         )
-
-    _include_trajectory_designs(
-        source_output_path,
-        batch_dir,
-        pool,
-        num_replicas,
-        replica,
-        design_id_mapping,
-        destination_dir,
-        final_rows,
-        designs,
-    )
+    
+    # Process all rejected trajectory PBDs:
+    for replica in range(1, num_replicas + 1):
+        _include_trajectory_designs(
+            source_output_path,
+            batch_dir,
+            pool,
+            num_replicas,
+            replica,
+            design_id_mapping,
+            destination_dir,
+            final_rows,
+            designs,
+        )
 
     if not final_rows:
         # Case when no trajectories proceeded to filtering stage nor any trajectories were generated.
