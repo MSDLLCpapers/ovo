@@ -269,6 +269,7 @@ def process_workflow_results(
     
     # Process all rejected trajectory PDBs:
     for replica in range(1, num_replicas + 1):
+        batch_dir = f"contig1_batch{replica}"
         _include_trajectory_designs(
             source_output_path,
             batch_dir,
