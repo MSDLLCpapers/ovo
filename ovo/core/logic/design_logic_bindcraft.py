@@ -267,7 +267,7 @@ def process_workflow_results(
             "No designs found! Please use a higher time limit. The rejected trajectories will be visualized."
         )
     
-    # Process all rejected trajectory PBDs:
+    # Process all rejected trajectory PDBs:
     for replica in range(1, num_replicas + 1):
         _include_trajectory_designs(
             source_output_path,
