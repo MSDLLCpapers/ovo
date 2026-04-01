@@ -48,6 +48,16 @@ class RFdiffusionParams(WorkflowParams):
     backbone_filters: str | None = None
     # Additional CLI params for RFdiffusion run_inference.py
     run_parameters: str = ""
+    # Backbone generator model: "rfdiffusion" (v1) or "rfdiffusion3"
+    backbone_generator: str = "rfdiffusion"
+    # RFD3 InputSpec fields (ignored for RFD1)
+    rfd3_unindex: str | None = None              # unindexed motif, contig string e.g. "A244,A274,A320"
+    rfd3_select_fixed_atoms: str | None = None   # fixed atoms override, contig string e.g. "A244:TIP,A274:BKBN"
+    rfd3_ligand: str | None = None               # ligand CCD names e.g. "HAX,OAA"
+    rfd3_length: str | None = None               # total length constraint e.g. "100-150" or "120"
+    rfd3_infer_ori_strategy: str | None = None   # override auto-derived infer_ori_strategy: "hotspots" or "com"
+    rfd3_is_non_loopy: bool = False     # True = prefer helices/sheets, fewer loops
+    # rfd3_spec_overrides: dict | None = None  # additional arbitrary overrides for RFD3 InputSpec, e.g. {"infer_ori_strategy": "com"}
 
     @property
     def input_pdb(self):
@@ -111,6 +121,20 @@ class RFdiffusionParams(WorkflowParams):
                     raise ValueError(
                         f"Invalid backbone filter field '{field}', supported fields: {', '.join(descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES)}"
                     )
+        if self.backbone_generator not in ("rfdiffusion", "rfdiffusion3"):
+            raise ValueError(
+                f"backbone_generator must be 'rfdiffusion' or 'rfdiffusion3', got: '{self.backbone_generator}'"
+            )
+        if self.backbone_generator == "rfdiffusion3":
+            if self.rfd3_length:
+                if not re.match(r"^\d+(-\d+)?$", str(self.rfd3_length).strip()):
+                    raise ValueError(
+                        f"rfd3_length must be an integer or 'min-max' range, got: '{self.rfd3_length}'"
+                    )
+            if self.rfd3_infer_ori_strategy and self.rfd3_infer_ori_strategy not in ("hotspots", "com"):
+                raise ValueError(
+                    f"rfd3_infer_ori_strategy must be 'hotspots' or 'com', got: '{self.rfd3_infer_ori_strategy}'"
+                )
 
 
 @dataclass

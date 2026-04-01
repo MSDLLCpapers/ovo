@@ -333,6 +333,17 @@ def settings_step():
     pool_submission_inputs(__file__)
 
     with st.columns([1, 2])[0]:
+        generator_options = ["rfdiffusion", "rfdiffusion3"]
+        workflow.rfdiffusion_params.backbone_generator = st.selectbox(
+            "Backbone generator",
+            options=generator_options,
+            format_func=lambda x: "RFdiffusion v1" if x == "rfdiffusion" else "RFdiffusion3 (beta)",
+            index=generator_options.index(workflow.rfdiffusion_params.backbone_generator),
+            key="backbone_generator",
+        )
+    is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
+
+    with st.columns([1, 2])[0]:
         is_admin = get_username() in config.auth.admin_users
         workflow.rfdiffusion_params.num_designs = st.number_input(
             "Number of structure designs (RFdiffusion backbones)",
@@ -346,16 +357,17 @@ def settings_step():
 
     show_rfdiffusion_binder_seq_design_inputs(workflow)
 
-    with st.columns([1, 2])[0]:
-        workflow.rfdiffusion_params.model_weights = st.selectbox(
-            "Model weights",
-            help="Use 'active site' model weights to hold better selected residues specified in the contig.",
-            index=MODEL_WEIGHTS_BINDER.index(workflow.rfdiffusion_params.model_weights)
-            if workflow.rfdiffusion_params.model_weights
-            else 0,
-            key="active_site",
-            options=MODEL_WEIGHTS_BINDER,
-        )
+    if not is_rfd3:
+        with st.columns([1, 2])[0]:
+            workflow.rfdiffusion_params.model_weights = st.selectbox(
+                "Model weights",
+                help="Use 'active site' model weights to hold better selected residues specified in the contig.",
+                index=MODEL_WEIGHTS_BINDER.index(workflow.rfdiffusion_params.model_weights)
+                if workflow.rfdiffusion_params.model_weights
+                else 0,
+                key="active_site",
+                options=MODEL_WEIGHTS_BINDER,
+            )
 
     contig = st.text_input(
         "Contig",

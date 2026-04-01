@@ -297,18 +297,35 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
 
         st.markdown("#### RFdiffusion")
 
+        is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
+
+        # Swap timesteps default when switching backbone generator
+        if is_rfd3 and workflow.rfdiffusion_params.timesteps == 50:
+            workflow.rfdiffusion_params.timesteps = 200
+            st.session_state["timesteps"] = 200
+        elif not is_rfd3 and workflow.rfdiffusion_params.timesteps == 200:
+            workflow.rfdiffusion_params.timesteps = 50
+            st.session_state["timesteps"] = 50
+
+        if is_rfd3:
+            timestep_label = "Num timesteps (inference_sampler.num_timesteps)"
+            timestep_help = "Number of diffusion steps. RFdiffusion3 default is 200; use 10–50 for fast testing."
+        else:
+            timestep_label = "Num RFdiffusion timesteps (T)"
+            timestep_help = (
+                "Number of denoising diffusion steps determines the granularity of the diffusion process. "
+                "Higher values lead to better quality structures but also longer runtime."
+            )
         workflow.rfdiffusion_params.timesteps = st.number_input(
-            "Num RFdiffusion timesteps (T)",
+            timestep_label,
             min_value=1,
             value=workflow.rfdiffusion_params.timesteps,
+            # max_value=200 if is_rfd3 else 50,
             key="timesteps",
-        )
-        st.caption(
-            ":material/info: Number of denoising diffusion steps determines the granularity of the diffusion process. "
-            "Higher values lead to better quality structures but also longer runtime. "
+            help=timestep_help,
         )
 
-        if workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
+        if not is_rfd3 and workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
             workflow.rfdiffusion_params.contigmap_length = (
                 st.text_input(
                     "Sequence length limit (contigmap.length)",
@@ -353,15 +370,85 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
         )
         st.caption(f"Supported filtering metrics: {', '.join(descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES)}")
 
+        run_params_placeholder = (
+            "e.g. inference_sampler.step_scale=0.5" if is_rfd3 else "e.g. contigmap.inpaint_str=[123-456]"
+        )
         workflow.rfdiffusion_params.run_parameters = st.text_input(
-            "Additional commandline arguments for RF diffusion",
-            placeholder="For example contigmap.inpaint_str=[123-456] contigmap.inpaint_str_strand=[123-456]",
+            "Additional run parameters",
+            placeholder=run_params_placeholder,
             value=workflow.rfdiffusion_params.run_parameters,
             key="rfdiff_run_parameters",
         )
-        st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
+        if is_rfd3:
+            st.caption(":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5).")
+        else:
+            st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
         if workflow.rfdiffusion_params.run_parameters:
             st.warning("Additional parameters can override previously selected parameters.")
+
+        if is_rfd3:
+            st.markdown("**InputSpec overrides (RFdiffusion3)**")
+            col1, col2 = st.columns(2)
+            with col1:
+                workflow.rfdiffusion_params.rfd3_is_non_loopy = st.checkbox(
+                    "Prefer helical/sheet designs (is_non_loopy)",
+                    value=workflow.rfdiffusion_params.rfd3_is_non_loopy,
+                    key="rfd3_is_non_loopy",
+                    help="Produces output structures with fewer loops and more helices/sheets.",
+                )
+            with col2:
+                infer_ori_options = ["", "hotspots", "com"]
+                workflow.rfdiffusion_params.rfd3_infer_ori_strategy = (
+                    st.selectbox(
+                        "Origin strategy (infer_ori_strategy)",
+                        options=infer_ori_options,
+                        format_func=lambda x: "Auto-detect" if x == "" else x,
+                        index=infer_ori_options.index(workflow.rfdiffusion_params.rfd3_infer_ori_strategy or ""),
+                        key="rfd3_infer_ori_strategy",
+                        help="Controls placement of the ORI token. 'hotspots' places it near hotspot COM, 'com' uses input structure COM.",
+                    )
+                    or None
+                )
+            workflow.rfdiffusion_params.rfd3_unindex = (
+                st.text_input(
+                    "Unindexed motif (unindex)",
+                    value=workflow.rfdiffusion_params.rfd3_unindex,
+                    placeholder="e.g. A244,A274,A320",
+                    key="rfd3_unindex",
+                    help="Residues whose relative position in the sequence is unknown to the model. Useful for scaffolding around active sites.",
+                )
+                or None
+            )
+            workflow.rfdiffusion_params.rfd3_select_fixed_atoms = (
+                st.text_input(
+                    "Fixed atoms (select_fixed_atoms)",
+                    value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
+                    placeholder="e.g. A244:TIP,A274:BKBN  or contig string A100-120",
+                    key="rfd3_select_fixed_atoms",
+                    help="Override which atoms are fixed in 3D space. Contig string or dict syntax (e.g. A244:TIP,A274:BKBN).",
+                )
+                or None
+            )
+            workflow.rfdiffusion_params.rfd3_ligand = (
+                st.text_input(
+                    "Ligand (ligand)",
+                    value=workflow.rfdiffusion_params.rfd3_ligand,
+                    placeholder="e.g. HAX,OAA",
+                    key="rfd3_ligand",
+                    help="Ligand CCD names from RCSB PDB to include in the design.",
+                )
+                or None
+            )
+            workflow.rfdiffusion_params.rfd3_length = (
+                st.text_input(
+                    "Total length constraint (length)",
+                    value=workflow.rfdiffusion_params.rfd3_length,
+                    placeholder="e.g. 100-150 or 120",
+                    key="rfd3_length",
+                    help="Constrain the total design length. Useful when contig alone does not fix the total length.",
+                )
+                or None
+            )
 
         st.markdown("#### Protein MPNN ")
 

@@ -19,7 +19,7 @@ process RFdiffusion3 {
         val hotspot
         val dump_trajectories
         val run_parameters
-        path input_json
+        val spec_overrides
     output:
         tuple val(batch_name), path("${batch_name}/rfdiffusion3_pdb/"), emit: pdb_dir
         tuple val(batch_name), path("${batch_name}/rfdiffusion3_standardized_pdb/"), emit: standardized_pdb_dir
@@ -42,18 +42,18 @@ process RFdiffusion3 {
         CKPT_PATH="\$CKPT_FILE"
     fi
 
-    # Build or use the input spec JSON
-    INPUT_JSON_BASENAME=\$(basename "${input_json}")
-    if [[ "\$INPUT_JSON_BASENAME" != "NO_FILE" ]]; then
-        cp "${input_json}" input_spec.json
-        echo "Using provided input JSON: ${input_json}"
-    else
-        python3 ${moduleDir}/bin/build_input_json.py \
-            --input_pdb "${input_pdb}" \
-            --contig "${contig}" \
-            --hotspot "${hotspot}" \
-            --output_json input_spec.json
+    # Write spec overrides to a file to avoid bash quoting issues with JSON strings
+    SPEC_OVERRIDES_ARG=""
+    if [[ -n "${spec_overrides}" ]]; then
+        printf '%s' "${spec_overrides}" > spec_overrides.json
+        SPEC_OVERRIDES_ARG="--spec_overrides_file spec_overrides.json"
     fi
+    python3 ${moduleDir}/bin/build_input_json.py \
+        --input_pdb "${input_pdb}" \
+        --contig "${contig}" \
+        --hotspot "${hotspot}" \
+        --output_json input_spec.json \
+        \$SPEC_OVERRIDES_ARG
 
     # Run RFdiffusion3 inference
     rfd3 design \
@@ -107,7 +107,6 @@ workflow {
     }
 
     def input_pdb = params.input_json ? file("NO_FILE") : file(params.input_pdb)
-    def input_json = params.input_json ? file(params.input_json) : file("NO_FILE")
     def contig = params.contig ?: ""
 
     RFdiffusion3(
@@ -116,6 +115,6 @@ workflow {
         params.hotspot,
         params.dump_trajectories,
         params.run_parameters,
-        input_json
+        params.spec_overrides
     )
 }

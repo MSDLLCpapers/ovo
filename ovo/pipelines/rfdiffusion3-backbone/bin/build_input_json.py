@@ -38,7 +38,7 @@ def has_chain_break(contig_v3: str) -> bool:
     return "/0" in contig_v3
 
 
-def build_spec(input_pdb: str, contig_v3: str, hotspot: str) -> dict:
+def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None) -> dict:
     """Build a single RFD3 InputSpecification dict."""
     spec = {
         "dialect": 2,
@@ -50,6 +50,9 @@ def build_spec(input_pdb: str, contig_v3: str, hotspot: str) -> dict:
         spec["infer_ori_strategy"] = "hotspots"
         if hotspot:
             spec["select_hotspots"] = hotspot
+    # User overrides applied last — can override auto-derived fields (e.g. infer_ori_strategy)
+    if spec_overrides:
+        spec.update(spec_overrides)
     return spec
 
 
@@ -60,6 +63,7 @@ def main():
     parser.add_argument("--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79")
     parser.add_argument("--input_json", type=str, default=None, help="Pre-built RFD3 JSON (pass-through mode)")
     parser.add_argument("--output_json", type=str, required=True, help="Output JSON path")
+    parser.add_argument("--spec_overrides_file", type=str, default="", help="Path to JSON file of spec field overrides to merge into the spec")
     args = parser.parse_args()
 
     input_json_name = os.path.basename(args.input_json) if args.input_json else None
@@ -80,7 +84,13 @@ def main():
     print(f"Converted contig: '{args.contig}' -> '{contig_v3}'")
 
     hotspot = args.hotspot.strip() if args.hotspot else ""
-    spec = build_spec(args.input_pdb, contig_v3, hotspot)
+    spec_overrides = {}
+    if args.spec_overrides_file:
+        with open(args.spec_overrides_file) as f:
+            spec_overrides = json.load(f)
+    if spec_overrides:
+        print(f"Applying spec overrides: {spec_overrides}")
+    spec = build_spec(args.input_pdb, contig_v3, hotspot, spec_overrides)
     output = {"design": spec}
 
     with open(args.output_json, "w") as f:

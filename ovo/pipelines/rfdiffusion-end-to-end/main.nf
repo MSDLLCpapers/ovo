@@ -59,7 +59,7 @@ workflow {
             params.hotspot,
             false,
             params.rfdiffusion_run_parameters,
-            file("NO_FILE")
+            params.rfdiffusion3_spec_overrides
         )
         backbone_standardized_pdb_dir = RFdiffusion3.out.standardized_pdb_dir
     } else {

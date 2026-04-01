@@ -47,6 +47,10 @@
       "type": "string",
       "description": "Path to RFdiffusion3 checkpoint file (auto-derived from reference_files_dir if not set)"
     },
+    "rfdiffusion3_spec_overrides": {
+      "type": "string",
+      "description": "Additional JSON-encoded overrides for RFdiffusion3 InputSpec, e.g. '{\"infer_ori_strategy\": \"com\"}'"
+    },
     "rfdiffusion_run_parameters": {
       "type": "string",
       "description": "Additional CLI arguments for RFdiffusion"
