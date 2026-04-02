@@ -136,14 +136,14 @@ workflow {
     Refolding(
         batches.join(mpnn_out).map({
             batch_name, pdb_input, mpnn_pdb_dir -> [
-                batch_name,
-                mpnn_pdb_dir,
-                pdb_input,
+                batch_name: batch_name,
+                batch_design_dir: mpnn_pdb_dir,
+                native_pdb: pdb_input,
+                designed_chains: params.refolding_chains,
             ]
         }),
         params.refolding_tests,
         params.design_type,
-        false
     )
 
     if (!params.disable_pyrosetta_scoring && params.design_type == "binder") {

@@ -5,4 +5,4 @@ dependencies:
   - python=3.12
   - pip
   - pip:
-    - boltz[cuda] @ git+https://github.com/jwohlwend/boltz.git@c9b6af1f13dd22d7ad394131928f0772ec37a82f # NOTE: remember to update Dockerfile too
+    - boltz[cuda] @ git+https://github.com/jwohlwend/boltz.git@cb04aeccdd480fd4db707f0bbafde538397fa2ac # NOTE: remember to update Dockerfile too

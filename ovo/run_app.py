@@ -38,11 +38,6 @@ if __name__ == "__main__":
             show_login_dialog()
             st.stop()
 
-    if login_token := os.environ.get("OVO_LOGIN_TOKEN"):
-        if st.session_state.get("login_token") != login_token:
-            show_login_dialog(token=login_token)
-            st.stop()
-
     if "pinned_workflow_pages" not in st.session_state:
         user_settings = get_or_create_user_settings()
         st.session_state["pinned_workflow_pages"] = user_settings.props.get("ovo.pinned_workflow_pages", [])
@@ -65,4 +60,10 @@ if __name__ == "__main__":
         },
         position="hidden",
     )
+
+    if login_token := os.environ.get("OVO_LOGIN_TOKEN"):
+        if st.session_state.get("login_token") != login_token:
+            show_login_dialog(token=login_token)
+            st.stop()
+
     pg.run()

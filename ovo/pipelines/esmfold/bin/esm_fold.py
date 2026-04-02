@@ -217,6 +217,7 @@ def main(args):
     logger = setup_logger(args.output_dir)
 
     assert 0 <= args.num_recycles <= 4, "Number of recycles must be between 0 and 4"
+    assert len(args.chain) == 1, "Chain identifier must be a single character"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
@@ -293,7 +294,7 @@ def main(args):
                 pTM=prediction.ptm.item(),
                 RMSD_all_atom=RMSD_all_atom,
                 RMSD_backbone=RMSD_backbone,
-                pAE_mean=prediction.predicted_aligned_error.mean().item(),
+                pAE=prediction.predicted_aligned_error.mean().item(),
             )
         )
 

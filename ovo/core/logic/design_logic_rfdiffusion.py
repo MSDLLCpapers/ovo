@@ -7,15 +7,28 @@ from ovo import (
     db,
     storage,
     config,
-    local_scheduler,
     get_scheduler,
     Design,
 )
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
 )
-from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
+from ovo.core.database import descriptors_rfdiffusion
 
+from ovo.core.database.models import (
+    Pool,
+    Round,
+    DesignJob,
+    DesignSpec,
+    DescriptorValue,
+    Base,
+)
+from ovo.core.logic.descriptor_logic import (
+    save_descriptor_job_for_design_job,
+    read_descriptor_file_values,
+)
+from ovo.core.logic.design_logic import set_designs_accepted
+from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models import Pool, Round, DesignJob, DesignSpec, DescriptorValue, Base
 from ovo.core.logic.descriptor_logic import save_descriptor_job_for_design_job, read_descriptor_file_values
 from ovo.core.logic.design_logic import set_designs_accepted
@@ -26,7 +39,8 @@ def submit_rfdiffusion_preview(
     workflow: RFdiffusionWorkflow,
     timesteps: int,
     partial_diffusion: bool = False,
-    pipeline_name="rfdiffusion-backbone",
+    pipeline_name: str = "rfdiffusion-backbone",
+    scheduler_key: str = None,
     **submission_args,
 ) -> str | None:
     """Run the RFdiffusion workflow with reduced number of diffuser timesteps."""
@@ -37,7 +51,8 @@ def submit_rfdiffusion_preview(
     if not contig:
         raise ValueError("Contig has not been computed. Please check the workflow parameters.")
 
-    input_path = storage.prepare_workflow_input(workflow.get_input_pdb_path(), workdir=local_scheduler.workdir)
+    scheduler = get_scheduler(scheduler_key or config.local_scheduler)
+    input_path = storage.prepare_workflow_input(workflow.get_input_pdb_path(), workdir=scheduler.workdir)
 
     run_parameters = []
 
@@ -57,7 +72,7 @@ def submit_rfdiffusion_preview(
     if workflow.get_cyclic_offset():
         params["cyclic"] = True
 
-    preview_job_id = local_scheduler.submit(
+    preview_job_id = scheduler.submit(
         pipeline_name=pipeline_name,
         params=params,
         submission_args=submission_args,
@@ -85,15 +100,6 @@ def process_workflow_results(
     source_dir = scheduler.get_output_dir(job.job_id)
 
     batch_size = int(workflow.rfdiffusion_params.batch_size)
-
-    alphafold_file_suffix = None
-    if workflow.refolding_params.primary_test and workflow.refolding_params.primary_test.startswith("af2_"):
-        alphafold_file_suffix = workflow.refolding_params.primary_test
-
-    esmfold_file_suffix = None
-    if workflow.refolding_params.primary_test == "esmfold":
-        esmfold_file_suffix = workflow.refolding_params.primary_test
-
     num_sequence_designs = workflow.protein_mpnn_params.num_sequences
     num_fastrelax_cycles = workflow.protein_mpnn_params.fastrelax_cycles
 
@@ -202,9 +208,23 @@ def process_workflow_results(
 
     descriptor_values.extend(
         read_descriptor_file_values(
-            descriptor_job=descriptor_job, design_id_mapping=design_id_mapping, filenames=filenames
+            descriptor_job=descriptor_job,
+            design_id_mapping=design_id_mapping,
+            filenames=filenames,
         )
     )
+
+    available_descriptor_keys = set(dv.descriptor_key for dv in descriptor_values)
+    missing_descriptor_keys = []
+    for descriptor_key, threshold in workflow.acceptance_thresholds.items():
+        if descriptor_key not in available_descriptor_keys and threshold.enabled:
+            threshold.enabled = False
+            missing_descriptor_keys.append(descriptor_key)
+
+    if missing_descriptor_keys:
+        job.warnings.append(
+            f"Some descriptors were not computed, their acceptance threshold was not applied: {', '.join(missing_descriptor_keys)}"
+        )
 
     # Update design.accepted fields based on descriptor values and thresholds
     set_designs_accepted(designs, descriptor_values, workflow.acceptance_thresholds)
@@ -225,8 +245,7 @@ def process_rfdiffusion_design(
     num_fastrelax_cycles: int,
     source_dir: str,
     destination_dir: str,
-    alphafold_file_suffix: str | None,
-    esmfold_file_suffix: str | None,
+    refolding_primary_test: str,
     cyclic: bool,
 ) -> tuple[list[Design], dict[str, tuple[str, str]]]:
     """Process a single RFdiffusion-designed backbone and its sequence designs, copying files from the scheduler output to our storage,
@@ -355,38 +374,18 @@ def process_rfdiffusion_design(
                 )
             )
 
-        if alphafold_file_suffix:
-            descriptor_values.append(
-                DescriptorValue(
-                    descriptor_key=descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH.key,
-                    value=storage.store_file_path(
-                        source_abs_path=os.path.join(
-                            source_dir,
-                            batch_name,
-                            alphafold_file_suffix,
-                            f"{filename}_{alphafold_file_suffix}.pdb",
-                        ),
-                        storage_rel_path=f"{destination_dir}/alphafold_initial_guess/{design.id}_{alphafold_file_suffix}.pdb",
-                        overwrite=False,
-                    ),
-                    **shared_args,
-                )
-            )
-
-        if esmfold_file_suffix:
-            descriptor_values.append(
-                DescriptorValue(
-                    descriptor_key=descriptors_refolding.ESMFOLD_STRUCTURE_PATH.key,
-                    value=storage.store_file_path(
-                        source_abs_path=os.path.join(
-                            source_dir, batch_name, esmfold_file_suffix, f"{filename}_{esmfold_file_suffix}.pdb"
-                        ),
-                        storage_rel_path=f"{destination_dir}/esmfold/{design.id}_{esmfold_file_suffix}.pdb",
-                        overwrite=False,
-                    ),
-                    **shared_args,
-                )
-            )
+        descriptor_values += RefoldingWorkflow.store_output(
+            test=refolding_primary_test,
+            destination_dir=destination_dir,
+            batch_output_path=None,
+            **shared_args,
+            source_structure_path=os.path.join(
+                source_dir,
+                batch_name,
+                refolding_primary_test,
+                f"{filename}_{refolding_primary_test}.pdb",
+            ),
+        )
 
         designs.append(design)
         design_id_mapping[design.id] = (filename, backbone_filename)
@@ -402,6 +401,7 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
         "batch_size": workflow.rfdiffusion_params.batch_size,
         "rfdiffusion_input_pdb": workflow_input_path,
         "refolding_tests": workflow.refolding_params.primary_test,
+        "refolding_chains": ",".join(workflow.get_refolding_designed_chains()),
         "design_type": design_type,
         "mpnn_num_sequences": workflow.protein_mpnn_params.num_sequences,
     }

@@ -144,6 +144,11 @@ if __name__ == "__main__":
         "--multimer", action="store_true", default=False, help="Use AlphaFold multimer model (default = monomer)"
     )
     parser.add_argument(
+        "--designed_chains",
+        default="A",
+        help="Designed chain ID or comma-separated list of designed chain IDs. Here, we design the binder. Default: 'A'.",
+    )
+    parser.add_argument(
         "--cyclic",
         action="store_true",
         default=False,
@@ -193,13 +198,19 @@ if __name__ == "__main__":
             basename = os.path.basename(path).removesuffix(".pdb")
             print(f"Predicting PDB {i:,}/{len(paths):,}: {basename}")
             start_time = time.time()
+            if options.designed_chains == "A":
+                target_chain = "B"
+            elif options.designed_chains == "B":
+                target_chain = "A"
+            else:
+                raise NotImplementedError("Expected binder chain to be A or B")
             model.prep_inputs(
                 path,
                 # TODO add support for multiple target or binder chains
                 # We can take inspiration from here: https://github.com/sokrypton/ColabDesign/blob/4127b5ab889f5b62a56644d3d1cbdd5cb313a0d0/colabdesign/rf/refolding_test.py#L87-L98
                 # A comma-separated list can be passed here
-                binder_chain="A",
-                target_chain="B",
+                binder_chain=options.designed_chains,
+                target_chain=target_chain,
                 rm_target=False,
                 rm_binder=not options.use_binder_template,
                 rm_template_ic=not options.use_interface_template,

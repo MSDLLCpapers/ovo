@@ -22,7 +22,12 @@ cd "$PUBLISH_DIR"
 
 nextflow run ../../main.nf \
   -process.containerOptions="-v $MODULE_ROOT:$TEST_MODULE_ROOT" \
+  -profile ${PROFILE:-docker,cpu_env} \
+  -work-dir "$WORK_DIR" \
+  -config "$DEFAULT_CONFIG" \
+  --shared_modules "ovo:$OVO_MODULE_PATH" \
   --input_path $INPUT_DIR \
   --output_dir $OUTPUT_DIR \
   --publish_dir $PUBLISH_DIR \
   --reference_files_dir "$MODELS_DIR"
+

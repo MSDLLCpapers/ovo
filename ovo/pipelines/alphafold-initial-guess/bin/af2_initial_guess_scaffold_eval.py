@@ -277,6 +277,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--multimer", action="store_true", default=False, help="Use AlphaFold multimer model (default = monomer)"
     )
+    parser.add_argument(
+        "--designed_chains",
+        default="A",
+        help="Designed chain ID or comma-separated list of designed chain IDs. Here, we design the binder. Default: 'A'.",
+    )
     options = parser.parse_args()
 
     model = mk_af_model(
@@ -328,7 +333,9 @@ if __name__ == "__main__":
             rm_template = False  # note that when options.no_templates=True, templates are already disabled above using use_templates=False
             input_motif_residues = None
             output_motif_residues = None
-            chain = None
+            chain = (
+                options.designed_chains
+            )  # default to using whole structure as template, if templates are enabled and no REMARK header is found
             if not options.no_templates or native_pdb_str:
                 remark_lines = remark_lines_by_pdb_path[path]
                 remark_dict = parse_remark_lines(remark_lines)

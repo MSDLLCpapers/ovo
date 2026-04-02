@@ -3,7 +3,9 @@ from copy import copy
 from dataclasses import dataclass, field
 from typing import Callable
 
+# from ovo import db
 from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, DesignJob, Design, Base
+from ovo.core.database.models_refolding import RefoldingSupportedDesignWorkflow
 from ovo.core.scheduler.base_scheduler import Scheduler
 from ovo.core.utils.residue_selection import from_segments_to_hotspots
 
@@ -73,7 +75,7 @@ class BindCraftParams(WorkflowParams):
 
 @WorkflowTypes.register("BindCraft binder design")
 @dataclass
-class BindCraftBinderDesignWorkflow(DesignWorkflow):
+class BindCraftBinderDesignWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
     """Dataclass for BindCraft binder design workflow."""
 
     # input parameters for BindCraft
@@ -201,3 +203,19 @@ class BindCraftBinderDesignWorkflow(DesignWorkflow):
         filter_settings_path = os.path.join(bindcraft_resources_path, "settings_filters", filter_filename)
 
         return advanced_settings_path, filter_settings_path
+
+    def get_refolding_designed_chains(self) -> list[str]:
+        return ["B"]
+
+    def get_refolding_native_pdb_path(self, contig_index: int) -> str:
+        return self.get_input_pdb_path()
+
+    def get_refolding_design_paths(self, design_ids: list[str]) -> dict[str, str]:
+        from ovo import db
+
+        # In BindCraft binder design, we assume the designed structure is the predicted structure, so return design structure paths for all design ids
+        design_paths = db.select_dict(Design, "id", "structure_path", id__in=design_ids)
+        return design_paths
+
+    def get_refolding_design_type(self) -> str:
+        return "binder"
