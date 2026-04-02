@@ -80,6 +80,14 @@ class RFdiffusionParams(WorkflowParams):
         super().validate()
         if not self.input_pdb:
             raise ValueError("No input pdb provided")
+        for contig in self.contigs:
+            if "/0 " not in contig and " " in contig:
+                raise ValueError(
+                    f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{contig}"'
+                )
+            # verify that contig can be parsed
+            parse_contig_for_input_structure(contig)
+
         if self.hotspots:
             assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
             if not all(re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in self.hotspots.split(",")):
@@ -99,13 +107,6 @@ class RFdiffusionParams(WorkflowParams):
             return
         if not self.contig:
             raise ValueError("Please provide a contig")
-        for contig in self.contigs:
-            if "/0 " not in contig and " " in contig:
-                raise ValueError(
-                    f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{contig}"'
-                )
-            # verify that contig can be parsed
-            parse_contig_for_input_structure(contig)
         if self.contigmap_length:
             assert isinstance(self.contigmap_length, (int, str)), (
                 f"Expected int or str, got {self.contigmap_length} for contigmap_length"

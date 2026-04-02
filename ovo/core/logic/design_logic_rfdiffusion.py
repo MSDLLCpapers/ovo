@@ -10,29 +10,15 @@ from ovo import (
     get_scheduler,
     Design,
 )
+from ovo.core.database import descriptors_rfdiffusion
+from ovo.core.database.models import Pool, Round, DesignJob, DesignSpec, DescriptorValue, Base
+from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
 )
-from ovo.core.database import descriptors_rfdiffusion
-
-from ovo.core.database.models import (
-    Pool,
-    Round,
-    DesignJob,
-    DesignSpec,
-    DescriptorValue,
-    Base,
-)
-from ovo.core.logic.descriptor_logic import (
-    save_descriptor_job_for_design_job,
-    read_descriptor_file_values,
-)
-from ovo.core.logic.design_logic import set_designs_accepted
-from ovo.core.database.models_refolding import RefoldingWorkflow
-from ovo.core.database.models import Pool, Round, DesignJob, DesignSpec, DescriptorValue, Base
 from ovo.core.logic.descriptor_logic import save_descriptor_job_for_design_job, read_descriptor_file_values
 from ovo.core.logic.design_logic import set_designs_accepted
-from ovo.core.utils.pdb import get_sequences_from_pdb_str, get_standardized_remarks_from_pdb_str
+from ovo.core.utils.pdb import get_standardized_remarks_from_pdb_str
 
 
 def submit_rfdiffusion_preview(
@@ -159,8 +145,7 @@ def process_workflow_results(
                 num_fastrelax_cycles=num_fastrelax_cycles,
                 source_dir=source_dir,
                 destination_dir=destination_dir,
-                alphafold_file_suffix=alphafold_file_suffix,
-                esmfold_file_suffix=esmfold_file_suffix,
+                refolding_primary_test=workflow.refolding_params.primary_test,
                 cyclic=workflow.rfdiffusion_params.cyclic_offset,
             )
             for contig_idx, batch_name, backbone_number, source_backbone_path in source_backbone_paths
@@ -264,8 +249,7 @@ def process_rfdiffusion_design(
         num_sequence_designs: Number of sequence designs generated per backbone design, used to find output files and for formatting the Design ID.
         num_fastrelax_cycles: Number of fastrelax sequence designs generated per backbone design, used to find output files and for formatting the Design ID.
         destination_dir: Directory relative to our storage where design files should be stored, e.g. "project/proj123/round1/pools/pool123/designs"
-        alphafold_file_suffix: Suffix to add to the Alphafold-predicted structure file in storage
-        esmfold_file_suffix: Suffix to add to the ESMFold-predicted structure file in storage
+        refolding_primary_test: Name of the primary refolding test to read results from, e.g. "af2_model_1_ptm_tt_3red
         cyclic: Whether the design is macrocyclic
 
     """

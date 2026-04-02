@@ -110,6 +110,15 @@ class StructureVisualization:
                 f"Invalid type for contigs, expected list of segment objects, got: {type(self.contigs).__name__}"
             )
             for contig_or_segment in self.contigs:
+                if isinstance(contig_or_segment, str):
+                    raise ValueError(
+                        "Passing contigs as a string is not supported anymore since they need to be interpreted differently"
+                        "for the input and the output structure. "
+                        "When visualizing contigs on the input structure, "
+                        "please provide contigs parsed using the parse_contig_for_input_structure function. "
+                        "When visualizing contigs on the output structure, "
+                        "please use the parse_contig_for_output_structure function."
+                    )
                 if (
                     not hasattr(contig_or_segment, "start")
                     or not hasattr(contig_or_segment, "end")
