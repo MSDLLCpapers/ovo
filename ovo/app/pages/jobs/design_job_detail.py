@@ -41,6 +41,7 @@ def design_job_detail(pool_ids):
         st.warning("Selected pools are not associated with a design job")
         return
 
+    # TODO can we cache this at least when we know that all pools have been processed?
     design_jobs = db.select(DesignJob, id__in=design_job_ids, order_by="-created_date_utc")
 
     # Display title
@@ -314,7 +315,7 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
 
     show_mode = st.segmented_control(
         "Show",
-        options=["Accepted designs", "All designs"],
+        options=["Accepted designs", "All designs", "Workflow summary"],
         key="show_designs",
         default=st.query_params.get("show", "Accepted designs"),
     )
@@ -334,6 +335,9 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
     elif show_mode == "All designs":
         displayed_design_ids = show_all_designs(all_design_ids)
 
+    elif show_mode == "Workflow summary":
+        show_workflow_summary(jobs)
+        return
     else:
         st.error("Select a mode.")
         return
@@ -526,3 +530,18 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
         st.write(f"### Download {design_id}")
 
         download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")
+
+
+def show_workflow_summary(jobs: list[DesignJob]):
+    unique_workflow_names = set(job.workflow.name for job in jobs if job.workflow)
+    for workflow_name in unique_workflow_names:
+        WorkflowType = WorkflowTypes.get(workflow_name)
+        if len(unique_workflow_names) > 1:
+            st.write(f"### Workflow: {workflow_name}")
+
+        try:
+            WorkflowType.visualize_summary(
+                jobs=[job for job in jobs if job.workflow and job.workflow.name == workflow_name]
+            )
+        except NotImplementedError as e:
+            st.error(e)

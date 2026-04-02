@@ -110,14 +110,12 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
                     />
                 </div>
                 {!this.state.isFullscreen && allContigsParsed.map((parsedContigs, outerIdx) => {
-                    if (parsedContigs.length > 0) return (
+                    const labeledSegments = parsedContigs.filter((e, idx) => e.middle_label || e.start_label);
+                    if (labeledSegments.length > 0) return (
                         <div className="msp-layout-contig" style={{ color: "black", fontSize: "14px", cursor: "default" }} key={outerIdx}>
-                            Segments: {parsedContigs.map((e, idx) => {
-                                if (e.middle_label || e.start_label) {
-                                    const contigDescription = e.middle_label ? `${e.middle_label} ` : `${e.start_label}-${e.end_label} `;
-                                    return <span style={{ color: e.color }} onMouseOver={() => this.setHighlightedContig(e, outerIdx)} key={idx}>{contigDescription}</span>;
-                                }
-                                return <React.Fragment key={idx}></React.Fragment>;
+                            Segments: {labeledSegments.map((e, idx) => {
+                                const contigDescription = e.middle_label ? `${e.middle_label} ` : `${e.start_label}-${e.end_label} `;
+                                return <span style={{ color: e.color }} onMouseOver={() => this.setHighlightedContig(e, outerIdx)} key={idx}>{contigDescription}</span>;
                             })}
                         </div>);
                     return <React.Fragment key={outerIdx}></React.Fragment>;

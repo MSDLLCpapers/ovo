@@ -5,7 +5,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from ovo.core.database import descriptors_refolding, descriptors_rfdiffusion
-from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, Design, Threshold, Base
+from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, Design, Threshold, Base, DesignJob
 from ovo.core.database.models_refolding import (
     RefoldingSupportedDesignWorkflow,
 )
@@ -265,6 +265,9 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
     def set_contig(self, contig: str):
         self.rfdiffusion_params.contig = contig
 
+    def get_contig_indexes(self) -> list[int]:
+        return list(range(len(self.rfdiffusion_params.contigs)))
+
     def get_hotspots(self):
         return self.rfdiffusion_params.hotspots
 
@@ -368,6 +371,12 @@ class RFdiffusionScaffoldDesignWorkflow(RFdiffusionWorkflow):
 
         visualize_rfdiffusion_design_sequence(design_id)
 
+    @classmethod
+    def visualize_summary(cls, jobs: list[DesignJob]):
+        from ovo.app.components.workflow_summary import rfdiffusion_scaffold_workflow_summary
+
+        rfdiffusion_scaffold_workflow_summary(jobs)
+
     def get_refolding_design_type(self) -> str:
         return "scaffold"
 
@@ -441,31 +450,33 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
             self.rfdiffusion_params.hotspots = from_segments_to_hotspots(segments)
 
     def get_target_contig(self, contig_index=0):
-        contig = self.get_contig(contig_index=0)
+        contig = self.get_contig(contig_index=contig_index)
         if not contig:
             return ""
-        subcontigs = contig.split()
-        # make sure that target contig is fixed
+        subcontigs = [s.removesuffix("/0") for s in contig.split()]
         assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        assert all(segment[0].isalpha() for segment in subcontigs[1].split("/")), (
-            f"Expected contig in format 'DESIGN/0 TARGET', got: {contig}"
-        )
-        return subcontigs[1]
+        fixed_subcontigs = [subcontig for subcontig in subcontigs if all(s[0].isalpha() for s in subcontig.split("/"))]
+        assert len(fixed_subcontigs) == 1, f"Expected exactly one fixed contig with chain specification, got: {contig}"
+        return fixed_subcontigs[0]
 
     def get_binder_contig(self, contig_index=0):
-        contig = self.get_contig(contig_index=0)
+        contig = self.get_contig(contig_index=contig_index)
         if not contig:
             return ""
         subcontigs = contig.split()
         assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        # make sure that target contig is fixed (binder contig should be designed but not necessarily - e.g. in partial diffusion)
-        assert all(segment[0].isalpha() for segment in subcontigs[1].split("/")), (
-            f"Expected contig in format 'DESIGN/0 TARGET', got: {contig}"
+        subcontigs = [s.removesuffix("/0") for s in contig.split()]
+        assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
+        generated_subcontigs = [
+            subcontig for subcontig in subcontigs if any(s[0].isnumeric() for s in subcontig.split("/"))
+        ]
+        assert len(generated_subcontigs) == 1, (
+            f"Expected exactly one generated contig with chain specification, got: {contig}"
         )
-        return subcontigs[0].removesuffix("/0")
+        return generated_subcontigs[0]
 
     def set_binder_contig(self, binder_contig: str, contig_index: int = 0):
-        target_contig = self.get_target_contig()
+        target_contig = self.get_target_contig(contig_index=contig_index)
         assert target_contig, "Target contig must be set before setting binder contig"
         self.rfdiffusion_params.contigs[contig_index] = binder_contig + "/0 " + target_contig
 
@@ -484,6 +495,12 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
         from ovo.app.components.workflow_visualization_components import rfdiffusion_binder_design_visualization
 
         rfdiffusion_binder_design_visualization(design_id)
+
+    @classmethod
+    def visualize_summary(cls, jobs: list[DesignJob]):
+        from ovo.app.components.workflow_summary import rfdiffusion_binder_design_workflow_summary
+
+        rfdiffusion_binder_design_workflow_summary(jobs)
 
     def get_refolding_design_type(self) -> str:
         return "binder"

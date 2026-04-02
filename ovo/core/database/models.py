@@ -450,10 +450,14 @@ class DesignWorkflow(Workflow):
         visualize_design_structure(design_id)
 
     @classmethod
-    def visualize_single_design_sequences(self, design_id: str):
+    def visualize_single_design_sequences(cls, design_id: str):
         from ovo.app.components.workflow_visualization_components import visualize_design_sequence
 
         visualize_design_sequence(design_id)
+
+    @classmethod
+    def visualize_summary(cls, jobs: list["DesignJob"]):
+        raise NotImplementedError("This workflow does not implement summary visualization")
 
     def get_relevant_descriptor_keys(self) -> list[str]:
         """Get list of descriptor keys that are of interest for this workflow

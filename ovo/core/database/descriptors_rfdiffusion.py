@@ -27,7 +27,7 @@ N_CONTACTS_TO_INTERFACE = NumericGlobalDescriptor(
 )
 INTERFACE_TARGET_RESIDUES = ResidueNumberDescriptor(
     name="Interface target residues",
-    description="List of residue numbers of the target in contact with the binder backbone (CA within 8A)",
+    description="Target residues in contact with the binder backbone (CA within 8A)",
     tool="Backbone metrics",
     key="rfd_ee|backbone_metrics|interface_target_residues",
 )

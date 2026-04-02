@@ -43,7 +43,6 @@ from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
     parse_contig_for_input_structure,
     parse_contig_for_output_structure,
-    ContigSegment,
     MappedContigSegment,
 )
 

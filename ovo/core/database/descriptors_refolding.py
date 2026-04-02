@@ -1,11 +1,10 @@
-from ovo.core.database.models import NumericGlobalDescriptor, StructureFileDescriptor
-
+from ovo.core.database.models import NumericGlobalDescriptor, StructureFileDescriptor, ResidueNumberDescriptor
 
 # Hardcoded test options for refolding
 REFOLDING_TESTS_SCAFFOLD = {
     "af2_model_1_ptm_nt_3rec": (
         "AF2 monomer, no template, 3 recycles",
-        "AlphaFold2 model_1_ptm (monomer model), initial guess with no template input. Low risk of over-confidence.",
+        "AlphaFold2 model_1_ptm (monomer model), initial guess with no template input. Low risk of over-confidence, but may fail to predict the structure (since no MSA input is provided either).",
     ),
     "af2_model_1_ptm_ft_3rec": (
         "AF2 monomer, fixed motif template, 3 recycles",
@@ -13,7 +12,7 @@ REFOLDING_TESTS_SCAFFOLD = {
     ),
     "af2_model_1_multimer_nt_3rec": (
         "AF2 multimer, no template, 3 recycles",
-        "AlphaFold2 model_1_multimer, initial guess with no template input. Low risk of over-confidence.",
+        "AlphaFold2 model_1_multimer, initial guess with no template input. Low risk of over-confidence, but may fail to predict the structure (since no MSA input is provided either).",
     ),
     "af2_model_1_multimer_ft_3rec": (
         "AF2 multimer, fixed motif template, 3 recycles",
@@ -250,6 +249,13 @@ AF2_PRIMARY_PLDDT = NumericGlobalDescriptor(
     color_scale="plddt",
 )
 
+AF2_PRIMARY_INTERFACE_TARGET_RESIDUES = ResidueNumberDescriptor(
+    name="AF2 Interface target residues",
+    description="Predicted AF2 target residues in contact with the binder backbone (CA within 8A)",
+    tool="AF2 Initial Guess",
+    key="refolding|af2_primary|interface_target_residues",
+)
+
 
 # Initial guess descriptors
 AF2_PRIMARY_DESCRIPTORS = [
@@ -261,6 +267,7 @@ AF2_PRIMARY_DESCRIPTORS = [
     AF2_PRIMARY_BINDER_PAE,
     AF2_PRIMARY_PLDDT_BINDER,
     AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD,
+    AF2_PRIMARY_INTERFACE_TARGET_RESIDUES,
     # scaffold
     AF2_PRIMARY_DESIGN_RMSD,
     AF2_PRIMARY_NATIVE_MOTIF_RMSD,
@@ -406,6 +413,12 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
             min_value=0,
             max_value=1,
             comparison="higher_is_better",
+        ),
+        ResidueNumberDescriptor(
+            name="AF2 Interface target residues",
+            description=f"Predicted AF2 target residues in contact with the binder backbone (CA within 8A) using {description}",
+            tool=f"AlphaFold2 ({label})",
+            key=f"refolding|{test}|interface_target_residues",
         ),
     ]
 

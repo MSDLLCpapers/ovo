@@ -124,6 +124,16 @@ class BindCraftBinderDesignWorkflow(DesignWorkflow):
 
         bindcraft_binder_design_visualization(design_id)
 
+    def get_contig_indexes(self) -> list[int]:
+        # BindCraft currently supports only one input structure and contig
+        return [0]
+
+    @classmethod
+    def visualize_summary(cls, jobs: list[DesignJob]):
+        from ovo.app.components.workflow_summary import bindcraft_workflow_summary
+
+        bindcraft_workflow_summary(jobs)
+
     @classmethod
     def get_download_fields(cls):
         return {

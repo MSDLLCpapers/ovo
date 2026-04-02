@@ -4,7 +4,9 @@ import time
 import numpy as np
 import argparse
 from colabdesign import mk_af_model
+from colabdesign.af.alphafold.common import protein
 import json
+import jax
 
 
 def add_cyclic_offset(self, offset_type=2):
@@ -38,32 +40,58 @@ def add_cyclic_offset(self, offset_type=2):
     self._inputs["offset"] = offset
 
 
-def flip_chains(pdb_str, out_path):
+# adopted from colabdesign save_pdb
+def save_binder_design_pdb(self, filename=None, get_best=True):
     """
-    Parses a PDB file content string, swaps chain A with chain B so that binder is A and target is B, and writes the result to out_path.
-    Assumes only chains A and B are present.
+    save pdb coordinates (if filename provided, otherwise return as string)
+    - set get_best=False, to get the last sampled sequence
 
-    :param pdb_str: String containing PDB file contents
-    :param out_path: Path to output the modified PDB file
+    saves binder as chain A, renumbered consecutively from 1
+      and target as chain B, with original residue numbering from the input PDB
     """
-    a_lines = []
-    b_lines = []
+    aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
+    aux = aux["all"]
 
-    for line in pdb_str.splitlines():
-        if line.startswith(("ATOM", "HETATM")):
-            chain = line[21]
-            if chain == "A":
-                b_lines.append(line[:21] + "B" + line[22:])
-            elif chain == "B":
-                a_lines.append(line[:21] + "A" + line[22:])
-            else:
-                raise ValueError(f"Expected only chains A and B, found {chain}")
-        elif not line.strip() or not line.startswith(("MODEL", "END")):
-            raise ValueError(f"Unsupported line in ColabDesign PDB: {line}")
+    p = {k: aux[k] for k in ["aatype", "residue_index", "atom_positions", "atom_mask"]}
+    p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][..., None]
 
-    with open(out_path, "w") as f:
-        f.write("\n".join(a_lines) + "\n")
-        f.write("\n".join(b_lines) + "\n")
+    for k, v in p.items():
+        assert p[k].shape[1] == self._target_len + self._binder_len, (
+            f"Expected {self._target_len} + {self._binder_len} residues, got {p[k].shape[1]} in {k}"
+        )
+        # flip target and binder positions to have binder first (chain A) and target second (chain B)
+        p[k] = np.concatenate([p[k][:, self._target_len :], p[k][:, : self._target_len]], axis=1)
+
+    def to_pdb_str(x, n=None):
+        p_str = protein.to_pdb(protein.Protein(**x))
+
+        # mapping original residue index -> new residue index
+        binder_mapping = dict(zip(x["residue_index"][: self._binder_len], range(1, self._binder_len + 1)))
+
+        lines = []
+        for line in p_str.splitlines()[1:-2]:
+            if line.startswith(("ATOM", "HETATM")):
+                resno = int(line[22:26].strip())
+                if resno in binder_mapping:
+                    lines.append(line[:21] + "A" + str(binder_mapping[resno]).rjust(4) + line[26:])
+                else:
+                    lines.append(line[:21] + "B" + line[22:])
+        lines.append("")
+        p_str = "\n".join(lines)
+        if n is not None:
+            p_str = f"MODEL{n:8}\n{p_str}\nENDMDL\n"
+        return p_str
+
+    p_str = ""
+    for n in range(p["atom_positions"].shape[0]):
+        p_str += to_pdb_str(jax.tree_util.tree_map(lambda x: x[n], p), n + 1)
+    p_str += "END\n"
+
+    if filename is None:
+        return p_str
+    else:
+        with open(filename, "w") as f:
+            f.write(p_str)
 
 
 def get_pdb_total_length(pdb_path):
@@ -192,10 +220,16 @@ if __name__ == "__main__":
             )  # de-normalization of https://github.com/sokrypton/ColabDesign/blob/4c0bc6d67f8f967135ecccc135a26b3bfded25e8/colabdesign/af/loss.py#L252
             metrics["ipae"] = metrics["ipae"] * 31.0
             metrics["time"] = time.time() - start_time
+            ca_pos = model.aux["atom_positions"][:, 1]  # 1 = CA index
+            ca_dist = np.sqrt(
+                np.square(ca_pos[model._target_len :, None] - ca_pos[None, : model._target_len]).sum(axis=-1) + 1e-8
+            )
+            target_interface_res = model.aux["residue_index"][: model._target_len][ca_dist.min(axis=0) <= 8]
+            metrics["interface_target_residues"] = ",".join(f"B{pos}" for pos in target_interface_res)
             metrics_str = " | ".join(f"{k} = {v:.2f}" for k, v in metrics.items() if isinstance(v, float))
             print(" Prediction done in {:.1f}s | {}".format(metrics["time"], metrics_str))
             json.dump(metrics, f)
             f.write("\n")
             f.flush()
             suffix = os.path.basename(options.output_name.rstrip("/"))
-            flip_chains(model.save_pdb(), os.path.join(options.output_name, f"{basename}_{suffix}.pdb"))
+            save_binder_design_pdb(model, os.path.join(options.output_name, f"{basename}_{suffix}.pdb"))
