@@ -1,9 +1,7 @@
-from datetime import datetime
-
 import streamlit as st
 from humanize import precisedelta
 
-from ovo import db, get_scheduler, Pool, Design, WorkflowTypes, DesignWorkflow
+from ovo import db, schedulers, Pool, Design, WorkflowTypes, DesignWorkflow
 from ovo.app.components.acceptance_thresholds_components import (
     thresholds_and_histograms_component,
     accept_designs_dialog,
@@ -150,16 +148,23 @@ def design_job_detail(pool_ids):
 
 @st.fragment()
 def workflow_detail_fragment(job: DesignJob, pool: Pool, first=False):
-    scheduler = get_scheduler(job.scheduler_key)
     with st.container(border=True):
         # noinspection PyUnreachableCode
-        title_suffix = f"Pool **{pool.id}** | {pool.name}"
+        title = f"Pool **{pool.id}** | {pool.name}"
+        if job.scheduler_key not in schedulers:
+            st.write(title)
+            st.warning(
+                f"Scheduler '{job.scheduler_key}' not available in the current config. "
+                f"Job status or logs cannot be retrieved for job '{job.job_id}'"
+            )
+            return
+        scheduler = schedulers[job.scheduler_key]
         if job.job_result is None:
-            title = f"⏳ {scheduler.get_status_label(job.job_id)} | {title_suffix}"
+            title = f"⏳ {scheduler.get_status_label(job.job_id)} | {title}"
         elif job.job_result == False:
-            title = f":red-background[❌ :red[**Failed**] | {title_suffix}]"
+            title = f":red-background[❌ :red[**Failed**] | {title}]"
         else:
-            title = f"Done | {title_suffix}"
+            title = f"Done | {title}"
 
         st.write(title)
         if job.job_result == False:
@@ -512,9 +517,12 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
 
         design = get_cached_design(design_id)
         pool = get_cached_pool(design.pool_id)
+        design_job = get_cached_design_job(pool.design_job_id)
         if not shared_workflow_name and pool.design_job_id:
-            design_job = get_cached_design_job(pool.design_job_id)
             shared_workflow_name = design_job.workflow.name if design_job and design_job.workflow else None
+
+        if design_job.workflow and design_job.workflow.is_instance(UnknownWorkflow):
+            st.warning(f"Workflow metadata failed to load: {design_job.workflow.error}")
 
         WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow
 

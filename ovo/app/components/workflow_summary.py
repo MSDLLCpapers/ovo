@@ -214,6 +214,12 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
                         key=f"structure_{method}_{key}_{accepted}_{i}",
                         height=400,
                     )
+                    if binding_residues:
+                        # TODO include the amino acid: E24 (Tyr)
+                        st.write(
+                            f"Found {len(binding_residues)} most frequent "
+                            f"binding residues: :{color}-badge[{f'] :{color}-badge['.join(binding_residues)}]"
+                        )
         st.divider()
 
 
@@ -381,7 +387,7 @@ def get_subjob_table(
                 **row,
                 "Accepted": accepted_designs,
                 "Total": total_designs,
-                "% Accepted": f"{accepted_designs / total_designs:.2%}",
+                "% Accepted": f"{accepted_designs / total_designs if total_designs else 0:.2%}",
                 "Pool name": pool.name,
                 "Link": f"[Job ↑](./jobs?pool_ids={pool.id}&project_id={project_rounds_by_id[pool.round_id].project_id})",
             }

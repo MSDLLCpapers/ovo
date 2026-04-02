@@ -50,9 +50,7 @@ def copy_remarks(backbone_dir: str, output_dir: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Copy REMARK lines from backbone PDBs to sequence-designed PDBs."
-    )
+    parser = argparse.ArgumentParser(description="Copy REMARK lines from backbone PDBs to sequence-designed PDBs.")
     parser.add_argument("backbone_dir", type=str, help="Input directory with backbone PDB files")
     parser.add_argument("output_dir", type=str, help="Output directory for combined PDB files")
 
