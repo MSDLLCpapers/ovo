@@ -7,16 +7,13 @@ from ovo import (
     db,
     storage,
     config,
-    local_scheduler,
     get_scheduler,
     Design,
 )
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
-    RFdiffusionBinderDesignWorkflow,
-    RFdiffusionScaffoldDesignWorkflow,
 )
-from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
+from ovo.core.database import descriptors_rfdiffusion
 
 from ovo.core.database.models import (
     Pool,
@@ -24,7 +21,6 @@ from ovo.core.database.models import (
     DesignJob,
     DesignSpec,
     DescriptorValue,
-    StructureFileDescriptor,
     Base,
 )
 from ovo.core.logic.descriptor_logic import (
@@ -39,7 +35,8 @@ def submit_rfdiffusion_preview(
     workflow: RFdiffusionWorkflow,
     timesteps: int,
     partial_diffusion: bool = False,
-    pipeline_name="rfdiffusion-backbone",
+    pipeline_name: str = "rfdiffusion-backbone",
+    scheduler_key: str = None,
     **submission_args,
 ) -> str | None:
     """Run the RFdiffusion workflow with reduced number of diffuser timesteps."""
@@ -50,7 +47,8 @@ def submit_rfdiffusion_preview(
     if not contig:
         raise ValueError("Contig has not been computed. Please check the workflow parameters.")
 
-    input_path = storage.prepare_workflow_input(workflow.get_input_pdb_path(), workdir=local_scheduler.workdir)
+    scheduler = get_scheduler(scheduler_key or config.local_scheduler)
+    input_path = storage.prepare_workflow_input(workflow.get_input_pdb_path(), workdir=scheduler.workdir)
 
     run_parameters = []
 
@@ -70,7 +68,7 @@ def submit_rfdiffusion_preview(
     if workflow.get_cyclic_offset():
         params["cyclic"] = True
 
-    preview_job_id = local_scheduler.submit(
+    preview_job_id = scheduler.submit(
         pipeline_name=pipeline_name,
         params=params,
         submission_args=submission_args,
