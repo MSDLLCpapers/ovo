@@ -294,7 +294,7 @@ def main(args):
                 pTM=prediction.ptm.item(),
                 RMSD_all_atom=RMSD_all_atom,
                 RMSD_backbone=RMSD_backbone,
-                pAE_mean=prediction.predicted_aligned_error.mean().item(),
+                pAE=prediction.predicted_aligned_error.mean().item(),
             )
         )
 
