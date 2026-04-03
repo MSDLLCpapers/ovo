@@ -3,6 +3,7 @@ import json
 import signal
 import subprocess
 import shlex
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid1
@@ -526,9 +527,15 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
             raise JobNotFound(f"Job {job_id} PID file not found: {pid_file}")
         with open(pid_file, "r") as f:
             pid_text = f.read()
-            if not pid_text:
-                raise JobNotFound(f"Job {job_id} PID file is empty: {pid_file}")
-            pid = int(pid_text)
+        if not pid_text:
+            # edge case - nextflow background process has just started writing into the PID file,
+            # wait a bit and try again once before giving up
+            time.sleep(3)
+            with open(pid_file, "r") as f:
+                pid_text = f.read()
+        if not pid_text:
+            raise JobNotFound(f"Job {job_id} PID file is empty: {pid_file}")
+        pid = int(pid_text)
         return pid
 
     def get_job_start_time(self, job_id: str) -> datetime | None:
