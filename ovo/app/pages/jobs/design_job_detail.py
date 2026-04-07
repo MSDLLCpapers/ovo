@@ -1,9 +1,7 @@
-from datetime import datetime
-
 import streamlit as st
 from humanize import precisedelta
 
-from ovo import db, get_scheduler, Pool, Design, WorkflowTypes, DesignWorkflow
+from ovo import db, schedulers, Pool, Design, WorkflowTypes, DesignWorkflow
 from ovo.app.components.acceptance_thresholds_components import (
     thresholds_and_histograms_component,
     accept_designs_dialog,
@@ -41,6 +39,7 @@ def design_job_detail(pool_ids):
         st.warning("Selected pools are not associated with a design job")
         return
 
+    # TODO can we cache this at least when we know that all pools have been processed?
     design_jobs = db.select(DesignJob, id__in=design_job_ids, order_by="-created_date_utc")
 
     # Display title
@@ -149,16 +148,23 @@ def design_job_detail(pool_ids):
 
 @st.fragment()
 def workflow_detail_fragment(job: DesignJob, pool: Pool, first=False):
-    scheduler = get_scheduler(job.scheduler_key)
     with st.container(border=True):
         # noinspection PyUnreachableCode
-        title_suffix = f"Pool **{pool.id}** | {pool.name}"
+        title = f"Pool **{pool.id}** | {pool.name}"
+        if job.scheduler_key not in schedulers:
+            st.write(title)
+            st.warning(
+                f"Scheduler '{job.scheduler_key}' not available in the current config. "
+                f"Job status or logs cannot be retrieved for job '{job.job_id}'"
+            )
+            return
+        scheduler = schedulers[job.scheduler_key]
         if job.job_result is None:
-            title = f"⏳ {scheduler.get_status_label(job.job_id)} | {title_suffix}"
+            title = f"⏳ {scheduler.get_status_label(job.job_id)} | {title}"
         elif job.job_result == False:
-            title = f":red-background[❌ :red[**Failed**] | {title_suffix}]"
+            title = f":red-background[❌ :red[**Failed**] | {title}]"
         else:
-            title = f"Done | {title_suffix}"
+            title = f"Done | {title}"
 
         st.write(title)
         if job.job_result == False:
@@ -314,7 +320,7 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
 
     show_mode = st.segmented_control(
         "Show",
-        options=["Accepted designs", "All designs"],
+        options=["Accepted designs", "All designs", "Workflow summary"],
         key="show_designs",
         default=st.query_params.get("show", "Accepted designs"),
     )
@@ -334,6 +340,9 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
     elif show_mode == "All designs":
         displayed_design_ids = show_all_designs(all_design_ids)
 
+    elif show_mode == "Workflow summary":
+        show_workflow_summary(jobs)
+        return
     else:
         st.error("Select a mode.")
         return
@@ -508,9 +517,12 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
 
         design = get_cached_design(design_id)
         pool = get_cached_pool(design.pool_id)
+        design_job = get_cached_design_job(pool.design_job_id)
         if not shared_workflow_name and pool.design_job_id:
-            design_job = get_cached_design_job(pool.design_job_id)
             shared_workflow_name = design_job.workflow.name if design_job and design_job.workflow else None
+
+        if design_job.workflow and design_job.workflow.is_instance(UnknownWorkflow):
+            st.warning(f"Workflow metadata failed to load: {design_job.workflow.error}")
 
         WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow
 
@@ -526,3 +538,18 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
         st.write(f"### Download {design_id}")
 
         download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")
+
+
+def show_workflow_summary(jobs: list[DesignJob]):
+    unique_workflow_names = set(job.workflow.name for job in jobs if job.workflow)
+    for workflow_name in unique_workflow_names:
+        WorkflowType = WorkflowTypes.get(workflow_name)
+        if len(unique_workflow_names) > 1:
+            st.write(f"### Workflow: {workflow_name}")
+
+        try:
+            WorkflowType.visualize_summary(
+                jobs=[job for job in jobs if job.workflow and job.workflow.name == workflow_name]
+            )
+        except NotImplementedError as e:
+            st.error(e)

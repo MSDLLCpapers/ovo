@@ -27,7 +27,7 @@ N_CONTACTS_TO_INTERFACE = NumericGlobalDescriptor(
 )
 INTERFACE_TARGET_RESIDUES = ResidueNumberDescriptor(
     name="Interface target residues",
-    description="List of residue numbers of the target in contact with the binder backbone (CA within 8A)",
+    description="Target residues in contact with the binder backbone (CA within 8A)",
     tool="Backbone metrics",
     key="rfd_ee|backbone_metrics|interface_target_residues",
 )
@@ -139,6 +139,14 @@ BACKBONE_METRIC_FIELD_NAMES = [d.key.removeprefix("rfd_ee|backbone_metrics|") fo
 #     comparison='does_not_apply'
 # )
 
+
+CUSTOM_BACKBONE_STRUCTURE_PATH = StructureFileDescriptor(
+    name="Custom backbone design",
+    description="Custom backbone structure input, without any side-chains, with Glycine residues at designed positions",
+    tool="Custom",
+    key="rfd_ee|custom_backbone|backbone_structure_path",
+    structure_type="backbone_design",
+)
 
 RFDIFFUSION_STRUCTURE_PATH = StructureFileDescriptor(
     name="RFdiffusion backbone design",

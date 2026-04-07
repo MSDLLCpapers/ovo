@@ -1,9 +1,13 @@
 import itertools
 import json
+import string
 from collections import defaultdict
+from dataclasses import dataclass
 from io import StringIO
 from typing import List, Dict
 from Bio.PDB import PDBParser
+
+from ovo.core.utils.formatting import ColorPicker, mix_colors
 
 
 def from_residues_to_segments(
@@ -229,3 +233,186 @@ def create_partial_diffusion_binder_contig(redesigned_segments: list[str], binde
             new_binder_segments.append(f"A{positions[0]}-{positions[-1]}")
 
     return "/".join(new_binder_segments)
+
+
+@dataclass
+class ContigSegment:
+    """Class for annotating a segment of the structure.
+
+    :param start: Starting residue number of the segment (inclusive).
+    :param end: Ending residue number of the segment (inclusive).
+    :param chain: Chain ID of the segment.
+    :param color: Color of the segment in hex format (e.g. "0x00ff00"), optional.
+    :param start_label: Label to show at the start of the segment, optional.
+    :param middle_label: Label to show in the middle of the segment, optional.
+    :param end_label: Label to show at the end of the segment, optional.
+    """
+
+    start: int
+    end: int
+    chain: str
+    color: str | None = None
+    start_label: str = None
+    middle_label: str = None
+    end_label: str = None
+
+
+@dataclass
+class MappedContigSegment(ContigSegment):
+    """Class for annotating a segment of the structure with mapping to input structure numbering.
+
+    In addition to ContigSegment fields, also includes:
+    :param input_start: Starting residue number of the segment in the input structure (inclusive).
+    :param input_end: Ending residue number of the segment in the input structure (inclusive).
+    :param input_chain: Chain ID of the segment in the input structure.
+    """
+
+    input_start: int | None = None
+    input_end: int | None = None
+    input_chain: str | None = None
+
+
+def _parse_range(range_str: str) -> tuple[int, int]:
+    try:
+        if "-" in range_str:
+            start, end = range_str.split("-")
+            return int(start), int(end)
+        else:
+            num = int(range_str)
+            return num, num
+    except ValueError:
+        raise ValueError(f"Invalid range format: {range_str}")
+
+
+def parse_contig_for_input_structure(contig: str, include_generated: bool = False) -> list[ContigSegment]:
+    """Parse contig string and return segment annotations mapping to the INPUT structure numbering
+
+    By default, includes only fixed segments (originating from input structure).
+
+    :param contig: contig string, e.g. "A1-5/A6-10 B1-8" or "A1-5/5-10 B1-8"
+    :param include_generated: include generated segments (e.g. 5-10) in the output, defaults to False.
+                              Note that generated segments will have start, end, and chain set to None!
+    """
+    input_segments = []
+    color_picker = ColorPicker()
+    for subcontig in contig.split():
+        for segment in subcontig.removesuffix("/0").replace(",", "/").split("/"):
+            if not segment:
+                # skip empty segments
+                continue
+            if segment[0].isalpha():
+                # fixed input segment
+                chain = segment[0]
+                start, end = _parse_range(segment[1:])
+                input_segments.append(
+                    ContigSegment(
+                        start=start,
+                        end=end,
+                        chain=chain,
+                        start_label=f"{chain}{start}",
+                        end_label=f"{chain}{end}",
+                        color=color_picker((start, end, chain)),
+                    )
+                )
+            else:
+                # variable segment, do not add but validate format
+                _parse_range(segment)
+                if include_generated:
+                    # add placeholder segment when requested
+                    # can be used to compute number of fixed and generated segments
+                    input_segments.append(
+                        ContigSegment(
+                            start=None,
+                            end=None,
+                            chain=None,
+                            middle_label=segment,
+                            color=None,
+                        )
+                    )
+    return input_segments
+
+
+def split_subcontig(subcontig: str) -> list[str]:
+    """Split a single-chain subcontig into list of segments (not including the trailing /0)
+
+    Given "A1-5/5-10/A11-15/0", returns ["A1-5", "5-10", "A11-15"]
+    """
+    assert " " not in subcontig, f"Expected single-chain subcontig with no spaces, got: '{subcontig}'"
+    return subcontig.removesuffix("/0").replace(",", "/").split("/")
+
+
+def parse_contig_for_output_structure(contig: str) -> list[MappedContigSegment]:
+    """Parse contig string and return segment annotations mapping to our standardized RFdiffusion OUTPUT structure numbering.
+
+    See standardize_pdb.py script inside rfdiffusion pipeline.
+
+    Assumptions:
+    - The "subcontigs" in the contig (split by whitespace) are ordered same as the chains in the output structure (contigs with generated segments come first, then contigs with only fixed segments)
+    - Generated segments should be "resolved", meaning that they should have same start and end in the range (5-5, not 5-10)
+    - Chains that contain any RFdiffusion-generated segments are renumbered starting from 1 in the output structure, and they are in chains A, B, ... in order of appearance (in case of multiple generated chains, typically just A)
+    - Fixed chains (with no designed segments) are numbered same as in the input structure, and assigned remaining chains B, C, etc. in order of appearance
+    """
+    output_segments = []
+    color_picker = ColorPicker()
+    prev_is_fixed = False
+    for output_chain, subcontig in zip(string.ascii_uppercase, contig.split()):
+        segments = split_subcontig(subcontig)
+        is_fixed_chain = all(segment[0].isalpha() for segment in segments if segment)
+        if prev_is_fixed and not is_fixed_chain:
+            raise ValueError(
+                f"Standardized contig format error. Generated chain contigs should come before fixed segments in contig: {contig}"
+            )
+        prev_is_fixed = is_fixed_chain
+        output_start = 1
+        for segment in segments:
+            if not segment:
+                raise ValueError(f"Empty segment found in contig: {contig}")
+            if segment[0].isalpha():
+                # fixed segment
+                input_chain = segment[0]
+                input_start, input_end = _parse_range(segment[1:])
+                length = input_end - input_start + 1
+                output_segments.append(
+                    MappedContigSegment(
+                        # when whole chain is fixed (no generated segments), original input numbering is preserved
+                        start=input_start if is_fixed_chain else output_start,
+                        end=input_end if is_fixed_chain else output_start + length - 1,
+                        chain=output_chain,
+                        start_label=f"{input_chain}{input_start}",
+                        end_label=f"{input_chain}{input_end}",
+                        color=color_picker((input_start, input_end, input_chain)),
+                        input_start=input_start,
+                        input_end=input_end,
+                        input_chain=input_chain,
+                    )
+                )
+                output_start += length
+            else:
+                # generated segment
+                length, length2 = _parse_range(segment)
+                if length != length2:
+                    raise ValueError(
+                        f"Generated segments in standardized contig should be resolved to single positions, got: {segment} in contig: {contig}"
+                    )
+                output_segments.append(
+                    MappedContigSegment(
+                        start=output_start,
+                        end=output_start + length - 1,
+                        chain=output_chain,
+                        middle_label=str(length),
+                        color=None,
+                    )
+                )
+                output_start += length
+
+    # assign color to generated segments based on neighboring fixed segments
+    for prev_seg, seg, next_seg in zip([None] + output_segments[:-1], output_segments, output_segments[1:] + [None]):
+        if seg.color is None:
+            if prev_seg:
+                # mid generated segment
+                seg.color = mix_colors(mix_colors(prev_seg.color, "#ffffff"), "#ffffff")
+            elif next_seg:
+                # start segment (N term)
+                seg.color = "#eeeeee"
+
+    return output_segments

@@ -1,27 +1,31 @@
-from ovo import db, design_logic
+from ovo import db, design_logic, storage
+from ovo.core.database.models_refolding import RefoldingWorkflow
+from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, FoldseekParams
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
     RefoldingParams,
-    RFdiffusionBinderDesignWorkflow,
+    RFdiffusionScaffoldDesignWorkflow,
 )
 from ovo.core.database import (
     descriptors_refolding,
     descriptors_rfdiffusion,
+    descriptors_clustering,
 )
+from ovo.core.logic import descriptor_logic
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.utils.tests import TEST_SCHEDULER_KEY
 
 
-def test_binder_default_end_to_end_logic(project_data):
+def test_scaffold_multichain_end_to_end_logic(project_data):
     project, project_round, custom_pool = project_data
 
-    workflow = RFdiffusionBinderDesignWorkflow(
+    workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
             input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
-            contigs=["A74-97/0 20"],
+            contigs=["A111-114/10/A117-119/0 A110-113/5/A118-120"],
             num_designs=1,
-            timesteps=15,  # use 15 diffusion timesteps for faster testing
+            timesteps=10,
         ),
         protein_mpnn_params=ProteinMPNNParams(
             num_sequences=2,
@@ -29,7 +33,7 @@ def test_binder_default_end_to_end_logic(project_data):
             run_parameters="--seed 42",
         ),
         refolding_params=RefoldingParams(
-            primary_test="boltz2_binder_tt",
+            primary_test="af2_model_1_ptm_ft_3rec",
         ),
     )
     workflow.validate()
@@ -39,7 +43,7 @@ def test_binder_default_end_to_end_logic(project_data):
         # Your initialized workflow settings
         workflow=workflow,
         # Name your pool of designs
-        pool_name="5ELI boltz refolding binder test",
+        pool_name="5ELI multi-chain hairpin scaffold test",
         pool_description="",
         # see schedulers for available scheduler keys
         scheduler_key=TEST_SCHEDULER_KEY,
@@ -59,22 +63,25 @@ def test_binder_default_end_to_end_logic(project_data):
 
     designs = db.Design.select(pool_id=pool.id)
     design_ids = [d.id for d in designs]
-    assert design_ids[0].endswith("_seq1")
-    assert design_ids[1].endswith("_seq2")
+
+    design = designs[0]
+    assert len(design.spec.chains) == 2
+    assert design.spec.chains[0].chain_ids == ["A"]
+    assert design.spec.chains[0].contig == "A111-114/10-10/A117-119/0"
+    assert design.spec.chains[1].chain_ids == ["B"]
+    assert design.spec.chains[1].contig == "A110-113/5-5/A118-120"
 
     rag = db.select_descriptor_values(descriptors_rfdiffusion.RADIUS_OF_GYRATION.key, design_ids)
     assert len(rag.dropna()) == 2
     assert (rag > 0).all()
 
-    boltz2_ipde = db.select_descriptor_values("refolding|boltz2_binder_tt|complex_ipde", design_ids)
-    assert len(boltz2_ipde.dropna()) == 2
-    assert (boltz2_ipde < 30).all()
+    af2_plddt = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_PLDDT.key, design_ids)
+    assert len(af2_plddt.dropna()) == 2
+    assert (af2_plddt > 10).all()
 
-    boltz2_pdb_paths = db.select_descriptor_values(
-        "refolding|boltz2_binder_tt|boltz_predicted_structure_path", design_ids
-    )
-    assert len(boltz2_pdb_paths.dropna()) == 2
-
-    rosetta_ddg = db.select_descriptor_values(descriptors_rfdiffusion.PYROSETTA_DDG.key, design_ids)
-    assert len(rosetta_ddg.dropna()) == 2
-    assert not rosetta_ddg.isna().any()
+    # TODO add alphafold interface metrics - they are computed by colabdesign,
+    #  but we don't save them to the JSONL in that script (see METRICS in af2_initial_guess_scaffold_eval.py)
+    #  and we don't have corresponding Descriptor objects in OVO for the scaffold refolding tests
+    # af2_ipae = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_IPAE.key, design_ids)
+    # assert len(af2_ipae.dropna()) == 2
+    # assert (af2_ipae < 30).all()

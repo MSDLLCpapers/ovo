@@ -3,22 +3,6 @@ import json
 from typing import Literal
 
 
-@dataclasses.dataclass
-class ContigSegment:
-    """Class for storing data about individual contig regions."""
-
-    value: str
-    length: int
-    type: str
-    input_res_start: int
-    input_res_end: int
-    input_res_chain: str
-    out_res_start: int
-    out_res_end: int
-    out_res_chain: str
-    color: str | None = None
-
-
 class EnhancedJSONEncoder(json.JSONEncoder):
     """A JSON encoder for enabling the export of dataclasses."""
 
@@ -94,7 +78,7 @@ class StructureVisualization:
     """
 
     pdb: str
-    contigs: str | list[ContigSegment] | None = None
+    contigs: list | None = None
     color: Literal[
         "uniform",
         "chain-id",
@@ -121,26 +105,28 @@ class StructureVisualization:
                     f"Invalid type for chains, expected ChainVisualization or list of ChainVisualization, got: {type(self.chains).__name__}"
                 )
         if self.contigs:
-            from ovo.app.components.molstar_custom_component import ContigsParser
-
-            parser = ContigsParser()
-            if isinstance(self.contigs, str):
-                parsed_contigs = parser.parse_contigs_str(self.contigs)
-            else:
-                assert isinstance(self.contigs, list), (
-                    f"Invalid type for contigs, expected str or list, got: {type(self.contigs).__name__}"
-                )
-                parsed_contigs = []
-                for contig_or_segment in self.contigs:
-                    if isinstance(contig_or_segment, str):
-                        parsed_contigs.extend(parser.parse_contigs_str(contig_or_segment))
-                    elif isinstance(contig_or_segment, ContigSegment):
-                        parsed_contigs.append(contig_or_segment)
-                    else:
-                        raise ValueError(
-                            f"Invalid type for contig segment, expected str or ContigSegment, got: {type(contig_or_segment).__name__}"
-                        )
-            self.contigs = parsed_contigs
+            # validate contigs
+            assert isinstance(self.contigs, list), (
+                f"Invalid type for contigs, expected list of segment objects, got: {type(self.contigs).__name__}"
+            )
+            for contig_or_segment in self.contigs:
+                if isinstance(contig_or_segment, str):
+                    raise ValueError(
+                        "Passing contigs as a string is not supported anymore since they need to be interpreted differently"
+                        "for the input and the output structure. "
+                        "When visualizing contigs on the input structure, "
+                        "please provide contigs parsed using the parse_contig_for_input_structure function. "
+                        "When visualizing contigs on the output structure, "
+                        "please use the parse_contig_for_output_structure function."
+                    )
+                if (
+                    not hasattr(contig_or_segment, "start")
+                    or not hasattr(contig_or_segment, "end")
+                    or not hasattr(contig_or_segment, "chain")
+                ):
+                    raise ValueError(
+                        f"Invalid type for contig segment, expected ContigSegment object, got: {type(contig_or_segment).__name__}"
+                    )
 
     def to_dict(self):
         return dataclasses.asdict(self)

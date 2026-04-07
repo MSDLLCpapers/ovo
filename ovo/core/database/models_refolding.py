@@ -127,11 +127,8 @@ class RefoldingWorkflow(DescriptorWorkflow):
                 ]
 
                 for i, future in enumerate(futures):
-                    try:
-                        values = future.result()
-                        structure_descriptor_values.extend(values)
-                    except Exception as e:
-                        print(f"Warning: Failed to store structure: {e}")
+                    values = future.result()
+                    structure_descriptor_values.extend(values)
 
                     if callback:
                         callback(
@@ -151,6 +148,7 @@ class RefoldingWorkflow(DescriptorWorkflow):
         descriptor_job_id: str,
         chains: str | list[str],
         source_structure_path: Optional[str] = None,
+        primary: bool = False,
     ) -> list[DescriptorValue]:
         """Store structure files and create descriptor values for all refolding test types."""
         from ovo import storage
@@ -159,38 +157,44 @@ class RefoldingWorkflow(DescriptorWorkflow):
             "Either batch_output_path or source_structure_path must be provided"
         )
 
-        descriptor_values = []
-
         if source_structure_path is None:
             source_structure_path = os.path.join(batch_output_path, test, f"{design_id}_{test}.pdb")
 
-        if storage.file_exists(source_structure_path):
-            stored_path = storage.store_file_path(
-                source_abs_path=source_structure_path,
-                storage_rel_path=os.path.join(destination_dir, test, f"{design_id}_{test}.pdb"),
-                overwrite=False,
+        stored_path = storage.store_file_path(
+            source_abs_path=source_structure_path,
+            storage_rel_path=os.path.join(destination_dir, test, f"{design_id}_{test}.pdb"),
+            overwrite=False,
+        )
+
+        if test.startswith("boltz"):
+            structure_descriptor_key_final = "boltz_predicted_structure_path"
+        elif test.startswith("af2"):
+            structure_descriptor_key_final = "af2_structure_path"
+        elif test.startswith("esmfold"):
+            structure_descriptor_key_final = "esmfold_predicted_structure_path"
+        else:
+            raise ValueError(f"Unknown test type: {test}")
+
+        return [
+            DescriptorValue(
+                descriptor_key=f"{cls.get_descriptor_key_prefix(test, primary=primary)}|{structure_descriptor_key_final}",
+                value=stored_path,
+                design_id=design_id,
+                descriptor_job_id=descriptor_job_id,
+                chains=",".join(chains) if chains else "A",
             )
+        ]
 
-            if test.startswith("boltz"):
-                structure_descriptor_key_final = "boltz_predicted_structure_path"
-            elif test.startswith("af2"):
-                structure_descriptor_key_final = "af2_structure_path"
-            elif test.startswith("esmfold"):
-                structure_descriptor_key_final = "esmfold_predicted_structure_path"
-            else:
-                raise ValueError(f"Unknown test type: {test}")
+    @classmethod
+    def get_descriptor_key_prefix(cls, test: str, primary: bool = False) -> str:
+        if not primary:
+            return f"refolding|{test}"
 
-            descriptor_values.append(
-                DescriptorValue(
-                    descriptor_key=f"refolding|{test}|{structure_descriptor_key_final}",
-                    value=stored_path,
-                    design_id=design_id,
-                    descriptor_job_id=descriptor_job_id,
-                    chains=",".join(chains) if chains else "A",
-                )
-            )
-
-        return descriptor_values
+        if test.startswith("af2_"):
+            # Historical reasons - store AF2 metrics under "af2_primary" prefix to simplify downstream analysis
+            return "refolding|af2_primary"
+        else:
+            return f"refolding|{test}"
 
     def validate(self):
         super().validate()

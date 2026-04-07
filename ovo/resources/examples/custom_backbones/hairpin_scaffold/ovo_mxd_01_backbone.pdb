@@ -1,0 +1,81 @@
+REMARK   1 Input contig: "A111-114/10/A117-119"                                 
+REMARK   1 Standardized contig: "A111-114/10-10/A117-119"                       
+REMARK   1 Chains: "A"                                                          
+REMARK   1 Input hotspots:                                                      
+REMARK   1 Standardized hotspots:                                               
+ATOM      1  N   GLN A   1       2.383  -2.255  -3.938  1.00  1.00              
+ATOM      2  CA  GLN A   1       1.922  -1.262  -2.975  1.00  1.00              
+ATOM      3  C   GLN A   1       1.126  -1.913  -1.851  1.00  1.00              
+ATOM      4  O   GLN A   1       0.268  -2.761  -2.095  1.00  1.00              
+ATOM      5  N   SER A   2       1.631  -1.850  -0.784  1.00  1.00              
+ATOM      6  CA  SER A   2       0.802  -2.360   0.303  1.00  1.00              
+ATOM      7  C   SER A   2      -0.305  -1.376   0.658  1.00  1.00              
+ATOM      8  O   SER A   2      -0.045  -0.202   0.919  1.00  1.00              
+ATOM      9  N   LEU A   3      -1.403  -1.827   0.637  1.00  1.00              
+ATOM     10  CA  LEU A   3      -2.542  -0.995   1.008  1.00  1.00              
+ATOM     11  C   LEU A   3      -2.897  -1.171   2.481  1.00  1.00              
+ATOM     12  O   LEU A   3      -3.035  -2.294   2.966  1.00  1.00              
+ATOM     13  N   HIS A   4      -3.167  -0.145   3.058  1.00  1.00              
+ATOM     14  CA  HIS A   4      -3.574  -0.191   4.457  1.00  1.00              
+ATOM     15  C   HIS A   4      -4.943   0.447   4.654  1.00  1.00              
+ATOM     16  O   HIS A   4      -5.287   1.421   3.984  1.00  1.00              
+ATOM     17  N   GLY A   5      -5.388   0.232   5.728  1.00  0.00              
+ATOM     18  CA  GLY A   5      -6.792   0.448   6.060  1.00  0.00              
+ATOM     19  C   GLY A   5      -6.968   1.683   6.933  1.00  0.00              
+ATOM     20  O   GLY A   5      -6.176   1.930   7.843  1.00  0.00              
+ATOM     21  N   GLY A   6      -8.010   2.076   6.793  1.00  0.00              
+ATOM     22  CA  GLY A   6      -8.407   3.342   7.397  1.00  0.00              
+ATOM     23  C   GLY A   6      -9.238   3.117   8.653  1.00  0.00              
+ATOM     24  O   GLY A   6     -10.246   2.410   8.623  1.00  0.00              
+ATOM     25  N   GLY A   7      -8.882   3.778   8.870  1.00  0.00              
+ATOM     26  CA  GLY A   7      -9.772   3.651  10.017  1.00  0.00              
+ATOM     27  C   GLY A   7     -10.834   4.743  10.014  1.00  0.00              
+ATOM     28  O   GLY A   7     -10.526   5.922   9.838  1.00  0.00              
+ATOM     29  N   GLY A   8     -11.587   4.597  10.936  1.00  0.00              
+ATOM     30  CA  GLY A   8     -13.000   4.956  10.930  1.00  0.00              
+ATOM     31  C   GLY A   8     -13.266   6.160  11.825  1.00  0.00              
+ATOM     32  O   GLY A   8     -13.193   6.062  13.050  1.00  0.00              
+ATOM     33  N   GLY A   9     -13.213   6.067  11.888  1.00  0.00              
+ATOM     34  CA  GLY A   9     -14.516   6.682  12.113  1.00  0.00              
+ATOM     35  C   GLY A   9     -15.018   7.384  10.857  1.00  0.00              
+ATOM     36  O   GLY A   9     -16.156   7.849  10.807  1.00  0.00              
+ATOM     37  N   GLY A  10     -15.458   7.547  11.028  1.00  0.00              
+ATOM     38  CA  GLY A  10     -15.980   7.771   9.685  1.00  0.00              
+ATOM     39  C   GLY A  10     -14.938   7.434   8.626  1.00  0.00              
+ATOM     40  O   GLY A  10     -13.907   8.099   8.521  1.00  0.00              
+ATOM     41  N   GLY A  11     -14.835   7.258   8.373  1.00  0.00              
+ATOM     42  CA  GLY A  11     -13.662   6.418   8.162  1.00  0.00              
+ATOM     43  C   GLY A  11     -13.495   6.065   6.690  1.00  0.00              
+ATOM     44  O   GLY A  11     -14.417   5.550   6.057  1.00  0.00              
+ATOM     45  N   GLY A  12     -12.639   6.513   6.121  1.00  0.00              
+ATOM     46  CA  GLY A  12     -11.989   5.778   5.043  1.00  0.00              
+ATOM     47  C   GLY A  12     -10.506   6.116   4.963  1.00  0.00              
+ATOM     48  O   GLY A  12     -10.123   7.285   4.992  1.00  0.00              
+ATOM     49  N   GLY A  13     -10.113   5.121   4.667  1.00  0.00              
+ATOM     50  CA  GLY A  13      -8.661   5.209   4.766  1.00  0.00              
+ATOM     51  C   GLY A  13      -7.985   4.404   3.664  1.00  0.00              
+ATOM     52  O   GLY A  13      -8.334   3.249   3.422  1.00  0.00              
+ATOM     53  N   GLY A  14      -7.856   4.768   3.450  1.00  0.00              
+ATOM     54  CA  GLY A  14      -6.783   3.830   3.143  1.00  0.00              
+ATOM     55  C   GLY A  14      -5.617   4.531   2.458  1.00  0.00              
+ATOM     56  O   GLY A  14      -5.812   5.329   1.541  1.00  0.00              
+ATOM     57  N   GLU A  15      -4.591   3.864   2.632  1.00  1.00              
+ATOM     58  CA  GLU A  15      -3.308   4.290   2.086  1.00  1.00              
+ATOM     59  C   GLU A  15      -2.511   3.103   1.561  1.00  1.00              
+ATOM     60  O   GLU A  15      -2.549   2.015   2.135  1.00  1.00              
+ATOM     61  N   ALA A  16      -1.905   3.456   0.668  1.00  1.00              
+ATOM     62  CA  ALA A  16      -1.029   2.439   0.098  1.00  1.00              
+ATOM     63  C   ALA A  16       0.435   2.760   0.367  1.00  1.00              
+ATOM     64  O   ALA A  16       0.889   3.880   0.133  1.00  1.00              
+ATOM     65  N   ASP A  17       1.123   1.912   0.780  1.00  1.00              
+ATOM     66  CA  ASP A  17       2.565   2.107   0.883  1.00  1.00              
+ATOM     67  C   ASP A  17       3.285   1.545  -0.337  1.00  1.00              
+ATOM     68  O   ASP A  17       2.916   0.492  -0.857  1.00  1.00              
+
+REMARK PDBinfo-LABEL:    1 FIXED
+REMARK PDBinfo-LABEL:    2 FIXED
+REMARK PDBinfo-LABEL:    3 FIXED
+REMARK PDBinfo-LABEL:    4 FIXED
+REMARK PDBinfo-LABEL:   15 FIXED
+REMARK PDBinfo-LABEL:   16 FIXED
+REMARK PDBinfo-LABEL:   17 FIXED

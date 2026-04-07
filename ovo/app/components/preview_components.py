@@ -6,7 +6,6 @@ from ovo.app.components.contigs_organizer import contigs_organizer
 from ovo.app.components.molstar_custom_component import (
     molstar_custom_component,
     StructureVisualization,
-    ContigsParser,
     ChainVisualization,
 )
 
@@ -16,14 +15,16 @@ from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
     RFdiffusionBinderDesignWorkflow,
 )
-from ovo.app.components.molstar_custom_component.dataclasses import ContigSegment
 from ovo.app.components.trim_components import check_hotspots
-from ovo.core.utils.pdb import add_glycan_to_pdb, filter_pdb_str
+from ovo.core.utils.pdb import add_glycan_to_pdb, filter_pdb_str, get_standardized_remarks_from_pdb_str
 from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
     from_hotspots_to_segments,
     from_contig_to_residues,
     from_residues_to_segments,
+    parse_contig_for_input_structure,
+    ContigSegment,
+    parse_contig_for_output_structure,
 )
 
 
@@ -101,14 +102,14 @@ def scaffold_contig_preview(pdb_input_string, parsed_contig: list[ContigSegment]
     """Preview the fixed segments in the input structure.
 
     :param pdb_input_string: The input PDB string.
-    :param parsed_contig: Contig segment objects
+    :param parsed_contig: Contig segment objects, computed using parse_contig_for_input_structure()
     """
 
-    fixed_segments = [seg for seg in parsed_contig if seg.type == "fixed"]
+    fixed_segments = [seg for seg in parsed_contig if seg.start is not None]
 
     try:
         pdb_fixed_string = filter_pdb_str(
-            pdb_input_string, segments=[seg.value for seg in fixed_segments], add_ter=True
+            pdb_input_string, segments=[f"{seg.chain}{seg.start}-{seg.end}" for seg in fixed_segments], add_ter=True
         )
 
         molstar_custom_component(
@@ -122,8 +123,8 @@ def scaffold_contig_preview(pdb_input_string, parsed_contig: list[ContigSegment]
             key="fixed_segments_preview",
             height=400,
         )
-    except Exception:
-        st.error("Invalid contig provided.")
+    except Exception as e:
+        st.error(f"Invalid contig provided: {e}")
 
 
 @st.fragment
@@ -154,17 +155,14 @@ def contigs_organizer_fragment(page_key: str, pdb_input_string: str):
         workflow.set_selected_segments([s for s in new_contig.split("/") if s and s[0].isalpha()])
         workflow.set_contig(new_contig)
 
-    parser = ContigsParser()
-    parsed_contig = parser.parse_contigs_str(
-        workflow.get_contig(),
-        # TODO
-        # include_generated=True
-        # We could try including generated segments to keep their color in contig organizer
-        # The problem is that the color is assigned by segment value,
-        # so all segments of same length will get the same color
-        # Another problem is that we don't store which fixed residues are connected by each generated segment,
-        # So without that information we can't visualize it as a link in the structure viewer.
-    )
+    # TODO
+    # include_generated=True
+    # We could try including generated segments to keep their color in contig organizer
+    # The problem is that the color is assigned by segment value,
+    # so all segments of same length will get the same color
+    # Another problem is that we don't store which fixed residues are connected by each generated segment,
+    # So without that information we can't visualize it as a link in the structure viewer.
+    segments = parse_contig_for_input_structure(workflow.get_contig())
 
     left, right = st.columns([1.2, 1])
 
@@ -186,7 +184,7 @@ def contigs_organizer_fragment(page_key: str, pdb_input_string: str):
         co = contigs_organizer(
             contigs=workflow.get_contig(),
             pdb=pdb_input_string,
-            colors={s.value: s.color for s in parsed_contig},
+            colors={f"{s.chain}{s.start}-{s.end}": s.color for s in segments},
             key="contigs_organizer",
         )
 
@@ -206,9 +204,9 @@ def contigs_organizer_fragment(page_key: str, pdb_input_string: str):
 
         if not workflow.preview_job_id and workflow.get_contig():
             try:
-                all_segments = parser.parse_contigs_str(workflow.get_contig(), include_generated=True)
-                num_generated_segments = sum(s.type == "generated" for s in all_segments)
-                num_fixed_segments = sum(s.type == "fixed" for s in all_segments)
+                all_segments = parse_contig_for_input_structure(workflow.get_contig(), include_generated=True)
+                num_generated_segments = sum(s.start is None for s in all_segments)
+                num_fixed_segments = sum(s.start is not None for s in all_segments)
                 if num_generated_segments and num_generated_segments >= num_fixed_segments - 1:
                     st.write("Contig looks ready. Generate a preview below :material/arrow_cool_down:")
             except Exception:
@@ -217,7 +215,7 @@ def contigs_organizer_fragment(page_key: str, pdb_input_string: str):
 
     with right:
         st.caption("Fixed segments")
-        scaffold_contig_preview(pdb_input_string, parsed_contig)
+        scaffold_contig_preview(pdb_input_string, segments)
 
 
 def update_contig_based_on_selected_segments(old_contig: str, selected_segments: list[str]):
@@ -283,34 +281,22 @@ def update_contig_based_on_selected_segments(old_contig: str, selected_segments:
 
 
 def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str):
-    pdb_preview = os.path.join(
+    pdb_preview_path = os.path.join(
         output_dir, "rfdiffusion", "rfdiffusion_standardized_pdb", "rfdiffusion_0_standardized.pdb"
     )
-    trb_preview = os.path.join(output_dir, "rfdiffusion", "rfdiffusion_trb", "rfdiffusion_0.trb")
 
-    if not os.path.exists(pdb_preview):
-        st.error(
-            f"The .pdb preview file does not exist. Something went wrong during the RFdiffusion process: {pdb_preview}"
-        )
+    pdb_preview_string = storage.read_file_str(pdb_preview_path)
+
+    remarks = get_standardized_remarks_from_pdb_str(pdb_preview_string)
+    standardized_contig = remarks.get("Standardized contig")
+    if not standardized_contig:
+        st.error("Standardized contig not found in PDB remarks, cannot visualize structure.")
         return
 
-    if not os.path.exists(trb_preview):
-        st.error(f"The .trb file does not exist. Something went wrong during the RFdiffusion process: {trb_preview}")
-        return
-
-    # Serialize contigs
-    parser = ContigsParser()
-    parsed_contigs_trb = parser.parse_contigs_trb(trb_preview)
-
-    with open(pdb_preview) as f:
-        pdb_preview_string = f.read()
+    input_segments = parse_contig_for_input_structure(workflow.get_contig())
+    output_segments = parse_contig_for_output_structure(standardized_contig)
 
     pdb_input_string = storage.read_file_str(workflow.get_input_pdb_path())
-
-    # Parse the contigs again to make sure that no empty contigs are provided...
-    # We create a new instance to ensure the coloring stays the same
-    parser = ContigsParser()
-    parsed_contigs_str = parser.parse_contigs_str(workflow.get_contig())
 
     if st.toggle(
         "Show glycosylation sites",
@@ -336,7 +322,7 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
             structures=[
                 StructureVisualization(
                     pdb=pdb_input_string,
-                    contigs=parsed_contigs_str,
+                    contigs=input_segments,
                     highlighted_selections=hotspot_segments,
                     representation_type="cartoon+ball-and-stick",
                 )
@@ -345,6 +331,10 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
         )
     with visual_col2:
         st.write("RFdiffusion design preview")
+
+        # Note: this is a heuristic to identify binder design workflows,
+        #  we use the same function in the binder input components
+        is_binder = hasattr(workflow, "get_target_chain")
 
         # TODO
         # Note this assumes that the target chain is B in the RFdiffusion output PDB,
@@ -355,9 +345,7 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
             structures=[
                 StructureVisualization(
                     pdb=pdb_preview_string,
-                    # TODO do not change logic based on instance type,
-                    #  add methods instead
-                    contigs=parsed_contigs_trb if workflow.is_instance(RFdiffusionScaffoldDesignWorkflow) else None,
+                    contigs=None if is_binder else output_segments,
                     highlighted_selections=output_hotspot_segments,
                     chains=[
                         ChainVisualization(
@@ -365,7 +353,7 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
                             color_params={"value": "0xde853c"},
                         )
                     ]
-                    if workflow.is_instance(RFdiffusionBinderDesignWorkflow)
+                    if is_binder
                     else None,
                 )
             ],

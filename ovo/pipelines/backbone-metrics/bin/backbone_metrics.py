@@ -120,6 +120,7 @@ def get_all_metrics(
                     "glycosolated_target_residues": glycosolated_target_residues,
                     "interface_target_residues": ",".join([f"{target_chain}{r}" for r in target_interface_residues]),
                     "interface_binder_residues": ",".join([f"{binder_chain}{r}" for r in binder_residues]),
+                    "N_contact_interface": N_contact_interface,
                     # "distances_binder_interface_against_target_interface": distances_interface_df,
                     # "average_dist_binder_to_target_interface": average_interface_dist,
                     # "average_dist_binder_to_target_interface_contacts": average_dist_interface_only_contacts,
@@ -153,7 +154,6 @@ def get_all_metrics(
                         "interface_target_hotspot_residues": ",".join(
                             [f"{target_chain}{r}" for r in hotspots_on_interface]
                         ),
-                        "N_contact_interface": N_contact_interface,
                         "average_dist_binder_to_hotspots": average_hotspots_dist,
                         "N_hotspots_on_interface": len(hotspots_on_interface),
                         "N_contact_hotspots": N_contact_hotspots,

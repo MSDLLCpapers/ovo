@@ -3,8 +3,12 @@ import streamlit as st
 from ovo.core.database.models_rfdiffusion import RFdiffusionBinderDesignWorkflow
 
 from ovo.core.utils.pdb import trim_pdb_str
-from ovo.core.utils.residue_selection import from_contig_to_residues, from_residues_to_chain_breaks
-from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization, ContigsParser
+from ovo.core.utils.residue_selection import (
+    from_contig_to_residues,
+    from_residues_to_chain_breaks,
+    parse_contig_for_input_structure,
+)
+from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
 
 
 def parameters_trim_structure_component(workflow: RFdiffusionBinderDesignWorkflow):
@@ -140,8 +144,6 @@ def trimmed_structure_visualizer(workflow: RFdiffusionBinderDesignWorkflow, pdb_
     trim_start, trim_end = workflow.get_target_trim_boundary()
     pdb_input_string_trimmed = trim_pdb_str(pdb_input_string, target_chain, trim_start, trim_end)
 
-    parser = ContigsParser()
-
     left, right = st.columns([2, 1])
 
     with right:
@@ -165,7 +167,7 @@ def trimmed_structure_visualizer(workflow: RFdiffusionBinderDesignWorkflow, pdb_
             structures=[
                 StructureVisualization(
                     pdb=pdb_input_string,
-                    contigs=parser.parse_contigs_str(f"{target_chain}{trim_start}-{trim_end}"),
+                    contigs=parse_contig_for_input_structure(f"{target_chain}{trim_start}-{trim_end}"),
                     highlighted_selections=workflow.get_selected_segments(),
                     color="uniform",
                     representation_type="cartoon",
