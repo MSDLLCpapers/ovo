@@ -523,29 +523,45 @@ class Storage:
         storage_rel_path = os.path.join(self.get_project_path(project_id, input_bytes=file_bytes), filename)
         return self.store_file_bytes(file_bytes, storage_rel_path)
 
-    def create_zip(self, storage_paths_by_dir: dict[str, list[str]]) -> bytes:
+    def create_zip(self, storage_paths_by_dir: dict[str, list[str]] | list[str]) -> bytes:
         """Create zip file
-        :param storage_paths_by_dir: dictionary with the storage paths by directory
+        :param storage_paths_by_dir: dictionary with the storage paths by directory ("" or None for root)
+                                     or flat list of storage paths (will be stored in the root of the zip)
         :return: zip content with the stored files
         """
+        if isinstance(storage_paths_by_dir, list):
+            storage_paths_by_dir = {"": storage_paths_by_dir}
+        elif isinstance(storage_paths_by_dir, dict):
+            for paths in storage_paths_by_dir.values():
+                assert isinstance(paths, list), (
+                    "storage_paths_by_dir must be a dictionary of lists, found value of type " + str(type(paths))
+                )
+                # Avoid overwriting files by mistake
+                filenames = [os.path.basename(p) for p in paths]
+                assert len(filenames) == len(set(filenames)), (
+                    "Storing duplicate file paths in the same zip directory are not allowed: " + ", ".join(filenames)
+                )
 
+        else:
+            raise ValueError(f"storage_paths_by_dir must be a dictionary or a list, got {type(storage_paths_by_dir)}")
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zip_file:
             with ThreadPoolExecutor(self.num_copy_threads) as executor:
                 # Fetch all files and collect their content
-                futures = {
-                    (file_path, executor.submit(self.read_file_bytes, file_path, cache_store=False)): dir_model
-                    for dir_model, file_paths in storage_paths_by_dir.items()
-                    for file_path in file_paths
-                }
+                futures = []
+                for subdir, file_paths in storage_paths_by_dir.items():
+                    for file_path in file_paths:
+                        future = executor.submit(self.read_file_bytes, file_path, cache_store=False)
+                        futures.append((future, subdir, file_path))
 
                 # Process each future to write to ZIP file
-                for (file_path, future), subdir in futures.items():
+                for future, subdir, file_path in futures:
                     filename = os.path.basename(file_path)
                     file_data = future.result()  # this will raise exception if any
                     # Write the file to the zip with the desired structure
                     if file_data and filename:
-                        zip_file.writestr(f"{subdir}/{filename}", file_data)
+                        arcname = f"{subdir}/{filename}" if subdir else filename
+                        zip_file.writestr(arcname, file_data)
         zip_buffer.seek(0)
         return zip_buffer.read()
 

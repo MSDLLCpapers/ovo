@@ -26,6 +26,8 @@ from ovo.core.utils.pdb import (
 )
 import json
 
+from ovo.core.utils.residue_selection import split_subcontig
+
 
 class Base(MappedAsDataclass, DeclarativeBase, metaclass=DBProxy):
     """subclasses will be converted to dataclasses"""
@@ -448,10 +450,14 @@ class DesignWorkflow(Workflow):
         visualize_design_structure(design_id)
 
     @classmethod
-    def visualize_single_design_sequences(self, design_id: str):
+    def visualize_single_design_sequences(cls, design_id: str):
         from ovo.app.components.workflow_visualization_components import visualize_design_sequence
 
         visualize_design_sequence(design_id)
+
+    @classmethod
+    def visualize_summary(cls, jobs: list["DesignJob"]):
+        raise NotImplementedError("This workflow does not implement summary visualization")
 
     def get_relevant_descriptor_keys(self) -> list[str]:
         """Get list of descriptor keys that are of interest for this workflow
@@ -547,8 +553,7 @@ class DesignSpec:
         raise KeyError(f"Chain {chain_id} not found in design spec")
 
     @classmethod
-    def from_pdb_str(cls, pdb_data: str, chains: list[str], cyclic=False):
-        sequences = get_sequences_from_pdb_str(pdb_data, chains=chains)
+    def from_pdb_str(cls, pdb_data: str, chains: list[str] = None, cyclic=False):
         remarks = get_standardized_remarks_from_pdb_str(pdb_data)
         contig_by_chain = {}
         if remarks and remarks.get("Chains") and remarks.get("Standardized contig"):
@@ -556,12 +561,26 @@ class DesignSpec:
             chains_list = remarks["Chains"].split()
             assert len(chains_list) == len(contig_chains)
             contig_by_chain = dict(zip(chains_list, contig_chains))
+            if chains is None:
+                # automatically determine designed (non-fixed) chains based on the contig segments
+                chains = []
+                for chain_id, chain_contig in zip(chains_list, contig_chains):
+                    segments = split_subcontig(chain_contig)
+                    is_fixed_chain = all(segment[0].isalpha() for segment in segments if segment)
+                    if not is_fixed_chain:
+                        chains.append(chain_id)
+        else:
+            if chains is None:
+                raise ValueError(
+                    "No standardized remarks found in PDB, please provide chain IDs of designed (non-fixed) chains explicitly"
+                )
+        sequences = get_sequences_from_pdb_str(pdb_data, chains=chains)
         return cls(
             chains=[
                 DesignChain(
                     # TODO assuming all chains are protein, add support for ligands, dna, rna
                     type="protein",
-                    # TODO enable detecting symmetric chains and using multiple chain ids here
+                    # TODO enable detecting symmetric chains and grouping them into one list here
                     chain_ids=[chain_id],
                     sequence=sequence,
                     contig=contig_by_chain.get(chain_id),

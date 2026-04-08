@@ -3,7 +3,6 @@ import os
 import random
 import re
 import string
-import uuid
 from collections import deque
 from typing import Collection, Any
 from datetime import datetime
@@ -133,6 +132,17 @@ def truncated_list(items: Collection[Any], max_items: int, sep: str = ", ") -> s
         return sep.join(str(item) for item in list(items)[:max_items]) + sep + "..."
 
 
+def truncate_middle(text: str, max_length: int) -> str:
+    """Truncate a string in the middle if it exceeds the maximum length, adding ellipsis.
+    :return: The truncated string if it exceeds max_length, otherwise the original string.
+    """
+    if len(text) <= max_length:
+        return text
+    else:
+        part_length = (max_length - 3) // 2
+        return text[:part_length] + "..." + text[-part_length:]
+
+
 def parse_duration(duration: str) -> int | None:
     """
     Parse a duration string like '1d 27m 54s' into total seconds.
@@ -199,3 +209,46 @@ def tail_filtered(path, keywords, max_lines=10, bufsize=8192):
                         break
 
     return list(matches)
+
+
+class ColorPicker:
+    def __init__(self, seed: int = 27):
+        self.rng = random.Random(seed)
+        self.assignedColorsCount = 0
+        # modified tab10 palette
+        self.preferredColors = [
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#9e4634",
+            "#e377c2",
+            "#bcbd22",
+            "#17becf",
+            "#6f6f6f",
+        ]
+        self.assignedValues = []
+        self.assignedColorsList = []
+
+    def __call__(self, value):
+        if value in self.assignedValues:
+            idx = self.assignedValues.index(value)
+            return self.assignedColorsList[idx]
+
+        if self.assignedColorsCount < len(self.preferredColors):
+            color = self.preferredColors[self.assignedColorsCount]
+        else:
+            r = lambda: self.rng.randint(0, 255)
+            color = "#%02X%02X%02X" % (r(), r(), r())
+
+        self.assignedColorsCount += 1
+        self.assignedColorsList.append(color)
+        self.assignedValues.append(value)
+        return color
+
+
+def mix_colors(first_hex, second_hex):
+    return "#" + "".join(
+        f"{(int(first_hex[i : i + 2], 16) + int(second_hex[i : i + 2], 16)) // 2:02x}" for i in (1, 3, 5)
+    )

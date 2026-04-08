@@ -1,7 +1,6 @@
 import os
 import json
 from ovo.app.components.molstar_custom_component.dataclasses import StructureVisualization, ChainVisualization
-from ovo.app.components.molstar_custom_component.contigs_parser import ContigsParser
 import uuid
 import glob
 
@@ -129,7 +128,6 @@ def molstar_html(structures: list[StructureVisualization]):
             // JS bundle
             {js_content.replace('</script>"', '</" + "script>"')}
             // watch out that here the original js_content might also include closing script tags NOT in quotes!
-            // the problem is that doing things like replacing with </ script> will break the code functionality anyway...
             </script>
             """
 

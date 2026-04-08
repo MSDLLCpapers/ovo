@@ -94,7 +94,9 @@ def get_residue_presence_df(descriptor: Descriptor, nonnull_descriptor_values, t
     residue_df = pd.DataFrame(
         {
             descriptor.name: list(residue_in_designs.keys()),
-            "% of designs": [100 * count / total_designs for count in residue_in_designs.values()],
+            "% of designs": [
+                100 * count / total_designs if total_designs else 0 for count in residue_in_designs.values()
+            ],
         }
     )
     residue_df = residue_df.sort_values(by="% of designs", ascending=False)

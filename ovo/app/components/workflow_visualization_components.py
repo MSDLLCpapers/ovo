@@ -5,7 +5,6 @@ import streamlit as st
 
 from ovo import db, storage
 from ovo.app.components.custom_elements import wrapped_columns
-from ovo.app.components.molstar_custom_component.dataclasses import ContigSegment
 from ovo.core.database import (
     Design,
     descriptors,
@@ -23,13 +22,13 @@ from ovo.core.database.descriptors import (
     ALL_DESCRIPTORS_BY_KEY,
     SEQUENCE_DESIGN_PATH_DESCRIPTORS,
     STRUCTURE_PATH_DESCRIPTORS,
+    BACKBONE_DESIGN_PATH_DESCRIPTORS,
 )
 
 from ovo.app.components.molstar_custom_component import (
     molstar_custom_component,
     StructureVisualization,
     ChainVisualization,
-    ContigsParser,
 )
 from ovo.core.utils.pdb import align_multiple_proteins_pdb, pdb_to_mmcif, filter_pdb_str, get_sequences_from_pdb_str
 from ovo.core.utils.colors import get_color_from_str
@@ -40,7 +39,12 @@ from ovo.app.utils.cached_db import (
     get_cached_design_job,
     get_cached_designs,
 )
-from ovo.core.utils.residue_selection import from_segments_to_hotspots
+from ovo.core.utils.residue_selection import (
+    from_segments_to_hotspots,
+    parse_contig_for_input_structure,
+    parse_contig_for_output_structure,
+    MappedContigSegment,
+)
 
 
 def show_design_metrics(design_id: str, descriptor_keys: list[str]) -> pd.Series:
@@ -79,7 +83,7 @@ def select_structure_prediction_descriptor(paths: dict[str, str]) -> StructureFi
 def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     design: Design = get_cached_design(design_id)
 
-    chain_contigs = [c.contig + "/0" for c in design.spec.chains]
+    chain_contigs = [c.contig for c in design.spec.chains]
     st.write(f"Contig: **{' '.join(chain_contigs)}**")
 
     show_design_metrics(
@@ -100,32 +104,33 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     design_job = get_cached_design_job(pool.design_job_id)
     workflow: RFdiffusionScaffoldDesignWorkflow = design_job.workflow
 
-    parser = ContigsParser()
     paths = (
         get_cached_design_descriptors(
             design_id,
             [
-                descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
                 *[d.key for d in descriptors.STRUCTURE_PATH_DESCRIPTORS],
             ],
         )
         .dropna()
         .to_dict()
     )
-    trb_dict = storage.read_file_pickle(paths[descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key])
     input_pdb_str = storage.read_file_str(workflow.get_input_pdb_path(design.contig_index))
-    input_segments = [segment for contig in trb_dict["sampled_mask"] for segment in parser.parse_contigs_str(contig)]
-    output_segments = parser.parse_contigs_trb(trb_dict)
+    if not all(c.contig for c in design.spec.chains):
+        st.error("Contig not found in design spec")
+        return
+    contig = " ".join(c.contig for c in design.spec.chains if c.contig)
+    input_segments = parse_contig_for_input_structure(contig)
+    output_segments = parse_contig_for_output_structure(contig)
 
     input_mapping = [
-        (segment.input_res_chain, list(range(segment.input_res_start, segment.input_res_end + 1)))
-        for segment in input_segments
-        if segment.type == "fixed"
+        (segment.input_chain, list(range(segment.input_start, segment.input_end + 1)))
+        for segment in output_segments
+        if segment.input_chain
     ]
     output_mapping = [
-        (segment.out_res_chain, list(range(segment.out_res_start, segment.out_res_end + 1)))
+        (segment.chain, list(range(segment.start, segment.end + 1)))
         for segment in output_segments
-        if segment.type == "fixed"
+        if segment.input_chain
     ]
 
     left, middle, right = st.columns(3, gap="medium")
@@ -143,7 +148,10 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
             height=350,
         )
 
-    backbone_design_descriptor = descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH
+    backbone_design_descriptor = None
+    for d in BACKBONE_DESIGN_PATH_DESCRIPTORS:
+        if paths.get(d.key):
+            backbone_design_descriptor = d
 
     with middle:
         st.write(f"##### {backbone_design_descriptor.name}")
@@ -224,7 +232,7 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     with middle:
         st.write(f"##### Input motif aligned to prediction")
 
-        input_motif_pdb = filter_pdb_str(input_pdb_str, [s.value for s in input_segments if s.type == "fixed"])
+        input_motif_pdb = filter_pdb_str(input_pdb_str, [f"{s.chain}{s.start}-{s.end}" for s in input_segments])
         structures = [
             StructureVisualization(
                 pdb=input_motif_pdb, contigs=input_segments, representation_type="cartoon+ball-and-stick"
@@ -239,9 +247,7 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
             ],
             all_atom=True,
         )
-        num_fixed = sum(
-            segment.out_res_end - segment.out_res_start + 1 for segment in output_segments if segment.type == "fixed"
-        )
+        num_fixed = sum(segment.end - segment.start + 1 for segment in input_segments)
 
         structures.append(
             StructureVisualization(
@@ -274,7 +280,11 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
                 storage.read_file_str(paths[sequence_design_descriptor.key]),
                 prediction_pdb,
             ],
-            chain_residue_mappings=[[("A", None)], [("A", None)]],
+            chain_residue_mappings=[
+                # align on all chains (sequences of design and prediction are identical)
+                [(chain_id, None) for c in design.spec.chains for chain_id in c.chain_ids],
+                [(chain_id, None) for c in design.spec.chains for chain_id in c.chain_ids],
+            ],
             all_atom=False,
         )
         aligned_str = structures[1]
@@ -361,7 +371,6 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         get_cached_design_descriptors(
             design_id,
             [
-                descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
                 *[d.key for d in descriptors.STRUCTURE_PATH_DESCRIPTORS],
             ],
         )
@@ -400,7 +409,11 @@ def rfdiffusion_binder_design_visualization(design_id: str):
 
     left, middle, right = st.columns(3, gap="medium")
 
-    backbone_design_descriptor = descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH
+    backbone_design_descriptor = None
+    for d in BACKBONE_DESIGN_PATH_DESCRIPTORS:
+        if paths.get(d.key):
+            backbone_design_descriptor = d
+
     with left:
         st.write(f"##### {backbone_design_descriptor.name}")
 
@@ -713,15 +726,12 @@ def visualize_rfdiffusion_design_sequence(design_id: str):
     designed_sequences: dict[str, str] = {
         chain_id: chain.sequence for chain in design.spec.chains for chain_id in chain.chain_ids
     }
-    paths = (
-        get_cached_design_descriptors(design_id, [descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key]).dropna().to_dict()
-    )
 
-    parser = ContigsParser()
-    # TODO this could be parsed from spec contig instead
-    parsed_segments = parser.parse_contigs_trb(
-        storage.read_file_pickle(paths[descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key])
-    )
+    if not all(c.contig for c in design.spec.chains):
+        st.warning("Contig not found in design spec")
+        return
+    contig = " ".join(c.contig for c in design.spec.chains if c.contig)
+
     # individual positions in this format ['A1', 'A2', ...]
     inpainted_positions = (
         from_segments_to_hotspots(workflow.rfdiffusion_params.inpaint_seq.split("/"))
@@ -731,7 +741,7 @@ def visualize_rfdiffusion_design_sequence(design_id: str):
     visualize_scaffold_alignment(
         input_seq_by_resno=input_seq_by_resno,
         designed_sequences=designed_sequences,
-        parsed_segments=parsed_segments,
+        parsed_segments=parse_contig_for_output_structure(contig),
         inpainted_positions=inpainted_positions,
     )
 
@@ -739,14 +749,14 @@ def visualize_rfdiffusion_design_sequence(design_id: str):
 def visualize_scaffold_alignment(
     input_seq_by_resno: dict[str, dict[str, str]],
     designed_sequences: dict[str, str],
-    parsed_segments: list[ContigSegment],
+    parsed_segments: list[MappedContigSegment],
     inpainted_positions: list[str],
 ):
     """Visualize alignment between input and designed sequences based on contig segments.
 
     :param input_seq_by_resno: Mapping from chain ID -> residue number (as string) -> amino acid.
     :param designed_sequences: Mapping from chain ID -> designed sequence.
-    :param parsed_segments: List of ContigSegment objects representing the contig segments.
+    :param parsed_segments: List of MappedContigSegment objects representing the contig segments.
     :param inpainted_positions: List of positions (e.g., 'A12') that were inpainted.
     """
     html = [
@@ -759,28 +769,26 @@ def visualize_scaffold_alignment(
     aligned_input = []
     aligned_design = []
     for s in parsed_segments:
-        segment_length = s.out_res_end - s.out_res_start + 1
+        segment_length = s.end - s.start + 1
         for chunk_offset in range(0, segment_length, 10):
             chunk_length = min(segment_length - chunk_offset, 10)
-            output_start = chunk_offset + s.out_res_start
+            output_start = chunk_offset + s.start
             # TODO s.out_res_chain might not be correct when multiple chains are designed
-            generated_seq = designed_sequences[s.out_res_chain][output_start - 1 : output_start + chunk_length - 1]
-            if s.type == "generated":
-                label = s.value if chunk_offset == 0 else " "
+            generated_seq = designed_sequences[s.chain][output_start - 1 : output_start + chunk_length - 1]
+            if s.input_chain is None:
+                label = s.middle_label if chunk_offset == 0 else " "
                 input_seq = " " * chunk_length
                 input_seq_formatted = "Generated&nbsp;" if chunk_offset == 0 else "&nbsp;" * 10
                 generated_seq_formatted = generated_seq
                 fmt = f"background-color: {s.color}"
             else:
-                input_start = chunk_offset + s.input_res_start
-                label = f"{s.input_res_chain}{input_start}-{input_start + chunk_length - 1}"
+                input_start = chunk_offset + s.input_start
+                label = f"{s.input_chain}{input_start}-{input_start + chunk_length - 1}"
                 input_positions = list(range(input_start, input_start + chunk_length))
-                input_seq = "".join(
-                    [input_seq_by_resno[s.input_res_chain].get(str(pos), "?") for pos in input_positions]
-                )
+                input_seq = "".join([input_seq_by_resno[s.input_chain].get(str(pos), "?") for pos in input_positions])
                 input_seq_formatted = "".join(
                     [
-                        f"<b>{aa}</b>" if f"{s.input_res_chain}{pos}" in inpainted_positions else aa
+                        f"<b>{aa}</b>" if f"{s.input_chain}{pos}" in inpainted_positions else aa
                         for pos, aa in zip(input_positions, input_seq)
                     ]
                 )

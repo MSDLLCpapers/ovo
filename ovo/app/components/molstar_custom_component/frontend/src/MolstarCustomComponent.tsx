@@ -250,12 +250,11 @@ function MolstarCustomComponent(props: Props) {
     try {
       innerProps.representations = new Array(structures.length).fill([]);
       innerProps.structures = new Array(structures.length).fill(null);
-      console.log("MolStar loading structures", structures);
 
       for (let i = 0; i < structures.length; i++) {
         const structToLoad = structures[i];
         await loadPdb(structToLoad, i);
-        if (props.contigs[i] && props.contigs[i].length > 0) {
+        if (props.contigs[i] && props.contigs[i].length) {
           await overPaintStructureByContigs(i);
           addContigLabelsAtEnds(i);
           addContigLabelsInMiddle(i);
@@ -458,9 +457,8 @@ function MolstarCustomComponent(props: Props) {
     const params: Params[] = [];
 
     props.contigs[structureIdx].forEach((e, i) => {
-      const range = Array.from(new Array(e.length), (x, i) => i + e.out_res_start);
-      const bundle = Bundle.fromSelection(getSelectionFromChainAuthId(innerProps.plugin!, e.out_res_chain, range, structureIdx));
-
+      const range = Array.from(new Array(e.end - e.start + 1), (x, i) => i + e.start);
+      const bundle = Bundle.fromSelection(getSelectionFromChainAuthId(innerProps.plugin!, e.chain, range, structureIdx));
       params.push({ bundle: bundle, color: Color.fromHexString(e.color.replace("#", "0x")), clear: false });
     });
 
@@ -483,17 +481,21 @@ function MolstarCustomComponent(props: Props) {
     if (!innerProps.plugin) return;
 
     // keep just the first and last elements of the array
-    const arrays: number[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [e.out_res_start, e.out_res_end]);
-    const labels: string[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [
-      e.input_res_chain + e.input_res_start,
-      e.input_res_chain + e.input_res_end
+    const segments = props.contigs[structureIdx].filter(e => e.start)
+    const arrays: number[] = segments.flatMap((e: ContigSegment) => [e.start, e.end]);
+    const labels: string[] = segments.flatMap((e: ContigSegment) => [
+      e.start_label || "",
+      e.end_label || ""
     ]);
-    const chains: string[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [e.out_res_chain, e.out_res_chain]);
-    const textColors: Color[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [Color.fromHexString(e.color.replace("#", "0x")), Color(0xffffff)]);
-    const borderColors: Color[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [Color(0xffffff), Color.fromHexString(e.color.replace("#", "0x"))]);
+    const chains: string[] = segments.flatMap((e: ContigSegment) => [e.chain, e.chain]);
+    const textColors: Color[] = segments.flatMap((e: ContigSegment) => [Color.fromHexString(e.color.replace("#", "0x")), Color(0xffffff)]);
+    const borderColors: Color[] = segments.flatMap((e: ContigSegment) => [Color(0xffffff), Color.fromHexString(e.color.replace("#", "0x"))]);
 
-    arrays.forEach((e, idx) => {
-      const sel = getSelectionFromChainAuthId(innerProps.plugin!, chains[idx], [e], structureIdx, true);
+    arrays.forEach((arr, idx) => {
+      if (!labels[idx]) {
+        return;
+      }
+      const sel = getSelectionFromChainAuthId(innerProps.plugin!, chains[idx], [arr], structureIdx, true);
       const loci = StructureSelection.toLociWithSourceUnits(sel);
 
       const options = {
@@ -519,15 +521,19 @@ function MolstarCustomComponent(props: Props) {
     if (!innerProps.plugin) return;
 
     // keep just the first and last elements of the array
-    const arrays: number[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [e.out_res_start, e.out_res_end]);
-    const chains: string[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [e.out_res_chain, e.out_res_chain]);
-    const colors: Color[] = props.contigs[structureIdx].filter((e) => e.type === "fixed").flatMap((e: ContigSegment) => [
+    const segments = props.contigs[structureIdx].filter((e) => e.start)
+    const arrays: number[] = segments.flatMap((e: ContigSegment) => [e.start, e.end]);
+    const chains: string[] = segments.flatMap((e: ContigSegment) => [e.chain, e.chain]);
+    const colors: Color[] = segments.flatMap((e: ContigSegment) => [
       Color.fromHexString(e.color.replace("#", "0x")),
       Color.fromHexString(e.color.replace("#", "0x"))
     ]);
 
     // Add "linkers" between pairs of contigs
     for (let i = 1; i < arrays.length - 1; i += 2) {
+      if (chains[i] == chains[i + 1] && arrays[i] + 1 == arrays[i + 1]) {
+        continue; // skip if the contigs are actually continuous
+      }
       const firstLoci = StructureSelection.toLociWithSourceUnits(
         getSelectionFromChainAuthId(innerProps.plugin!, chains[i], [arrays[i]], structureIdx, true)
       );
@@ -560,30 +566,27 @@ function MolstarCustomComponent(props: Props) {
   const addContigLabelsInMiddle = (structureIdx: number) => {
     if (!innerProps.plugin) return;
 
-    const arrays = props.contigs[structureIdx].filter((e) => e.type === "generated");
+    const segments = props.contigs[structureIdx].filter((segment) => segment.middle_label);
 
     // we need to connect array 1 with 2, 2 with 3, and so on...
     // so, first, let's transform the original arrays
-    arrays.forEach((arr, idx) => {
-      if (arr.length === 0) return;
+    segments.forEach((segment, idx) => {
 
-      const middleElement = Math.ceil((arr.out_res_start + arr.out_res_end) / 2);
+      const middleElement = Math.ceil((segment.start + segment.end) / 2);
 
-      const sel = getSelectionFromChainAuthId(innerProps.plugin!, arr.out_res_chain, [middleElement], structureIdx, true);
+      const sel = getSelectionFromChainAuthId(innerProps.plugin!, segment.chain, [middleElement], structureIdx, true);
       const loci = StructureSelection.toLociWithSourceUnits(sel);
-
-      const connectionDescription = `${arr.length}`;
 
       const options = {
         labelParams: {
-          customText: connectionDescription,
+          customText: segment.middle_label,
         },
         visualParams: {
           scaleByRadius: false,
           sizeFactor: 1,
           textSize: 3,
           textColor: Color(0x0),
-          borderColor: Color.fromHexString(arr.color.replace("#", "0x")),
+          borderColor: Color.fromHexString(segment.color.replace("#", "0x")),
           offsetZ: 2,
         }
       };
@@ -664,7 +667,6 @@ function MolstarCustomComponent(props: Props) {
 
   useEffect(() => {
     initPlugin();
-    console.log('CONTIGS', props.contigs);
     // to fix this warning, we might move initPlugin into the effect, but this would mean almost everything is in the effect...
     // this happens almost everywhere
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -672,7 +674,7 @@ function MolstarCustomComponent(props: Props) {
 
   useEffect(() => {
     if (!props.highlightedContig) return;
-    highlightSelection(props.highlightedContig.out_res_chain, getRange([props.highlightedContig.out_res_start, props.highlightedContig.out_res_end]), props.highlightedContig.structureIdx);
+    highlightSelection(props.highlightedContig.chain, getRange([props.highlightedContig.start, props.highlightedContig.end]), props.highlightedContig.structureIdx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.highlightedContig]);
 

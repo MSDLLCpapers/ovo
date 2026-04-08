@@ -5,7 +5,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from ovo.core.database import descriptors_refolding, descriptors_rfdiffusion
-from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, Design, Threshold, Base
+from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, Design, Threshold, Base, DesignJob
 from ovo.core.database.models_refolding import (
     RefoldingSupportedDesignWorkflow,
 )
@@ -14,6 +14,7 @@ from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
     parse_partial_diffusion_binder_contig,
     create_partial_diffusion_binder_contig,
+    parse_contig_for_input_structure,
 )
 
 MODEL_WEIGHTS_SCAFFOLD = ["Base", "ActiveSite"]
@@ -48,6 +49,8 @@ class RFdiffusionParams(WorkflowParams):
     backbone_filters: str | None = None
     # Additional CLI params for RFdiffusion run_inference.py
     run_parameters: str = ""
+    # Skip RFdiffusion backbone design, use custom backbone input from the given directory or .zip file
+    custom_backbones: str = None
 
     @property
     def input_pdb(self):
@@ -65,16 +68,45 @@ class RFdiffusionParams(WorkflowParams):
     def contig(self, value):
         self.contigs = [value] if value else []
 
+    def to_dict(self, human_readable=False):
+        super_dict = super().to_dict(human_readable=human_readable)
+        if human_readable and self.custom_backbones:
+            # When reviewing parameters and custom backbone dir is used,
+            # only show that custom backbone dir and no other parameters
+            return {k: v for k, v in super_dict.items() if k in ("custom_backbones", "hotspots")}
+        return super_dict
+
     def validate(self):
         super().validate()
         if not self.input_pdb:
             raise ValueError("No input pdb provided")
+        for contig in self.contigs:
+            if "/0 " not in contig and " " in contig:
+                raise ValueError(
+                    f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{contig}"'
+                )
+            # verify that contig can be parsed
+            parse_contig_for_input_structure(contig)
+
+        if self.hotspots:
+            assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
+            if not all(re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in self.hotspots.split(",")):
+                raise ValueError(f"Invalid hotspots format, expected 'A123,A124,A131', got: '{self.hotspots}'")
+            hotspot_positions = self.hotspots.split(",")
+            for contig in self.contigs:
+                contig_segments = [f"{s.chain}{s.start}-{s.end}" for s in parse_contig_for_input_structure(contig)]
+                contig_positions = from_segments_to_hotspots(contig_segments).split(",")
+                hotspots_missing_in_contig = set(hotspot_positions).difference(set(contig_positions))
+                if hotspots_missing_in_contig:
+                    raise ValueError(
+                        f"Hotspot positions {hotspots_missing_in_contig} are not included in contig segments {contig_segments}. "
+                        f"Please make sure that all hotspots are included in the contig segments."
+                    )
+        if self.custom_backbones:
+            # Do not validate if this stage is skipped
+            return
         if not self.contig:
             raise ValueError("Please provide a contig")
-        if "/0 " not in self.contig and " " in self.contig:
-            raise ValueError(
-                f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{self.contig}"'
-            )
         if self.contigmap_length:
             assert isinstance(self.contigmap_length, (int, str)), (
                 f"Expected int or str, got {self.contigmap_length} for contigmap_length"
@@ -84,10 +116,6 @@ class RFdiffusionParams(WorkflowParams):
                 or re.fullmatch("[0-9]+", self.contigmap_length)
                 or re.fullmatch("[0-9]+-[0-9]+", self.contigmap_length)
             ), f"Invalid contigmap_length, expected format 123 or 123-456, got: '{self.contigmap_length}'"
-        if self.hotspots:
-            assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
-            if not all(re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in self.hotspots.split(",")):
-                raise ValueError(f"Invalid hotspots format, expected 'A123,A124,A131', got: '{self.hotspots}'")
         if self.inpaint_seq:
             assert isinstance(self.inpaint_seq, str), (
                 f"Expected str for inpaint_seq, got {type(self.inpaint_seq).__name__}"
@@ -238,6 +266,9 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
     def set_contig(self, contig: str):
         self.rfdiffusion_params.contig = contig
 
+    def get_contig_indexes(self) -> list[int]:
+        return list(range(len(self.rfdiffusion_params.contigs)))
+
     def get_hotspots(self):
         return self.rfdiffusion_params.hotspots
 
@@ -344,6 +375,12 @@ class RFdiffusionScaffoldDesignWorkflow(RFdiffusionWorkflow):
 
         visualize_rfdiffusion_design_sequence(design_id)
 
+    @classmethod
+    def visualize_summary(cls, jobs: list[DesignJob]):
+        from ovo.app.components.workflow_summary import rfdiffusion_scaffold_workflow_summary
+
+        rfdiffusion_scaffold_workflow_summary(jobs)
+
     def get_refolding_design_type(self) -> str:
         return "scaffold"
 
@@ -417,31 +454,33 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
             self.rfdiffusion_params.hotspots = from_segments_to_hotspots(segments)
 
     def get_target_contig(self, contig_index=0):
-        contig = self.get_contig(contig_index=0)
+        contig = self.get_contig(contig_index=contig_index)
         if not contig:
             return ""
-        subcontigs = contig.split()
-        # make sure that target contig is fixed
+        subcontigs = [s.removesuffix("/0") for s in contig.split()]
         assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        assert all(segment[0].isalpha() for segment in subcontigs[1].split("/")), (
-            f"Expected contig in format 'DESIGN/0 TARGET', got: {contig}"
-        )
-        return subcontigs[1]
+        fixed_subcontigs = [subcontig for subcontig in subcontigs if all(s[0].isalpha() for s in subcontig.split("/"))]
+        assert len(fixed_subcontigs) == 1, f"Expected exactly one fixed contig with chain specification, got: {contig}"
+        return fixed_subcontigs[0]
 
     def get_binder_contig(self, contig_index=0):
-        contig = self.get_contig(contig_index=0)
+        contig = self.get_contig(contig_index=contig_index)
         if not contig:
             return ""
         subcontigs = contig.split()
         assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        # make sure that target contig is fixed (binder contig should be designed but not necessarily - e.g. in partial diffusion)
-        assert all(segment[0].isalpha() for segment in subcontigs[1].split("/")), (
-            f"Expected contig in format 'DESIGN/0 TARGET', got: {contig}"
+        subcontigs = [s.removesuffix("/0") for s in contig.split()]
+        assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
+        generated_subcontigs = [
+            subcontig for subcontig in subcontigs if any(s[0].isnumeric() for s in subcontig.split("/"))
+        ]
+        assert len(generated_subcontigs) == 1, (
+            f"Expected exactly one generated contig with chain specification, got: {contig}"
         )
-        return subcontigs[0].removesuffix("/0")
+        return generated_subcontigs[0]
 
     def set_binder_contig(self, binder_contig: str, contig_index: int = 0):
-        target_contig = self.get_target_contig()
+        target_contig = self.get_target_contig(contig_index=contig_index)
         assert target_contig, "Target contig must be set before setting binder contig"
         self.rfdiffusion_params.contigs[contig_index] = binder_contig + "/0 " + target_contig
 
@@ -460,6 +499,12 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
         from ovo.app.components.workflow_visualization_components import rfdiffusion_binder_design_visualization
 
         rfdiffusion_binder_design_visualization(design_id)
+
+    @classmethod
+    def visualize_summary(cls, jobs: list[DesignJob]):
+        from ovo.app.components.workflow_summary import rfdiffusion_binder_design_workflow_summary
+
+        rfdiffusion_binder_design_workflow_summary(jobs)
 
     def get_refolding_design_type(self) -> str:
         return "binder"
