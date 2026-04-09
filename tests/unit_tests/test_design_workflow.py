@@ -45,7 +45,7 @@ def test_rfdiffusion_scaffold_design_workflow_get_params():
         mpnn_run_parameters='--omit_AA "CX" --temperature 0.01',
         refolding_tests="esmfold",
         batch_size=50,
-        refolding_chains="A"
+        refolding_chains="A",
     )
 
 
