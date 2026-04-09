@@ -614,3 +614,15 @@ def get_available_schedulers(tools: List[ProteinClusteringTool]) -> List[Schedul
         if all(tool_supports_scheduler(tool, scheduler) for tool in tools):
             available_schedulers[scheduler_key] = scheduler
     return available_schedulers
+
+
+def get_descriptor_metadata_table(descriptor_keys: Collection[str]) -> pd.DataFrame:
+    """Get a table with metadata for the given descriptor keys."""
+    descriptors = [ALL_DESCRIPTORS_BY_KEY[key] for key in descriptor_keys if key in ALL_DESCRIPTORS_BY_KEY]
+    data = {
+        "Key": [d.key for d in descriptors],
+        "Name": [d.name for d in descriptors],
+        "Tool": [d.tool for d in descriptors],
+        "Description": [d.description for d in descriptors],
+    }
+    return pd.DataFrame(data).set_index("Key")

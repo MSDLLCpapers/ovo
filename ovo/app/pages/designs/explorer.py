@@ -84,7 +84,7 @@ def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
 
     descriptor_table(selected_design_ids, df, [ALL_DESCRIPTORS_BY_KEY[k] for k in descriptor_keys], height=300)
 
-    st.subheader("Download")
+    st.subheader(f"Download {len(selected_design_ids):,} " + ("design" if len(selected_design_ids) == 1 else "designs"))
     download_job_designs_component(selected_design_ids, pools)
 
     st.subheader("Designs")

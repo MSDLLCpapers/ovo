@@ -48,6 +48,10 @@ process ProteinMPNN_Fast_Relax {
         -output_intermediates \
         ${run_parameters}
 
+    python ${moduleDir}/bin/copy_remarks.py \
+      ${pdb_dir} \
+      ${batch_name}/proteinmpnn_fastrelax
+
     # remove lib link to avoid nextflow access issues when scanning output directory
     rm lib
     """

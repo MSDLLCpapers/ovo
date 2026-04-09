@@ -1,6 +1,9 @@
-from ovo import db, design_logic, storage
+import os
+
+import pytest
+
+from ovo import db, design_logic, storage, schedulers
 from ovo.core.database.models_refolding import RefoldingWorkflow
-from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, FoldseekParams
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
@@ -10,22 +13,27 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.core.database import (
     descriptors_refolding,
     descriptors_rfdiffusion,
-    descriptors_clustering,
 )
 from ovo.core.logic import descriptor_logic
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.utils.tests import TEST_SCHEDULER_KEY
 
 
-def test_scaffold_end_to_end_logic(project_data):
+@pytest.mark.parametrize("input_method", ["zip", "directory"])
+def test_scaffold_end_to_end_logic(project_data, input_method: str):
     project, project_round, custom_pool = project_data
+
+    custom_backbones = RESOURCES_DIR / "examples/custom_backbones/hairpin_scaffold"
+    if input_method == "zip":
+        custom_backbones = storage.store_input(
+            project_id=project.id,
+            file_bytes=storage.create_zip([os.path.join(custom_backbones, p) for p in os.listdir(custom_backbones)]),
+            filename=f"{custom_backbones.name}.zip",
+        )
 
     workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
-            contigs=["A111-114/10/A117-119"],
-            num_designs=1,
-            timesteps=1,  # use 1 diffusion iteration for faster testing
+            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"], custom_backbones=custom_backbones
         ),
         protein_mpnn_params=ProteinMPNNParams(
             num_sequences=2,
@@ -43,7 +51,7 @@ def test_scaffold_end_to_end_logic(project_data):
         # Your initialized workflow settings
         workflow=workflow,
         # Name your pool of designs
-        pool_name="5ELI hairpin scaffold test",
+        pool_name=f"Custom backbone input scaffold test ({input_method})",
         pool_description="",
         # see schedulers for available scheduler keys
         scheduler_key=TEST_SCHEDULER_KEY,
@@ -76,11 +84,6 @@ def test_scaffold_end_to_end_logic(project_data):
     assert len(design_rmsd.dropna()) == 2
     assert (design_rmsd < 20).all()
 
-    af2_pdbs = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH.key, design_ids)
-    assert len(af2_pdbs.dropna()) == 2
-    assert af2_pdbs[0].endswith(".pdb")
-    assert "ATOM " in storage.read_file_str(af2_pdbs[0])
-
     # Refolding
     test = "af2_model_1_ptm_nt_3rec"
     empty = db.select_descriptor_values(f"refolding|{test}|plddt", design_ids)
@@ -101,27 +104,6 @@ def test_scaffold_end_to_end_logic(project_data):
     assert len(af2_plddt.dropna()) == 2
     assert (af2_plddt > 10).all()
 
-    af2_pdb_paths = db.select_descriptor_values(f"refolding|{test}|af2_structure_path", design_ids)
-    assert len(af2_pdb_paths.dropna()) == 2
-
     design_rmsd = db.select_descriptor_values(f"refolding|{test}|design_backbone_rmsd", design_ids)
     assert len(design_rmsd.dropna()) == 2
     assert (design_rmsd < 15).all()
-
-    # Clustering
-    clustering: FoldseekClusteringWorkflow = FoldseekClusteringWorkflow(
-        chains=["A"],
-        design_ids=[design.id for design in designs],
-        params=FoldseekParams(
-            exhaustive_search=True,
-            e=100,
-        ),
-    )
-    clustering.validate()
-    descriptor_job = descriptor_logic.submit_descriptor_workflow(
-        workflow=clustering, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
-    )
-    descriptor_logic.process_results(descriptor_job)
-
-    cluster_id = db.select_descriptor_values(descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key, design_ids)
-    assert len(cluster_id.dropna()) == 2

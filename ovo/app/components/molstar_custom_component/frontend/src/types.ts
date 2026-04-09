@@ -1,17 +1,16 @@
 import { ColorListName } from "molstar/lib/mol-util/color/lists";
 
+
+// analogous to ContigSegment in python
 export type ContigSegment = {
-    value: string;
-    type: "fixed" | "generated";
-    length: number;
-    color: string;
-    input_res_start: number;
-    input_res_end: number;
-    input_res_chain: string;
-    out_res_start: number;
-    out_res_end: number;
-    out_res_chain: string;
-};
+    start: number;
+    end: number;
+    chain: string;
+    color: string | null;
+    start_label: string | null;
+    middle_label: string | null;
+    end_label: string | null;
+}
 
 export type SequenceSelection = {
     chainId: string;

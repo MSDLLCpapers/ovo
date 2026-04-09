@@ -84,9 +84,12 @@ if "pool_ids" in st.query_params:
         raise ValueError("Pool not found")
 
     # check the project ID for security reasons, to avoid users guessing the short pool ID
+    # this can also happen when user has changed the project dropdown while on the design job detail page
     for round_id in set([p.round_id for p in pools]):
         project_round = db.get(Round, round_id)
-        assert project_round.project_id == project_id, f"Pool does not belong to project {project_id}"
+        if project_round.project_id != project_id:
+            print("Project ID does not match pool's project ID, redirecting to jobs page")
+            st.switch_page("app/pages/jobs/jobs.py")
 
     name = f"{len(pools)} pools" if len(pools) > 1 else pools[0].name
     initialize_page(f"{name} - Jobs")

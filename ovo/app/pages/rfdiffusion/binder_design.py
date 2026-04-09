@@ -3,7 +3,7 @@ import re
 from ovo import config, local_scheduler, storage
 from ovo.app.components.history_components import history_dropdown_component
 from ovo.app.components.input_components import pdb_input_component, sequence_selection_fragment, initialize_workflow
-from ovo.app.components.molstar_custom_component import ContigsParser, molstar_custom_component, StructureVisualization
+from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
 from ovo.app.components.navigation import show_prev_next_sections
 from ovo.app.components.preview_components import parameters_binder_preview_component, visualize_rfdiffusion_preview
 from ovo.app.components.scheduler_components import wait_with_statusbar
@@ -27,7 +27,7 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.formatting import get_hashed_path_for_bytes
 from ovo.core.utils.pdb import check_rfdiffusion_input
-from ovo.core.utils.residue_selection import from_contig_to_residues
+from ovo.core.utils.residue_selection import from_contig_to_residues, parse_contig_for_input_structure
 from ovo.core.utils.residue_selection import get_chains_and_contigs
 import streamlit as st
 
@@ -412,7 +412,6 @@ def review_step():
 
 
 def check_contig_parsed(contig: str | None, verbose: bool = False) -> bool:
-    parser = ContigsParser()
     if not len(contig.split("/0 ")) == 2:
         if verbose:
             st.error("Contig must be in the format 'A123-456/0 20-40'")
@@ -421,7 +420,7 @@ def check_contig_parsed(contig: str | None, verbose: bool = False) -> bool:
     if contig.islower():
         st.warning("Input contigs are lowercase. Workflow can behave unexpectedly.")
     try:
-        _ = parser.parse_contigs_str(contig) if contig else None
+        parse_contig_for_input_structure(contig) if contig else None
         return True
     except Exception as e:
         if verbose:

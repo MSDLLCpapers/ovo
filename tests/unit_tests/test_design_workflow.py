@@ -1,5 +1,7 @@
 from unittest.mock import ANY
 
+import pytest
+
 from ovo.core.logic import design_logic
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.database.models_rfdiffusion import (
@@ -7,6 +9,7 @@ from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
     RefoldingParams,
+    RFdiffusionBinderDesignWorkflow,
 )
 from tests.unit_tests.utils.mocking import MockScheduler
 
@@ -43,3 +46,25 @@ def test_rfdiffusion_scaffold_design_workflow_get_params():
         refolding_tests="esmfold",
         batch_size=50,
     )
+
+
+def test_rfdiffusion_hotspot_validation():
+    workflow = RFdiffusionBinderDesignWorkflow(
+        rfdiffusion_params=RFdiffusionParams(
+            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
+            contigs=["A74-97/0 20"],
+            num_designs=1,
+            timesteps=15,
+            hotspots="A74,A100",
+        ),
+        protein_mpnn_params=ProteinMPNNParams(
+            num_sequences=2,
+            sampling_temp=0.1,
+            run_parameters="--seed 42",
+        ),
+        refolding_params=RefoldingParams(
+            primary_test="af2_model_1_multimer_tt_3rec",
+        ),
+    )
+    with pytest.raises(ValueError, match="Hotspot positions {'A100'} are not included in contig segments"):
+        workflow.validate()

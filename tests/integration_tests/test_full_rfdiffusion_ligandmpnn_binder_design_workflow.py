@@ -1,4 +1,4 @@
-from ovo import db, design_logic
+from ovo import db, design_logic, storage
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
@@ -9,6 +9,7 @@ from ovo.core.database import (
     descriptors_refolding,
     descriptors_rfdiffusion,
 )
+from ovo.core.utils.residue_selection import get_chains_and_contigs
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.utils.tests import TEST_SCHEDULER_KEY
 
@@ -19,7 +20,7 @@ def test_binder_default_end_to_end_logic(project_data):
     workflow = RFdiffusionBinderDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
             input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
-            contigs=["A74-97/0 20"],
+            contigs=["A74-79/A82-97/0 20"],
             num_designs=1,
             timesteps=15,  # use 15 diffusion timesteps for faster testing
         ),
@@ -62,9 +63,18 @@ def test_binder_default_end_to_end_logic(project_data):
     assert design_ids[0].endswith("_seq1")
     assert design_ids[1].endswith("_seq2")
 
+    design = designs[0]
+    assert len(design.spec.chains) == 1
+    assert design.spec.chains[0].chain_ids == ["A"]
+    assert design.spec.chains[0].contig == "20-20"
+
     rag = db.select_descriptor_values(descriptors_rfdiffusion.RADIUS_OF_GYRATION.key, design_ids)
     assert len(rag.dropna()) == 2
     assert (rag > 0).all()
+
+    n_contacts = db.select_descriptor_values(descriptors_rfdiffusion.N_CONTACTS_TO_INTERFACE.key, design_ids)
+    assert len(n_contacts.dropna()) == 2
+    assert (n_contacts > 0).all()
 
     af2_ipae = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_IPAE.key, design_ids)
     assert len(af2_ipae.dropna()) == 2
@@ -73,3 +83,11 @@ def test_binder_default_end_to_end_logic(project_data):
     rosetta_ddg = db.select_descriptor_values(descriptors_rfdiffusion.PYROSETTA_DDG.key, design_ids)
     assert len(rosetta_ddg.dropna()) == 2
     assert not rosetta_ddg.isna().any()
+
+    af2_paths = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH.key, design_ids)
+    assert len(af2_paths.dropna()) == 2
+    af2_pdb_str = storage.read_file_str(af2_paths.iloc[0])
+    af2_pdb_residues = get_chains_and_contigs(af2_pdb_str)
+    assert af2_pdb_residues == {"A": "A1-20", "B": "B74-79/B82-97"}, (
+        "AF2 predicted structure is not numbered as expected"
+    )
