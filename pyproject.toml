@@ -17,6 +17,7 @@ authors = [
 dependencies = [
     "numpy",
     "pandas>=2.2.3",
+    "jinja2",
     "streamlit>=1.55",
     "authlib",
     "boto3",

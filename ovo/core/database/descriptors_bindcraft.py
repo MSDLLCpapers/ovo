@@ -1,4 +1,8 @@
-from ovo.core.database.models import NumericGlobalDescriptor, ResidueNumberDescriptor
+from ovo.core.database.models import (
+    NumericGlobalDescriptor,
+    ResidueNumberDescriptor,
+    StringGlobalDescriptor,
+)
 
 DESCRIPTORS = [
     NumericGlobalDescriptor(
@@ -302,6 +306,12 @@ DESCRIPTORS = [
         description="Comma-separated list of binder residue numbers on the interface",
         tool="BindCraft",
         key="bindcraft|interface|InterfaceResidues",
+    ),
+    StringGlobalDescriptor(
+        name="Design Variant",
+        description="String indicating the design variant classification, distinguishing between Accepted, Rejected, and Trajectory types (including Relaxed, LowConfidence, and Clashing variants).",
+        tool="BindCraft",
+        key="bindcraft|designs|DesignVariant",
     ),
 ]
 
