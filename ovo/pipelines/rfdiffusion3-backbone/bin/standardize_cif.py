@@ -23,21 +23,21 @@ import gemmi
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-def parse_fixed_chain_ids(contig_v3: str) -> list:
-    """Extract fixed chain IDs from a v3 contig string.
+# def parse_fixed_chain_ids(contig_v3: str) -> list:
+#     """Extract fixed chain IDs from a v3 contig string.
 
-    Fixed segments are those prefixed with a chain letter (e.g. 'E6-155', 'A30-40').
-    Designed segments have no chain prefix (e.g. '40-120', '10').
-    """
-    fixed = []
-    chain_id = "A"
-    for subcontig in contig_v3.split(",/0,"):
-        subcontig = subcontig.strip()
-        segments = [s.strip() for s in subcontig.split(",") if s.strip()]
-        if all(s and s[0].isalpha() for s in segments):
-            fixed.append(chain_id)
-        chain_id = chr(ord(chain_id) + 1)
-    return fixed
+#     Fixed segments are those prefixed with a chain letter (e.g. 'E6-155', 'A30-40').
+#     Designed segments have no chain prefix (e.g. '40-120', '10').
+#     """
+#     fixed = []
+#     chain_id = "A"
+#     for subcontig in contig_v3.split(",/0,"):
+#         subcontig = subcontig.strip()
+#         segments = [s.strip() for s in subcontig.split(",") if s.strip()]
+#         if all(s and s[0].isalpha() for s in segments):
+#             fixed.append(chain_id)
+#         chain_id = chr(ord(chain_id) + 1)
+#     return fixed
 
 
 def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: str):
@@ -143,6 +143,14 @@ def rename_chains(model: gemmi.Model, mapping: dict):
     for chain in model:
         if chain.name in temp_to_final:
             chain.name = temp_to_final[chain.name]
+            
+def sort_chains(model: gemmi.Model):
+    """Sort chains in-place by name (A, B, C, ...)."""
+    sorted_chains = sorted([c.clone() for c in model], key=lambda c: c.name)
+    for c in sorted_chains:
+        model.remove_chain(c.name)
+    for c in sorted_chains:
+        model.add_chain(c)
 
 
 def renumber_chain_from_one(chain: gemmi.Chain):
@@ -154,7 +162,6 @@ def renumber_chain_from_one(chain: gemmi.Chain):
 def standardize(
     cif_gz_path: str,
     json_path: str,
-    spec_json_path: str,
     output_pdb_path: str,
     input_contig_v1: str,
     hotspot: str,
@@ -166,44 +173,44 @@ def standardize(
     model = structure[0]
 
     # Load input spec JSON to get the v3 contig
-    with open(spec_json_path) as f:
-        spec_data = json.load(f)
-    first_spec = list(spec_data.values())[0] if spec_data else {}
-    contig_v3 = first_spec.get("contig", "")
+    # with open(spec_json_path) as f:
+    #     spec_data = json.load(f)
+    with open(json_path) as f:
+        json_data = json.load(f)
+    contig_v3 = json_data["specification"]["contig"]
 
     # Classify output chains as designed (not in fixed set) or fixed
-    fixed_chain_ids = parse_fixed_chain_ids(contig_v3)
+    # fixed_chain_ids = parse_fixed_chain_ids(contig_v3)
     all_chain_names = [chain.name for chain in model]
-    designed_chains = [c for c in all_chain_names if c not in fixed_chain_ids]
-    fixed_chains = [c for c in all_chain_names if c in fixed_chain_ids]
+    # designed_chains = [c for c in all_chain_names if c not in fixed_chain_ids]
+    # fixed_chains = [c for c in all_chain_names if c in fixed_chain_ids]
 
     # # Build rename mapping: designed first -> A, B, ...; fixed after
-    chain_rename = {}
-    idx = 0
-    for c in designed_chains:
-        chain_rename[c] = chr(ord("A") + idx)
-        idx += 1
-    for c in fixed_chains:
-        chain_rename[c] = chr(ord("A") + idx)
-        idx += 1
+    # chain_rename = {}
+    # for i, c in enumerate(designed_chains + fixed_chains):
+    #     chain_rename[c] = chr(ord("A") + i)
 
     # Renumber designed chains from 1 before renaming (so we operate on original names)
-    for chain in model:
-        if chain.name in designed_chains:
-            renumber_chain_from_one(chain)
+    # for chain in model:
+    #     if chain.name in designed_chains:
+    #         renumber_chain_from_one(chain)
 
     # Rename chains
-    print(f"Renaming chains: {chain_rename}")
-    rename_chains(model, chain_rename)
+    # print(f"Renaming chains: {chain_rename}")
+    # rename_chains(model, chain_rename)
+    print(f"Chain order after renaming: {[chain.name for chain in model]}")
+    sort_chains(model)
+    print(f"Chain order after sorting: {[chain.name for chain in model]}")
 
     # New chain order for REMARK
-    new_chain_order = [chain_rename[c] for c in all_chain_names]
-    chains_str = " ".join(new_chain_order)
+    # new_chain_order = [chain_rename[c] for c in all_chain_names]
+    # chains_str = " ".join(new_chain_order)
+    chains_str = " ".join(all_chain_names)
 
     # Build v1-style standardized contig (required by downstream prepare_json.py)
     # std_contig_v1 = build_standardized_contig_v1(input_contig_v1, model, chain_rename, fixed_chain_ids)
-    with open(json_path) as f:
-        json_data = json.load(f)
+    # with open(json_path) as f:
+    #     json_data = json.load(f)
     
     diffused_index_map = json_data["diffused_index_map"]
     sampled_contig = json_data["specification"]["extra"]["sampled_contig"]
@@ -218,12 +225,15 @@ def standardize(
     if hotspot:
         parts = []
         for res in hotspot.split(","):
+            if not res:
+                continue
             if res in diffused_index_map:
-                mapped_res = diffused_index_map[res]
-                chain = mapped_res[0]
-                resnum = mapped_res[1:]
-                new_chain = chain_rename[chain]
-                parts.append(f"{new_chain}{resnum}")
+                parts.append(diffused_index_map[res])
+                # mapped_res = diffused_index_map[res]
+                # chain = mapped_res[0]
+                # resnum = mapped_res[1:]
+                # new_chain = chain_rename[chain]
+                # parts.append(f"{new_chain}{resnum}")
             else:
                 print(f"WARNING: Hotspot residue {res} not found in diffused_index_map. Skipping.", file=sys.stderr)
         std_hotspots = ",".join(parts)
@@ -262,7 +272,6 @@ def main():
     parser = argparse.ArgumentParser(description="Standardize RFdiffusion3 CIF.gz outputs to PDB")
     parser.add_argument("--cif_dir", type=str, required=True, help="Directory with .cif.gz files")
     parser.add_argument("--json_dir", type=str, required=True, help="Directory with .json files generated by RFD3 (used to get contig info)")
-    parser.add_argument("--spec_json", type=str, required=True, help="Input spec JSON (from build_input_json.py)")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory for standardized PDBs")
     parser.add_argument("--input_contig", type=str, default="", help="Original v1-style contig for REMARK lines")
     parser.add_argument("--hotspot", type=str, default="", help="Hotspot residues for REMARK lines")
@@ -289,7 +298,6 @@ def main():
         standardize(
             cif_gz_path=cif_path,
             json_path=json_path,
-            spec_json_path=args.spec_json,
             output_pdb_path=output_pdb,
             input_contig_v1=args.input_contig,
             hotspot=args.hotspot,

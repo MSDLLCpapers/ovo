@@ -88,7 +88,6 @@ process RFdiffusion3 {
     python3 ${moduleDir}/bin/standardize_cif.py \
         --cif_dir ${batch_name}/rfdiffusion3_pdb/ \
         --json_dir ${batch_name}/rfdiffusion3_json/ \
-        --spec_json input_spec.json \
         --output_dir ${batch_name}/rfdiffusion3_standardized_pdb/ \
         --input_contig "${contig}" \
         --hotspot "${hotspot}"

@@ -13,40 +13,12 @@ import sys
 
 
 def convert_contig_v1_to_v3(contig_v1: str) -> str:
-    """Convert RFdiffusion v1 contig syntax to RFdiffusion3 (v3) syntax.
-
-    Examples:
-        "A30-40/10/A50-60"  ->  "A30-40,10,A50-60"
-        "A30-50/0 10-10"    ->  "A30-50,/0,10-10"
-        "A52-156/0 50-60"   ->  "A52-156,/0,50-60"
-    """
-    contig = contig_v1.strip()
-    # Step 1: replace all "/" with "," first
-    contig = contig.replace("/", ",")
-    # Step 2: convert chain-break token ",0" back to ",/0"
-    # Only match ",0" NOT followed by "-" (to preserve designed ranges like "0-10")
-    contig = re.sub(r",0(?!-)", ",/0", contig)
-    # Step 3: replace ",/0 " (chain break before next segment separated by space) with ",/0,"
-    contig = re.sub(r",/0\s+", ",/0,", contig)
-    # Clean up double commas and leading/trailing commas
-    contig = re.sub(r",+", ",", contig)
-    contig = contig.strip(",")
-    return contig
-
-
-# def prepare_contig_for_binder_design(contig_v3: str) -> str:
-#     """We want designed binder chain to be A and target chain to be B, so if there's a chain break, 
-#     we need to ensure the first segment is the designed binder chain.
-#     RFD3 generates chain IDs in order they appear in the contig, so if the first segment is fixed (e.g. "A30-50,/0,10-10"), 
-#     we need to reorder it to "10-10,/0,A30-50" to ensure the designed binder chain is A and the fixed target chain is B.
-#     """
-#     segments = [seg.strip() for seg in contig_v3.split(",")]
-#     if len(segments) == 3 and segments[1] == "/0":
-#         # Check if the first segment is fixed (contains a chain letter)
-#         if segments[0][0].isalpha():
-#             # Reorder to put the fixed segment last
-#             return ",".join([segments[2], segments[1], segments[0]])
-#     return contig_v3
+    # split contig into list of lists of segments
+    subcontigs: list[list[str]] = [subcontig.removesuffix("/0").split("/") for subcontig in contig_v1.replace("/0", "/0 ").split() if subcontig]
+    # move fixed subcontigs to the end
+    subcontigs = sorted(subcontigs, key=lambda segments: all(s[0].isalpha() for s in segments))
+    # create RFD3 contig
+    return ",/0,".join(",".join(segments) for segments in subcontigs)
 
 
 def has_chain_break(contig_v3: str) -> bool:
