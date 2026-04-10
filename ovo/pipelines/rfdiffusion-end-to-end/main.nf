@@ -84,7 +84,6 @@ workflow {
       println "Generating RFdiffusion batches:"
       rfd_input_batches.each { println it }
 
-      def backbones_dir
       if (params.backbone_generator == "rfdiffusion") {
         RFdiffusion(
             Channel.fromList(rfd_input_batches),

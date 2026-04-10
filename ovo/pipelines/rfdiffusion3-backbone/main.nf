@@ -44,8 +44,8 @@ process RFdiffusion3 {
 
     # Write spec overrides to a file to avoid bash quoting issues with JSON strings
     SPEC_OVERRIDES_ARG=""
-    if [[ -n "${spec_overrides}" ]]; then
-        printf '%s' "${spec_overrides}" > spec_overrides.json
+    if [[ -n '${spec_overrides}' ]]; then
+        echo '${spec_overrides}' > spec_overrides.json
         SPEC_OVERRIDES_ARG="--spec_overrides_file spec_overrides.json"
     fi
     python3 ${moduleDir}/bin/build_input_json.py \

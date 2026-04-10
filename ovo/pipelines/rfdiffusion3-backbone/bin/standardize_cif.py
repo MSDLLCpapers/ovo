@@ -23,23 +23,6 @@ import gemmi
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-# def parse_fixed_chain_ids(contig_v3: str) -> list:
-#     """Extract fixed chain IDs from a v3 contig string.
-
-#     Fixed segments are those prefixed with a chain letter (e.g. 'E6-155', 'A30-40').
-#     Designed segments have no chain prefix (e.g. '40-120', '10').
-#     """
-#     fixed = []
-#     chain_id = "A"
-#     for subcontig in contig_v3.split(",/0,"):
-#         subcontig = subcontig.strip()
-#         segments = [s.strip() for s in subcontig.split(",") if s.strip()]
-#         if all(s and s[0].isalpha() for s in segments):
-#             fixed.append(chain_id)
-#         chain_id = chr(ord(chain_id) + 1)
-#     return fixed
-
-
 def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: str):
     # get chain lengths from sampled_contig
     sampled_contig_positions = sampled_contig.split(",")
@@ -101,7 +84,7 @@ def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: 
                     subregions.append(subregion)
                 contig += [f"{s[0][0]}{s[0][1]}" if len(s) == 1 else f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions]
             else:
-                contig.append(str(len(region)))
+                contig.append(f"{len(region)}-{len(region)}")
         contigs.append(contig)
     return "/0 ".join(["/".join(contig) for contig in contigs])
 
@@ -130,35 +113,6 @@ def read_cif_gz(path: str) -> gemmi.Structure:
     return structure
 
 
-def rename_chains(model: gemmi.Model, mapping: dict):
-    """Rename chains in-place using a temp-name pass to avoid mid-rename conflicts."""
-    # First pass: rename to temp names (prefixed with '~') to avoid collisions
-    temp_to_final = {}
-    for chain in model:
-        if chain.name in mapping:
-            temp = f"~{chain.name}"
-            temp_to_final[temp] = mapping[chain.name]
-            chain.name = temp
-    # Second pass: rename from temp to final
-    for chain in model:
-        if chain.name in temp_to_final:
-            chain.name = temp_to_final[chain.name]
-            
-def sort_chains(model: gemmi.Model):
-    """Sort chains in-place by name (A, B, C, ...)."""
-    sorted_chains = sorted([c.clone() for c in model], key=lambda c: c.name)
-    for c in sorted_chains:
-        model.remove_chain(c.name)
-    for c in sorted_chains:
-        model.add_chain(c)
-
-
-def renumber_chain_from_one(chain: gemmi.Chain):
-    """Renumber all residues in a chain consecutively starting from 1."""
-    for i, residue in enumerate(chain, start=1):
-        residue.seqid = gemmi.SeqId(i, " ")
-
-
 def standardize(
     cif_gz_path: str,
     json_path: str,
@@ -171,53 +125,20 @@ def standardize(
     structure = read_cif_gz(cif_gz_path)
     structure.setup_entities()
     model = structure[0]
-
+    all_chain_names = [chain.name for chain in model]
+    chains_str = " ".join(all_chain_names)
+    
     # Load input spec JSON to get the v3 contig
-    # with open(spec_json_path) as f:
-    #     spec_data = json.load(f)
     with open(json_path) as f:
         json_data = json.load(f)
     contig_v3 = json_data["specification"]["contig"]
-
-    # Classify output chains as designed (not in fixed set) or fixed
-    # fixed_chain_ids = parse_fixed_chain_ids(contig_v3)
-    all_chain_names = [chain.name for chain in model]
-    # designed_chains = [c for c in all_chain_names if c not in fixed_chain_ids]
-    # fixed_chains = [c for c in all_chain_names if c in fixed_chain_ids]
-
-    # # Build rename mapping: designed first -> A, B, ...; fixed after
-    # chain_rename = {}
-    # for i, c in enumerate(designed_chains + fixed_chains):
-    #     chain_rename[c] = chr(ord("A") + i)
-
-    # Renumber designed chains from 1 before renaming (so we operate on original names)
-    # for chain in model:
-    #     if chain.name in designed_chains:
-    #         renumber_chain_from_one(chain)
-
-    # Rename chains
-    # print(f"Renaming chains: {chain_rename}")
-    # rename_chains(model, chain_rename)
-    print(f"Chain order after renaming: {[chain.name for chain in model]}")
-    sort_chains(model)
-    print(f"Chain order after sorting: {[chain.name for chain in model]}")
-
-    # New chain order for REMARK
-    # new_chain_order = [chain_rename[c] for c in all_chain_names]
-    # chains_str = " ".join(new_chain_order)
-    chains_str = " ".join(all_chain_names)
-
-    # Build v1-style standardized contig (required by downstream prepare_json.py)
-    # std_contig_v1 = build_standardized_contig_v1(input_contig_v1, model, chain_rename, fixed_chain_ids)
-    # with open(json_path) as f:
-    #     json_data = json.load(f)
-    
     diffused_index_map = json_data["diffused_index_map"]
     sampled_contig = json_data["specification"]["extra"]["sampled_contig"]
     
     print(f"Diffused index map: {diffused_index_map}")
     print(f"Sampled contig: {sampled_contig}")
     
+    # Build v1-style standardized contig (required by downstream prepare_json.py)
     std_contig_v1 = get_standardized_contig(diffused_index_map=diffused_index_map, sampled_contig=sampled_contig)
 
     # Standardize hotspots (remap chain letters using the rename mapping)
@@ -229,11 +150,6 @@ def standardize(
                 continue
             if res in diffused_index_map:
                 parts.append(diffused_index_map[res])
-                # mapped_res = diffused_index_map[res]
-                # chain = mapped_res[0]
-                # resnum = mapped_res[1:]
-                # new_chain = chain_rename[chain]
-                # parts.append(f"{new_chain}{resnum}")
             else:
                 print(f"WARNING: Hotspot residue {res} not found in diffused_index_map. Skipping.", file=sys.stderr)
         std_hotspots = ",".join(parts)
@@ -291,8 +207,7 @@ def main():
         stem = basename.replace(".cif.gz", "")
         json_path = os.path.join(args.json_dir, stem + ".json")
         if not os.path.exists(json_path):
-            print(f"ERROR: Expected JSON file {json_path} for CIF {cif_path} not found. Skipping.", file=sys.stderr)
-            continue
+            raise FileNotFoundError(f"Expected JSON file {json_path} for CIF {cif_path} not found.")
         output_pdb = os.path.join(args.output_dir, f"{stem}_standardized.pdb")
         print(f"  {basename} -> {os.path.basename(output_pdb)}")
         standardize(

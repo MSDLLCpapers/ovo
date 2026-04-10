@@ -21,10 +21,6 @@ def convert_contig_v1_to_v3(contig_v1: str) -> str:
     return ",/0,".join(",".join(segments) for segments in subcontigs)
 
 
-def has_chain_break(contig_v3: str) -> bool:
-    return "/0" in contig_v3
-
-
 def build_spec(
     input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None
 ) -> dict:
@@ -34,11 +30,13 @@ def build_spec(
         "input": os.path.abspath(input_pdb),
         "contig": contig_v3,
     }
-    if has_chain_break(contig_v3):
+    if "/0" in contig_v3:
         # Binder design: add hotspot origin token (ORI) strategy
-        spec["infer_ori_strategy"] = "hotspots"
         if hotspot:
+            spec["infer_ori_strategy"] = "hotspots"
             spec["select_hotspots"] = hotspot
+        else:
+            spec["infer_ori_strategy"] = "com"
     # User overrides applied last — can override auto-derived fields (e.g. infer_ori_strategy)
     if spec_overrides:
         spec.update(spec_overrides)
