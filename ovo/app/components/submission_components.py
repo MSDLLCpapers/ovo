@@ -380,7 +380,9 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
             key="rfdiff_run_parameters",
         )
         if is_rfd3:
-            st.caption(":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5).")
+            st.caption(
+                ":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5)."
+            )
         else:
             st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
         if workflow.rfdiffusion_params.run_parameters:
@@ -423,7 +425,7 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 st.text_input(
                     "Fixed atoms (select_fixed_atoms)",
                     value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
-                    placeholder="e.g. A244:TIP,A274:BKBN  or contig string A100-120",
+                    placeholder="contig-style string, e.g. A100-120",
                     key="rfd3_select_fixed_atoms",
                     help="Override which atoms are fixed in 3D space. Contig string or dict syntax (e.g. A244:TIP,A274:BKBN).",
                 )

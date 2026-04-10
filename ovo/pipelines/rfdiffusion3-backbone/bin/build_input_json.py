@@ -14,16 +14,16 @@ import sys
 
 def convert_contig_v1_to_v3(contig_v1: str) -> str:
     # split contig into list of lists of segments
-    subcontigs: list[list[str]] = [subcontig.removesuffix("/0").split("/") for subcontig in contig_v1.replace("/0", "/0 ").split() if subcontig]
+    subcontigs: list[list[str]] = [
+        subcontig.removesuffix("/0").split("/") for subcontig in contig_v1.replace("/0", "/0 ").split() if subcontig
+    ]
     # move fixed subcontigs to the end
     subcontigs = sorted(subcontigs, key=lambda segments: all(s[0].isalpha() for s in segments))
     # create RFD3 contig
     return ",/0,".join(",".join(segments) for segments in subcontigs)
 
 
-def build_spec(
-    input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None
-) -> dict:
+def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None) -> dict:
     """Build a single RFD3 InputSpecification dict."""
     spec = {
         "dialect": 2,
@@ -31,7 +31,6 @@ def build_spec(
         "contig": contig_v3,
     }
     if "/0" in contig_v3:
-        # Binder design: add hotspot origin token (ORI) strategy
         if hotspot:
             spec["infer_ori_strategy"] = "hotspots"
             spec["select_hotspots"] = hotspot
@@ -44,25 +43,17 @@ def build_spec(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Build RFdiffusion3 input JSON from params"
-    )
+    parser = argparse.ArgumentParser(description="Build RFdiffusion3 input JSON from params")
     parser.add_argument("--input_pdb", type=str, help="Input PDB/CIF file path")
-    parser.add_argument(
-        "--contig", type=str, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')"
-    )
-    parser.add_argument(
-        "--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79"
-    )
+    parser.add_argument("--contig", type=str, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')")
+    parser.add_argument("--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79")
     parser.add_argument(
         "--input_json",
         type=str,
         default=None,
         help="Pre-built RFD3 JSON (pass-through mode)",
     )
-    parser.add_argument(
-        "--output_json", type=str, required=True, help="Output JSON path"
-    )
+    parser.add_argument("--output_json", type=str, required=True, help="Output JSON path")
     parser.add_argument(
         "--spec_overrides_file",
         type=str,

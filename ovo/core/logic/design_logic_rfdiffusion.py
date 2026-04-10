@@ -124,11 +124,11 @@ def process_workflow_results(
                         f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
                     )
                 elif workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
-                    source_backbone_path = (
-                        f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_0_model_{batch_idx_backbone}_standardized.pdb"
-                    )
+                    source_backbone_path = f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_0_model_{batch_idx_backbone}_standardized.pdb"
                 else:
-                    raise ValueError(f"Unsupported backbone generator: {workflow.rfdiffusion_params.backbone_generator}")
+                    raise ValueError(
+                        f"Unsupported backbone generator: {workflow.rfdiffusion_params.backbone_generator}"
+                    )
                 source_backbone_paths.append((contig_idx, batch_name, backbone_number, source_backbone_path))
 
     designs = []
@@ -500,7 +500,9 @@ def get_rfdiffusion_run_parameters(workflow: RFdiffusionWorkflow) -> str:
             args += f" contigmap.inpaint_seq=[{workflow.rfdiffusion_params.inpaint_seq}] "
 
         if workflow.rfdiffusion_params.model_weights not in [None, "Base", "Complex_base"]:
-            args += f" inference.ckpt_override_path=rfdiffusion_models/{workflow.rfdiffusion_params.model_weights}_ckpt.pt "
+            args += (
+                f" inference.ckpt_override_path=rfdiffusion_models/{workflow.rfdiffusion_params.model_weights}_ckpt.pt "
+            )
 
     args += f" {workflow.rfdiffusion_params.run_parameters} "
 
