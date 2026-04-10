@@ -177,14 +177,14 @@ def standardize(
     designed_chains = [c for c in all_chain_names if c not in fixed_chain_ids]
     fixed_chains = [c for c in all_chain_names if c in fixed_chain_ids]
 
-    # Build rename mapping: designed first -> A, B, ...; fixed after
+    # # Build rename mapping: designed first -> A, B, ...; fixed after
     chain_rename = {}
     idx = 0
     for c in designed_chains:
-        chain_rename[c] = ALPHABET[idx]
+        chain_rename[c] = chr(ord("A") + idx)
         idx += 1
     for c in fixed_chains:
-        chain_rename[c] = ALPHABET[idx]
+        chain_rename[c] = chr(ord("A") + idx)
         idx += 1
 
     # Renumber designed chains from 1 before renaming (so we operate on original names)
@@ -193,35 +193,40 @@ def standardize(
             renumber_chain_from_one(chain)
 
     # Rename chains
+    print(f"Renaming chains: {chain_rename}")
     rename_chains(model, chain_rename)
 
-    # Standardize hotspots (remap chain letters using the rename mapping)
-    std_hotspots = ""
-    if hotspot:
-        parts = []
-        for res in hotspot.split(","):
-            res = res.strip()
-            if res and res[0].isalpha():
-                old_chain = res[0]
-                new_chain = chain_rename.get(old_chain, old_chain)
-                parts.append(new_chain + res[1:])
-            else:
-                parts.append(res)
-        std_hotspots = ",".join(parts)
-
     # New chain order for REMARK
-    new_chain_order = [chain_rename.get(c, c) for c in all_chain_names]
+    new_chain_order = [chain_rename[c] for c in all_chain_names]
     chains_str = " ".join(new_chain_order)
 
     # Build v1-style standardized contig (required by downstream prepare_json.py)
     # std_contig_v1 = build_standardized_contig_v1(input_contig_v1, model, chain_rename, fixed_chain_ids)
     with open(json_path) as f:
         json_data = json.load(f)
-    diffused_index_map = json_data.get("diffused_index_map", {})
-    sampled_contig = json_data.get("specification.extra.sampled_contig", contig_v3)
+    
+    diffused_index_map = json_data["diffused_index_map"]
+    sampled_contig = json_data["specification"]["extra"]["sampled_contig"]
+    
     print(f"Diffused index map: {diffused_index_map}")
     print(f"Sampled contig: {sampled_contig}")
+    
     std_contig_v1 = get_standardized_contig(diffused_index_map=diffused_index_map, sampled_contig=sampled_contig)
+
+    # Standardize hotspots (remap chain letters using the rename mapping)
+    std_hotspots = ""
+    if hotspot:
+        parts = []
+        for res in hotspot.split(","):
+            if res in diffused_index_map:
+                mapped_res = diffused_index_map[res]
+                chain = mapped_res[0]
+                resnum = mapped_res[1:]
+                new_chain = chain_rename[chain]
+                parts.append(f"{new_chain}{resnum}")
+            else:
+                print(f"WARNING: Hotspot residue {res} not found in diffused_index_map. Skipping.", file=sys.stderr)
+        std_hotspots = ",".join(parts)
 
     # Write PDB
     os.makedirs(os.path.dirname(output_pdb_path) or ".", exist_ok=True)
