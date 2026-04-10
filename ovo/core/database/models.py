@@ -679,7 +679,7 @@ class DescriptorValue(Base):
     __tablename__ = "descriptor_value"
 
     design_id: Mapped[str] = mapped_column(String, primary_key=True)
-    descriptor_key: Mapped[str] = mapped_column(String, primary_key=True)
+    descriptor_key: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     descriptor_job_id: Mapped[str] = mapped_column(String, primary_key=True)
     # Comma-separated list of chain IDs for which this descriptor value applies
     # Can be same or a subset of descriptor_job.workflow.chains
