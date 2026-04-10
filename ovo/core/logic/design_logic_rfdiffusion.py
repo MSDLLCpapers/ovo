@@ -238,7 +238,6 @@ def process_rfdiffusion_design(
     destination_dir: str,
     refolding_primary_test: str,
     cyclic: bool,
-    backbone_generator: str = "rfdiffusion",
 ) -> tuple[list[Design], dict[str, tuple[str, str]]]:
     """Process a single RFdiffusion-designed backbone and its sequence designs, copying files from the scheduler output to our storage,
     and creating Design and DescriptorValue objects for the backbone and each sequence design.

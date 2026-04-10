@@ -14,108 +14,97 @@ import gzip
 import json
 import os
 import re
+import sys
 import tempfile
+import itertools
 
 import gemmi
 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
-def parse_fixed_chain_ids(contig_v3: str) -> set:
+def parse_fixed_chain_ids(contig_v3: str) -> list:
     """Extract fixed chain IDs from a v3 contig string.
 
     Fixed segments are those prefixed with a chain letter (e.g. 'E6-155', 'A30-40').
     Designed segments have no chain prefix (e.g. '40-120', '10').
     """
-    fixed = set()
-    for seg in re.split(r",", contig_v3):
-        seg = seg.strip()
-        if not seg or seg == "/0":
-            continue
-        if seg[0].isupper():
-            fixed.add(seg[0])
+    fixed = []
+    chain_id = "A"
+    for subcontig in contig_v3.split(",/0,"):
+        subcontig = subcontig.strip()
+        segments = [s.strip() for s in subcontig.split(",") if s.strip()]
+        if all(s and s[0].isalpha() for s in segments):
+            fixed.append(chain_id)
+        chain_id = chr(ord(chain_id) + 1)
     return fixed
 
 
-def has_chain_break(contig_v3: str) -> bool:
-    return "/0" in contig_v3
-
-
-def build_standardized_contig_v1(input_contig_v1: str, model: gemmi.Model, chain_rename: dict, fixed_chain_ids: set) -> str:
-    """Build v1-style standardized contig for the REMARK header.
-
-    prepare_json.py (LigandMPNN) expects v1 format: segments separated by '/',
-    designed segments as 'N-N', fixed segments as 'ChainStart-End'.
-    Space-separated groups for multi-chain (binder) designs.
-
-    Scaffold (no chain break): parse input v1 segments sequentially, simulate residue numbering.
-    Binder (has chain break): per-chain — designed chains get 'N-N', fixed chains get 'ChainX-Y'.
-    """
-    contig_has_break = "/0" in input_contig_v1 or (
-        " " in input_contig_v1.strip() and any(c.isdigit() for c in input_contig_v1.split()[1][:1])
-    )
-
-    if not contig_has_break:
-        return _scaffold_standardized_contig(input_contig_v1, model)
-    else:
-        return _binder_standardized_contig(model, chain_rename, fixed_chain_ids)
-
-
-def _scaffold_standardized_contig(input_contig_v1: str, model: gemmi.Model) -> str:
-    """Scaffold: one chain with interleaved fixed/designed segments."""
-    chain = list(model)[0]
-    total_residues = len(list(chain.first_conformer()))
-    new_chain_letter = chain.name
-
-    segs = [s.strip() for s in input_contig_v1.split("/") if s.strip()]
-
-    # Compute fixed residue counts and designed segment specs
-    total_fixed = 0
-    total_known_designed = 0
-    n_range_segs = 0
-    for s in segs:
-        if s[0].isalpha():
-            m = re.match(r"[A-Z](\d+)(?:-(\d+))?", s)
-            start, end = int(m.group(1)), int(m.group(2)) if m.group(2) else int(m.group(1))
-            total_fixed += end - start + 1
+def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: str):
+    # get chain lengths from sampled_contig
+    sampled_contig_positions = sampled_contig.split(",")
+    chain_lengths = [0]
+    # output chain -> output residue index -> fixed input position (for verification below)
+    verify_positions = {"A": {}}
+    chain = "A"
+    for pos in sampled_contig_positions:
+        if pos == "/0":
+            chain_lengths.append(0)
+            chain = chr(ord(chain) + 1)
+            verify_positions[chain] = {}
+        elif pos[0].isnumeric():
+            chain_lengths[-1] += int(pos)
         else:
-            parts = s.split("-")
-            if len(parts) == 1:
-                total_known_designed += int(s)
+            assert pos[0].isalpha() and "-" not in pos, f"Expected format 123 or A123, got: {pos} in {sampled_contig}"
+            chain_lengths[-1] += 1
+            verify_positions[chain][chain_lengths[-1]] = pos
+    print(verify_positions)
+    print(chain_lengths)
+    # output chain -> output pos -> metadata
+    mapping_by_chain = {}
+    chain = "A"
+    for length in chain_lengths:
+        # prefill all positions as generated
+        mapping_by_chain[chain] = {f"{chain}{p}": {"fixed": False} for p in range(1, length + 1)}
+        # add metadata for fixed positions
+        for input_pos, output_pos in diffused_index_map.items():
+            if output_pos[0] == chain:
+                mapping_by_chain[chain][output_pos] = {"fixed": True, "input_pos": input_pos}
+        # verify that all fixed positions from sampled_contig exist in diffused_index_map
+        for output_index, expected_pos in verify_positions[chain].items():
+            input_pos = mapping_by_chain[chain].get(f"{chain}{output_index}", {}).get("input_pos")
+            assert expected_pos == input_pos, \
+                f"Expected fixed {expected_pos} position at output position " \
+                f"{chain}{output_index} based on sampled_contig, " \
+                f"but got {input_pos} in diffused_index_map"
+        # start next chain
+        chain = chr(ord(chain) + 1)
+    if chain_lengths[-1] == 0:
+        # edge case - remove chain break at the end
+        chain_lengths = chain_lengths[:-1]
+    contigs = []
+    for chain, mapping in mapping_by_chain.items():
+        contig = []
+        for fixed, region in itertools.groupby(mapping.values(), key=lambda m: m["fixed"]):
+            region = list(region)
+            if fixed:
+                subregions = []
+                subregion = []
+                for pos in region:
+                    chain = pos["input_pos"][0]
+                    resnum = int(pos["input_pos"][1:])
+                    if subregion and (chain != subregion[-1][0] or resnum != subregion[-1][1] + 1):
+                        subregions.append(subregion)
+                        subregion = []
+                    subregion.append((chain, resnum))
+                if subregion:
+                    subregions.append(subregion)
+                contig += [f"{s[0][0]}{s[0][1]}" if len(s) == 1 else f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions]
             else:
-                n_range_segs += 1
+                contig.append(str(len(region)))
+        contigs.append(contig)
+    return "/0 ".join(["/".join(contig) for contig in contigs])
 
-    remaining_for_ranges = total_residues - total_fixed - total_known_designed
-
-    seg_strs = []
-    for s in segs:
-        if s[0].isalpha():
-            # Fixed: preserve original residue numbers so downstream AF2 can look them up in native PDB
-            m = re.match(r"([A-Z])(\d+(?:-\d+)?)", s)
-            seg_strs.append(f"{new_chain_letter}{m.group(2)}")
-        else:
-            parts = s.split("-")
-            if len(parts) == 1:
-                count = int(s)
-            else:
-                count = remaining_for_ranges // max(n_range_segs, 1)
-            seg_strs.append(f"{count}-{count}")
-
-    return "/".join(seg_strs)
-
-
-def _binder_standardized_contig(model: gemmi.Model, chain_rename: dict, fixed_chain_ids: set) -> str:
-    """Binder: designed chains get 'N-N', fixed chains get 'ChainX-Y'."""
-    old_for_new = {v: k for k, v in chain_rename.items()}
-    parts = []
-    for chain in model:
-        n = len(list(chain.first_conformer()))
-        old_name = old_for_new.get(chain.name, chain.name)
-        if old_name not in fixed_chain_ids:
-            parts.append(f"{n}-{n}")
-        else:
-            parts.append(f"{chain.name}1-{n}")
-    return " ".join(parts)
 
 
 def chunk_string(s: str, chunk_size: int = 40) -> list:
@@ -164,26 +153,26 @@ def renumber_chain_from_one(chain: gemmi.Chain):
 
 def standardize(
     cif_gz_path: str,
+    json_path: str,
     spec_json_path: str,
     output_pdb_path: str,
     input_contig_v1: str,
     hotspot: str,
 ):
     """Convert a single .cif.gz to a standardized PDB with REMARK annotations."""
+    # Read CIF.gz
+    structure = read_cif_gz(cif_gz_path)
+    structure.setup_entities()
+    model = structure[0]
+
     # Load input spec JSON to get the v3 contig
     with open(spec_json_path) as f:
         spec_data = json.load(f)
     first_spec = list(spec_data.values())[0] if spec_data else {}
     contig_v3 = first_spec.get("contig", "")
 
-    fixed_chain_ids = parse_fixed_chain_ids(contig_v3)
-
-    # Read CIF.gz
-    structure = read_cif_gz(cif_gz_path)
-    structure.setup_entities()
-    model = structure[0]
-
     # Classify output chains as designed (not in fixed set) or fixed
+    fixed_chain_ids = parse_fixed_chain_ids(contig_v3)
     all_chain_names = [chain.name for chain in model]
     designed_chains = [c for c in all_chain_names if c not in fixed_chain_ids]
     fixed_chains = [c for c in all_chain_names if c in fixed_chain_ids]
@@ -225,7 +214,14 @@ def standardize(
     chains_str = " ".join(new_chain_order)
 
     # Build v1-style standardized contig (required by downstream prepare_json.py)
-    std_contig_v1 = build_standardized_contig_v1(input_contig_v1, model, chain_rename, fixed_chain_ids)
+    # std_contig_v1 = build_standardized_contig_v1(input_contig_v1, model, chain_rename, fixed_chain_ids)
+    with open(json_path) as f:
+        json_data = json.load(f)
+    diffused_index_map = json_data.get("diffused_index_map", {})
+    sampled_contig = json_data.get("specification.extra.sampled_contig", contig_v3)
+    print(f"Diffused index map: {diffused_index_map}")
+    print(f"Sampled contig: {sampled_contig}")
+    std_contig_v1 = get_standardized_contig(diffused_index_map=diffused_index_map, sampled_contig=sampled_contig)
 
     # Write PDB
     os.makedirs(os.path.dirname(output_pdb_path) or ".", exist_ok=True)
@@ -260,6 +256,7 @@ def standardize(
 def main():
     parser = argparse.ArgumentParser(description="Standardize RFdiffusion3 CIF.gz outputs to PDB")
     parser.add_argument("--cif_dir", type=str, required=True, help="Directory with .cif.gz files")
+    parser.add_argument("--json_dir", type=str, required=True, help="Directory with .json files generated by RFD3 (used to get contig info)")
     parser.add_argument("--spec_json", type=str, required=True, help="Input spec JSON (from build_input_json.py)")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory for standardized PDBs")
     parser.add_argument("--input_contig", type=str, default="", help="Original v1-style contig for REMARK lines")
@@ -278,10 +275,15 @@ def main():
         basename = os.path.basename(cif_path)
         # Strip .cif.gz -> _standardized.pdb
         stem = basename.replace(".cif.gz", "")
+        json_path = os.path.join(args.json_dir, stem + ".json")
+        if not os.path.exists(json_path):
+            print(f"ERROR: Expected JSON file {json_path} for CIF {cif_path} not found. Skipping.", file=sys.stderr)
+            continue
         output_pdb = os.path.join(args.output_dir, f"{stem}_standardized.pdb")
         print(f"  {basename} -> {os.path.basename(output_pdb)}")
         standardize(
             cif_gz_path=cif_path,
+            json_path=json_path,
             spec_json_path=args.spec_json,
             output_pdb_path=output_pdb,
             input_contig_v1=args.input_contig,

@@ -34,11 +34,28 @@ def convert_contig_v1_to_v3(contig_v1: str) -> str:
     return contig
 
 
+# def prepare_contig_for_binder_design(contig_v3: str) -> str:
+#     """We want designed binder chain to be A and target chain to be B, so if there's a chain break, 
+#     we need to ensure the first segment is the designed binder chain.
+#     RFD3 generates chain IDs in order they appear in the contig, so if the first segment is fixed (e.g. "A30-50,/0,10-10"), 
+#     we need to reorder it to "10-10,/0,A30-50" to ensure the designed binder chain is A and the fixed target chain is B.
+#     """
+#     segments = [seg.strip() for seg in contig_v3.split(",")]
+#     if len(segments) == 3 and segments[1] == "/0":
+#         # Check if the first segment is fixed (contains a chain letter)
+#         if segments[0][0].isalpha():
+#             # Reorder to put the fixed segment last
+#             return ",".join([segments[2], segments[1], segments[0]])
+#     return contig_v3
+
+
 def has_chain_break(contig_v3: str) -> bool:
     return "/0" in contig_v3
 
 
-def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None) -> dict:
+def build_spec(
+    input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None
+) -> dict:
     """Build a single RFD3 InputSpecification dict."""
     spec = {
         "dialect": 2,
@@ -46,7 +63,7 @@ def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dic
         "contig": contig_v3,
     }
     if has_chain_break(contig_v3):
-        # Binder design: add hotspot orientation strategy
+        # Binder design: add hotspot origin token (ORI) strategy
         spec["infer_ori_strategy"] = "hotspots"
         if hotspot:
             spec["select_hotspots"] = hotspot
@@ -57,13 +74,31 @@ def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dic
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build RFdiffusion3 input JSON from params")
+    parser = argparse.ArgumentParser(
+        description="Build RFdiffusion3 input JSON from params"
+    )
     parser.add_argument("--input_pdb", type=str, help="Input PDB/CIF file path")
-    parser.add_argument("--contig", type=str, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')")
-    parser.add_argument("--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79")
-    parser.add_argument("--input_json", type=str, default=None, help="Pre-built RFD3 JSON (pass-through mode)")
-    parser.add_argument("--output_json", type=str, required=True, help="Output JSON path")
-    parser.add_argument("--spec_overrides_file", type=str, default="", help="Path to JSON file of spec field overrides to merge into the spec")
+    parser.add_argument(
+        "--contig", type=str, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')"
+    )
+    parser.add_argument(
+        "--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79"
+    )
+    parser.add_argument(
+        "--input_json",
+        type=str,
+        default=None,
+        help="Pre-built RFD3 JSON (pass-through mode)",
+    )
+    parser.add_argument(
+        "--output_json", type=str, required=True, help="Output JSON path"
+    )
+    parser.add_argument(
+        "--spec_overrides_file",
+        type=str,
+        default="",
+        help="Path to JSON file of spec field overrides to merge into the spec",
+    )
     args = parser.parse_args()
 
     input_json_name = os.path.basename(args.input_json) if args.input_json else None
@@ -77,7 +112,10 @@ def main():
         return
 
     if not args.input_pdb or not args.contig:
-        print("ERROR: --input_pdb and --contig are required when --input_json is not provided", file=sys.stderr)
+        print(
+            "ERROR: --input_pdb and --contig are required when --input_json is not provided",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     contig_v3 = convert_contig_v1_to_v3(args.contig)
