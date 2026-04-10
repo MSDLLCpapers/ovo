@@ -84,14 +84,22 @@ class SqlDBEngine(CacheClearingEngine):
             # Add index on descriptor_key if it doesn't exist
             descriptor_value_indexes = inspector.get_indexes("descriptor_value")
             has_descriptor_key_index = any(
-                "descriptor_key" in idx.get("column_names", [])
-                and len(idx.get("column_names", [])) == 1
+                "descriptor_key" in idx.get("column_names", []) and len(idx.get("column_names", [])) == 1
                 for idx in descriptor_value_indexes
             )
             if not has_descriptor_key_index:
+                print(
+                    f"Applying automigration: adding index on descriptor_key in descriptor_value",
+                    file=sys.stderr,
+                )
                 row_count = session.execute(text("SELECT COUNT(*) FROM descriptor_value")).scalar()
-                print(f"Applying automigration: adding index on descriptor_key in descriptor_value ({row_count:,} rows)", file=sys.stderr)
-                session.execute(text("CREATE INDEX ix_descriptor_value_descriptor_key ON descriptor_value (descriptor_key)"))
+                print(
+                    f"Creating descriptor_key index on {row_count:,} rows...",
+                    file=sys.stderr,
+                )
+                session.execute(
+                    text("CREATE INDEX ix_descriptor_value_descriptor_key ON descriptor_value (descriptor_key)")
+                )
                 session.commit()
 
     def _create_session(self) -> Session:

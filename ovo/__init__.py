@@ -12,6 +12,7 @@ from ovo.core.configuration import (
 )
 from ovo.core.plugins import plugins
 from ovo.cli.common import console, OVONotInitializedError
+from ovo.core.utils import residue_selection
 
 # note: ovo.core.logic modules are imported at the bottom to avoid circular dependencies
 from rich.panel import Panel

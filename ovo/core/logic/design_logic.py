@@ -237,15 +237,22 @@ def submit_design_workflow(
     return design_job, pool
 
 
-def get_log(design_job: DesignJob, tail: int = None) -> str:
+def get_log(design_job: DesignJob, task_id: str = None, preview: bool = False, tail: int = None) -> str:
     """Get the log of a design job from the scheduler."""
     assert isinstance(design_job, DesignJob), f"Expected DesignJob, got {type(design_job).__name__}"
     scheduler = get_scheduler(design_job.scheduler_key)
-    log = scheduler.get_log(design_job.job_id)
+    log = scheduler.get_log(design_job.job_id, task_id=task_id, preview=preview)
     if tail is not None:
         log_lines = log.splitlines()
         log = "\n".join(log_lines[-tail:])
     return log
+
+
+def get_tasks(design_job: DesignJob) -> pd.DataFrame:
+    """Get design job tasks table from the scheduler."""
+    assert isinstance(design_job, DesignJob), f"Expected DesignJob, got {type(design_job).__name__}"
+    scheduler = get_scheduler(design_job.scheduler_key)
+    return scheduler.get_tasks(design_job.job_id)
 
 
 def process_results(design_job: DesignJob, callback: Callable = None, wait=True) -> Pool:

@@ -40,19 +40,16 @@ def submit_rfdiffusion_preview(
     scheduler = get_scheduler(scheduler_key or config.local_scheduler)
     input_path = storage.prepare_workflow_input(workflow.get_input_pdb_path(), workdir=scheduler.workdir)
 
-    run_parameters = []
-
-    if partial_diffusion:
-        run_parameters.append(f"diffuser.partial_T={timesteps}")
-    else:
-        run_parameters.append(f"diffuser.T={timesteps}")
-
     params = {
         "contig": contig,
         "input_pdb": os.path.abspath(input_path),
         "num_designs": 1,
         "hotspot": hotspots,
-        "run_parameters": " ".join(run_parameters),
+        "run_parameters": get_rfdiffusion_run_parameters(
+            workflow,
+            partial_diffusion=partial_diffusion,
+            timesteps=timesteps,
+        ),
     }
 
     if workflow.get_cyclic_offset():
@@ -438,12 +435,14 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
     return params
 
 
-def get_rfdiffusion_run_parameters(workflow: RFdiffusionWorkflow) -> str:
+def get_rfdiffusion_run_parameters(
+    workflow: RFdiffusionWorkflow, partial_diffusion=False, timesteps: int = None
+) -> str:
     args = ""
-    if workflow.rfdiffusion_params.partial_diffusion:
-        args += f" diffuser.partial_T={workflow.rfdiffusion_params.timesteps} "
+    if partial_diffusion or workflow.rfdiffusion_params.partial_diffusion:
+        args += f" diffuser.partial_T={timesteps or workflow.rfdiffusion_params.timesteps} "
     else:
-        args += f" diffuser.T={workflow.rfdiffusion_params.timesteps} "
+        args += f" diffuser.T={timesteps or workflow.rfdiffusion_params.timesteps} "
 
     if workflow.rfdiffusion_params.contigmap_length:
         length_range = (
