@@ -589,20 +589,63 @@ class Storage:
         with open(local_destination_path, "wb") as f:
             f.write(content)
 
-    def sync_files(self, storage_paths: list[str], local_destination_dir: str, preserve_subdirs=False):
+    def sync_files(
+        self,
+        storage_paths: list[str],
+        local_destination_dir: str,
+        preserve_subdirs=False,
+        skip_outside_root=False,
+        copy_full_archives=False,
+    ):
         """Download/copy list of stored files to local directory
         :param storage_paths: list of files to be downloaded to destination directory
         :param local_destination_dir: path to destination directory (will be created if not exists)
         :param preserve_subdirs: if True (or if recursive=True), preserve subdirectories in the local destination directory
+        :param skip_outside_root: if True, skip files found outside of storage root instead of raising an error (only applies when preserve_subdirs=True)
+        :param copy_full_archives: if True, when a file is found to be within a zip archive, copy the entire archive to the destination directory instead of extracting just the file (only applies when preserve_subdirs=True)
         """
         if isinstance(storage_paths, str):
             storage_paths = [storage_paths]
 
+        zip_paths_by_archive = {}
         if preserve_subdirs:
-            for path in storage_paths:
-                assert not os.path.isabs(path) and "://" not in path, (
+            filtered_storage_paths = []
+            for i, path in enumerate(storage_paths):
+                scheme, _, _ = self.parse_path(self.resolve_path(path))
+                if scheme == "zip":
+                    zip_abs_path, arcpath = self._parse_zip_path(self.resolve_path(path))
+                    assert zip_abs_path.startswith(self.storage_root), (
+                        f"Zip archive is outside of storage root: {zip_abs_path}"
+                    )
+                    zip_rel_path = os.path.relpath(zip_abs_path, self.storage_root)
+                    if copy_full_archives:
+                        # Do not copy individual file from the zip, instead copy the entire zip archive
+                        if zip_rel_path not in filtered_storage_paths:
+                            filtered_storage_paths.append(zip_rel_path)
+                    else:
+                        # Copy each individual file
+                        zip_paths_by_archive.setdefault(zip_rel_path, []).append((arcpath, path))
+                    continue
+
+                if not scheme:
+                    # when a path is local, make sure that it's within the storage root
+                    if os.path.isabs(path) and path.startswith(self.storage_root):
+                        # absolute path within storage root, convert to relative
+                        path = os.path.relpath(path, self.storage_root)
+                        filtered_storage_paths.append(path)
+                        continue
+                    if os.path.isabs(path) or not os.path.exists(os.path.join(self.storage_root, path)):
+                        if skip_outside_root:
+                            warnings.warn(f"Skipping file found outside of storage root: {path}")
+                            continue
+                        raise FileOutsideStorageRootError("Cannot export file found outside of storage root: " + path)
+                assert not os.path.isabs(path) and ("://" not in path or path.startswith("zip://")), (
                     f"Expected relative paths when preserve_subdirs=True, got: {path}"
                 )
+                filtered_storage_paths.append(path)
+
+        else:
+            filtered_storage_paths = storage_paths
 
         os.makedirs(local_destination_dir, exist_ok=True)
         with ThreadPoolExecutor(self.num_copy_threads) as executor:
@@ -612,10 +655,18 @@ class Storage:
                     file_path,
                     os.path.join(local_destination_dir, file_path if preserve_subdirs else os.path.basename(file_path)),
                 )
-                for file_path in storage_paths
+                for file_path in filtered_storage_paths
             ]
             for future in futures:
                 future.result()
+
+        for zip_rel_path, arcpaths in zip_paths_by_archive.items():
+            os.makedirs(os.path.join(local_destination_dir, os.path.dirname(zip_rel_path)), exist_ok=True)
+            with self.bulk_read_context():
+                with zipfile.ZipFile(os.path.join(local_destination_dir, zip_rel_path), "w") as zip_file:
+                    for arcpath, original_path in arcpaths:
+                        content = self.read_file_bytes(original_path, cache_store=False)
+                        zip_file.writestr(arcpath, content)
 
     def is_local_path(self, path):
         scheme, netloc, relative_path = self.parse_path(path)
@@ -860,4 +911,8 @@ class ZipReadContext:
 
 
 class ZipIsBeingWrittenError(Exception):
+    pass
+
+
+class FileOutsideStorageRootError(Exception):
     pass
