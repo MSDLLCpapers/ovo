@@ -194,20 +194,13 @@ def process_workflow_results(
         )
     )
 
-    available_descriptor_keys = set(dv.descriptor_key for dv in descriptor_values)
-    missing_descriptor_keys = []
-    for descriptor_key, threshold in workflow.acceptance_thresholds.items():
-        if descriptor_key not in available_descriptor_keys and threshold.enabled:
-            threshold.enabled = False
-            missing_descriptor_keys.append(descriptor_key)
-
-    if missing_descriptor_keys:
-        job.warnings.append(
-            f"Some descriptors were not computed, their acceptance threshold was not applied: {', '.join(missing_descriptor_keys)}"
-        )
-
     # Update design.accepted fields based on descriptor values and thresholds
-    set_designs_accepted(designs, descriptor_values, workflow.acceptance_thresholds)
+    set_designs_accepted(
+        designs,
+        descriptor_values,
+        job,
+        no_warning_for_missing_prefix="refolding|",
+    )
     # Return designs and descriptors to be saved
     return designs + descriptor_values
 

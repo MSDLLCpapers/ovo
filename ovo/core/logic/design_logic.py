@@ -1,5 +1,6 @@
 import sys
 import traceback
+import warnings
 
 from copy import deepcopy
 from datetime import datetime
@@ -339,9 +340,50 @@ def update_accepted_design_ids(pool_ids: list[str], accepted_design_ids: list[st
 
 
 def set_designs_accepted(
-    designs: list[Design], descriptor_values: list[DescriptorValue], thresholds: dict[str, Threshold]
+    designs: list[Design],
+    descriptor_values: list[DescriptorValue],
+    job: DesignJob,
+    no_warning_for_missing_prefix: str | tuple = None,
 ):
-    """Update the accepted field of designs based on the given thresholds (does not save to DB)"""
+    """Update the accepted field of designs based on the given thresholds (does not save to DB)
+
+    Makes the following modifications IN PLACE:
+    - If a threshold is enabled but its descriptor values are missing:
+      - set threshold.enabled to False
+      - add a warning in the DesignJob job.warnings
+    - Update the accepted field of each design based on whether it passes the thresholds or not.
+
+    :param designs: List of Design objects to update
+    :param descriptor_values: List of DescriptorValue objects to use for checking thresholds
+    :param job: DesignJob object
+    :param no_warning_for_missing_prefix: Do not add a warning for missing descriptor keys that start with this prefix/prefixes
+    """
+
+    if isinstance(job, dict):
+        warnings.warn(
+            "set_designs_accepted should be called with the DesignJob instead of acceptance thresholds",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        thresholds = job
+        job = None
+    else:
+        assert isinstance(job, DesignJob), f"Expected DesignJob, got {type(job).__name__}"
+        thresholds = job.workflow.acceptance_thresholds
+
+    available_descriptor_keys = set(dv.descriptor_key for dv in descriptor_values)
+    missing_descriptor_keys = []
+    for descriptor_key, threshold in thresholds.items():
+        if descriptor_key not in available_descriptor_keys and threshold.enabled:
+            threshold.enabled = False
+            if not no_warning_for_missing_prefix or not descriptor_key.startswith(no_warning_for_missing_prefix):
+                missing_descriptor_keys.append(descriptor_key)
+
+    if missing_descriptor_keys and job is not None:
+        job.warnings.append(
+            f"Some descriptors were not computed, their acceptance threshold was not applied: {', '.join(missing_descriptor_keys)}"
+        )
+
     # initialize dict of dicts (descriptor_key -> design_id -> value)
     values = {}
     for descriptor_value in descriptor_values:

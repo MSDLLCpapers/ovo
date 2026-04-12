@@ -407,7 +407,17 @@ for test, (label, description) in REFOLDING_TESTS_SCAFFOLD.items():
                 description=f"Aligned RMSD between the backbone of the designed structure and its Boltz prediction using {description}",
                 unit="Å",
                 tool=f"Boltz ({label})",
-                key=f"refolding|{test}|target_rmsd",
+                key=f"refolding|{test}|design_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz Native Motif RMSD",
+                description=f"Aligned RMSD of all atoms of the fixed input motif residues in the original input structure and the Boltz prediction using {description}",
+                unit="Å",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|native_motif_rmsd",
                 min_value=0,
                 comparison="lower_is_better",
                 color_scale="rmsd",
@@ -581,11 +591,21 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 b_factor_value="plddt",
             ),
             NumericGlobalDescriptor(
-                name="Boltz Design RMSD",
-                description=f"Aligned RMSD between the backbone of the designed structure and its Boltz prediction using {description}",
+                name="Boltz Target-aligned Binder RMSD",
+                description=f"Target-aligned RMSD between the backbone of the binder structure and its Boltz prediction using {description}",
                 unit="Å",
                 tool=f"Boltz ({label})",
-                key=f"refolding|{test}|target_rmsd",
+                key=f"refolding|{test}|binder_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz Complex RMSD",
+                description=f"Aligned RMSD between the backbone of the complex structure and its Boltz prediction using {description}",
+                unit="Å",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|complex_rmsd",
                 min_value=0,
                 comparison="lower_is_better",
                 color_scale="rmsd",
@@ -645,7 +665,17 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 comparison="higher_is_better",
             ),
             NumericGlobalDescriptor(
+                name="Boltz Binder pLDDT",
+                description=f"Average pLDDT confidence score of the binder chain (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|binder_plddt",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
                 name="Boltz ipLDDT",
+                # TODO is this a valid description?
                 description=f"Interface pLDDT confidence score of the whole structure (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|complex_iplddt",
@@ -672,6 +702,23 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
         ]
 
 DESCRIPTORS = REFOLDING_DESCRIPTORS
+DESCRIPTORS_BY_KEY = {d.key: d for d in DESCRIPTORS}
+
+BOLTZ2_SCAFFOLD_NT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
+    "refolding|boltz2_scaffold_nt|boltz_predicted_structure_path"
+]
+BOLTZ2_SCAFFOLD_NT_DESIGN_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|design_rmsd"]
+BOLTZ2_SCAFFOLD_NT_NATIVE_MOTIF_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|native_motif_rmsd"]
+BOLTZ2_SCAFFOLD_NT_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|complex_plddt"]
+BOLTZ2_SCAFFOLD_NT_PDE = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|complex_pde"]
+
+BOLTZ2_BINDER_TT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
+    "refolding|boltz2_binder_tt|boltz_predicted_structure_path"
+]
+BOLTZ2_BINDER_TT_TARGET_ALIGNED_BINDER_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|binder_rmsd"]
+BOLTZ2_BINDER_TT_IPDE = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|complex_ipde"]
+BOLTZ2_BINDER_TT_BINDER_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|binder_plddt"]
+
 
 PRESETS = [
     {

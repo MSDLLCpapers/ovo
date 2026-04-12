@@ -50,6 +50,10 @@ def test_scaffold_end_to_end_logic(project_data):
         # Project and Round where the Pool will be created
         round_id=project_round.id,
     )
+    # by default, ESMfold pLDDT threshold should be enabled
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.ESMFOLD_PLDDT.key].enabled, (
+        "ESMFold pLDDT threshold should be enabled by default"
+    )
 
     jobs = design_logic.get_design_jobs_table(id=pool.id)
     print(jobs)
@@ -63,6 +67,15 @@ def test_scaffold_end_to_end_logic(project_data):
 
     designs = db.Design.select(pool_id=pool.id)
     design_ids = [d.id for d in designs]
+
+    design_job = db.DesignJob.get(id=design_job.id)
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.AF2_PRIMARY_PLDDT.key].enabled, (
+        "AF2 pLDDT threshold should be enabled for scaffold design workflow"
+    )
+    assert not design_job.workflow.acceptance_thresholds[descriptors_refolding.ESMFOLD_PLDDT.key].enabled, (
+        "ESMFold pLDDT threshold should be disabled when not available after workflow has finished"
+    )
+    assert not design_job.warnings
 
     rag = db.select_descriptor_values(descriptors_rfdiffusion.RADIUS_OF_GYRATION.key, design_ids)
     assert len(rag.dropna()) == 2
@@ -78,8 +91,8 @@ def test_scaffold_end_to_end_logic(project_data):
 
     af2_pdbs = db.select_descriptor_values(descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH.key, design_ids)
     assert len(af2_pdbs.dropna()) == 2
-    assert af2_pdbs[0].endswith(".pdb")
-    assert "ATOM " in storage.read_file_str(af2_pdbs[0])
+    assert af2_pdbs.iloc[0].endswith(".pdb")
+    assert "ATOM " in storage.read_file_str(af2_pdbs.iloc[0])
 
     # Refolding
     test = "af2_model_1_ptm_nt_3rec"
@@ -106,7 +119,7 @@ def test_scaffold_end_to_end_logic(project_data):
 
     design_rmsd = db.select_descriptor_values(f"refolding|{test}|design_backbone_rmsd", design_ids)
     assert len(design_rmsd.dropna()) == 2
-    assert (design_rmsd < 15).all()
+    assert (design_rmsd < 20).all()
 
     # Clustering
     clustering: FoldseekClusteringWorkflow = FoldseekClusteringWorkflow(

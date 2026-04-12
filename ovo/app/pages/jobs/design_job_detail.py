@@ -303,7 +303,8 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
     for workflow in workflows:
         if not hasattr(workflow, "acceptance_thresholds") or not workflow.acceptance_thresholds:
             continue
-        for descriptor_key, thresholds in workflow.acceptance_thresholds.items():
+        sorted_thresholds = sorted(workflow.acceptance_thresholds.items(), key=lambda x: not x[1].enabled)
+        for descriptor_key, thresholds in sorted_thresholds:
             if descriptor_key not in saved_thresholds:
                 saved_thresholds[descriptor_key] = thresholds
             elif saved_thresholds[descriptor_key] != thresholds:
