@@ -17,6 +17,7 @@ from ovo.app.components.descriptor_scatterplot import (
     descriptor_scatterplot_pool_details_component,
     descriptor_scatterplot_input_component,
 )
+from ovo.app.components.navigation import design_navigation_selector
 from ovo.core.database import DesignJob, UnknownWorkflow
 from ovo.core.logic.design_logic import process_results
 from ovo.core.logic.job_logic import update_job_status
@@ -491,16 +492,8 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
     if not design_ids:
         st.warning("No designs to show")
         return
-    elif len(design_ids) == 1:
-        design_id = design_ids[0]
-    else:
-        indexes = {v: i for i, v in enumerate(design_ids, start=1)}
-        design_id = st.selectbox(
-            "Select design",
-            options=[None] + design_ids,
-            format_func=lambda v: "Preview all designs" if v is None else f"{indexes[v]} | {v}",
-            index=1,
-        )
+
+    design_id = design_navigation_selector(design_ids, allow_all=True, default_all=False)
 
     if design_id is None:
         WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow

@@ -300,6 +300,7 @@ def design_navigation_selector(
     key: str = "selected_design",
     fmt: dict[str, str] | Callable | None = None,
     allow_all: bool = False,
+    default_all: bool = True,
 ) -> str | None:
     """
     Display navigation controls (prev/next buttons and dropdown) for browsing designs.
@@ -310,6 +311,7 @@ def design_navigation_selector(
         key: Query parameter key for storing selected design (default: "selected_design")
         fmt: Optional dict or function that maps design IDs to labels for display in the selectbox
         allow_all: If True, allows selecting all designs (returns None)
+        default_all: If True and allow_all is True, "All" will be selected by default if there are any design_ids
 
     Returns:
         str: Currently selected design_id or None if all designs are selected
@@ -328,9 +330,13 @@ def design_navigation_selector(
         element_key = f"{key}_selectbox_{idx}"
         if element_key in st.session_state and st.session_state[element_key] in design_ids:
             idx = design_ids.index(st.session_state[element_key])
+    elif allow_all:
+        idx = 0 if default_all else 1
     else:
         idx = 0
-    element_key = f"{key}_selectbox_{idx}"
+    # force forgetting idx when design_ids change (since the idx doesn't make sense anymore)
+    ids_hash = get_hash_of_bytes(",".join(design_ids).encode())
+    element_key = f"{key}_{ids_hash}_selectbox_{idx}"
 
     with st.container(horizontal=True, gap="small", vertical_alignment="center"):
         if st.button(
