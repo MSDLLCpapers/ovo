@@ -62,6 +62,7 @@ def show_design_metrics(
     for column, (descriptor_key, value) in zip(columns, descriptor_values.items()):
         descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
         delta = None
+        delta_description = None
         delta_color: DeltaColor = "normal"
         if descriptor_key in thresholds:
             threshold = thresholds[descriptor_key]
@@ -72,6 +73,7 @@ def show_design_metrics(
                 else:
                     delta = f":material/close: {formatted_threshold}"
                     delta_color = "red"
+                    delta_description = "Rejected"
 
             if pd.isna(value) and descriptor_key not in required_descriptor_keys:
                 # only show missing value when descriptor was explicitly requested
@@ -83,6 +85,7 @@ def show_design_metrics(
             delta=delta,
             delta_color=delta_color,
             delta_arrow="off",
+            delta_description=delta_description,
         )
     return descriptor_values
 
