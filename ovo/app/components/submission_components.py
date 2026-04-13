@@ -411,36 +411,7 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                     )
                     or None
                 )
-            workflow.rfdiffusion_params.rfd3_unindex = (
-                st.text_input(
-                    "Unindexed motif (unindex)",
-                    value=workflow.rfdiffusion_params.rfd3_unindex,
-                    placeholder="e.g. A244,A274,A320",
-                    key="rfd3_unindex",
-                    help="Residues whose relative position in the sequence is unknown to the model. Useful for scaffolding around active sites.",
-                )
-                or None
-            )
-            workflow.rfdiffusion_params.rfd3_select_fixed_atoms = (
-                st.text_input(
-                    "Fixed atoms (select_fixed_atoms)",
-                    value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
-                    placeholder="contig-style string, e.g. A100-120",
-                    key="rfd3_select_fixed_atoms",
-                    help="Override which atoms are fixed in 3D space. Contig string or dict syntax (e.g. A244:TIP,A274:BKBN).",
-                )
-                or None
-            )
-            workflow.rfdiffusion_params.rfd3_ligand = (
-                st.text_input(
-                    "Ligand (ligand)",
-                    value=workflow.rfdiffusion_params.rfd3_ligand,
-                    placeholder="e.g. HAX,OAA",
-                    key="rfd3_ligand",
-                    help="Ligand CCD names from RCSB PDB to include in the design.",
-                )
-                or None
-            )
+            
             workflow.rfdiffusion_params.rfd3_length = (
                 st.text_input(
                     "Total length constraint (length)",

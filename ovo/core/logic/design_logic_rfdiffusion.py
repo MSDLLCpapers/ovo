@@ -461,8 +461,14 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
         spec_overrides = {}
         if p.rfd3_unindex:
             spec_overrides["unindex"] = p.rfd3_unindex
-        if p.rfd3_select_fixed_atoms:
-            spec_overrides["select_fixed_atoms"] = p.rfd3_select_fixed_atoms
+        if fixed_atoms := p.rfd3_select_fixed_atoms:
+            # fixed atoms can be a dict specifying atoms per residue, 
+            # or a comma-separated string of residues (all atoms)
+            try:
+                fixed_atoms_dict = json.loads(fixed_atoms)
+                spec_overrides["select_fixed_atoms"] = fixed_atoms_dict
+            except ValueError:
+                spec_overrides["select_fixed_atoms"] = fixed_atoms
         if p.rfd3_ligand:
             spec_overrides["ligand"] = p.rfd3_ligand
         if p.rfd3_length:
