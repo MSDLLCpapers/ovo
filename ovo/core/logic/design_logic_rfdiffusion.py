@@ -124,7 +124,9 @@ def process_workflow_results(
                         f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
                     )
                 elif workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
-                    source_backbone_path = f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_0_model_{batch_idx_backbone}_standardized.pdb"
+                    # RFD3 has also an internal batching logic, but we do batch size 1 in the NF pipeline
+                    # semantics: design_<0..num_batches-1>_model_<0...batch_size-1>_standardized.pdb
+                    source_backbone_path = f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_{batch_idx_backbone}_model_0_standardized.pdb"
                 else:
                     raise ValueError(
                         f"Unsupported backbone generator: {workflow.rfdiffusion_params.backbone_generator}"
