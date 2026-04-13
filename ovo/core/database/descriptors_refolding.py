@@ -478,7 +478,7 @@ for test, (label, description) in REFOLDING_TESTS_SCAFFOLD.items():
             ),
             NumericGlobalDescriptor(
                 name="Boltz ipLDDT",
-                description=f"Interface pLDDT confidence score of the whole structure (0 = worst, 1 = best) using {description}",
+                description=f"Average pLDDT score when upweighting interface tokens (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|complex_iplddt",
                 min_value=0,
@@ -675,8 +675,7 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
             ),
             NumericGlobalDescriptor(
                 name="Boltz ipLDDT",
-                # TODO is this a valid description?
-                description=f"Interface pLDDT confidence score of the whole structure (0 = worst, 1 = best) using {description}",
+                description=f"Average pLDDT score when upweighting interface tokens (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|complex_iplddt",
                 min_value=0,
@@ -704,6 +703,7 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
 DESCRIPTORS = REFOLDING_DESCRIPTORS
 DESCRIPTORS_BY_KEY = {d.key: d for d in DESCRIPTORS}
 
+# Boltz-2 scaffold with no template input
 BOLTZ2_SCAFFOLD_NT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
     "refolding|boltz2_scaffold_nt|boltz_predicted_structure_path"
 ]
@@ -711,13 +711,25 @@ BOLTZ2_SCAFFOLD_NT_DESIGN_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_n
 BOLTZ2_SCAFFOLD_NT_NATIVE_MOTIF_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|native_motif_rmsd"]
 BOLTZ2_SCAFFOLD_NT_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|complex_plddt"]
 BOLTZ2_SCAFFOLD_NT_PDE = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|complex_pde"]
+# TODO add remaining metrics
 
+# Boltz-2 binder with target template input
 BOLTZ2_BINDER_TT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
     "refolding|boltz2_binder_tt|boltz_predicted_structure_path"
 ]
 BOLTZ2_BINDER_TT_TARGET_ALIGNED_BINDER_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|binder_rmsd"]
 BOLTZ2_BINDER_TT_IPDE = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|complex_ipde"]
 BOLTZ2_BINDER_TT_BINDER_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|binder_plddt"]
+# TODO add remaining metrics
+
+# Boltz-2 binder without any template input
+BOLTZ2_BINDER_NT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
+    "refolding|boltz2_binder_nt|boltz_predicted_structure_path"
+]
+BOLTZ2_BINDER_NT_TARGET_ALIGNED_BINDER_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_nt|binder_rmsd"]
+BOLTZ2_BINDER_NT_IPDE = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_nt|complex_ipde"]
+BOLTZ2_BINDER_NT_BINDER_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_nt|binder_plddt"]
+# TODO add remaining metrics
 
 
 PRESETS = [

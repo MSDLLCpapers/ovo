@@ -1,5 +1,7 @@
 import os
 import json
+import warnings
+
 import numpy as np
 import glob
 import argparse
@@ -112,9 +114,6 @@ def align_multiple_proteins_pdb(
         _, aligned_seqs_indices = align_sequences(seqs)
     else:
         aligned_seqs_indices = [list(range(len(seqs[0])))] * len(seqs)
-
-    if aligned_seqs_indices:
-        print(f"Found {len(aligned_seqs_indices[1])} overlapping residues between the first and second chains.")
 
     super_imposer = PDB.Superimposer()
 
@@ -512,9 +511,6 @@ def compute_rmsd_scaffold(
             if remark_lines:
                 remark_dict = parse_remark_lines(remark_lines)
                 input_motif_residues, output_motif_residues = get_motif_residues(remark_dict)
-                print(f"  Computing native motif RMSD for {name}")
-                print(f"    Native motif mapping: {input_motif_residues}")
-                print(f"    Predicted motif mapping: {output_motif_residues}")
                 _, native_motif_rmsd = align_multiple_proteins_pdb(
                     [native_pdb_str, boltz_str],
                     chain_residue_mappings=[input_motif_residues, output_motif_residues],
@@ -522,7 +518,7 @@ def compute_rmsd_scaffold(
                 )
                 result["native_motif_rmsd"] = native_motif_rmsd
             else:
-                print(f"  Warning: No REMARK header found in {name}, skipping native motif RMSD")
+                warnings.warn("No REMARK header found in design PDB, skipping native motif RMSD calculation")
 
         results.append(result)
 

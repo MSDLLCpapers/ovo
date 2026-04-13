@@ -362,7 +362,6 @@ class RFdiffusionScaffoldDesignWorkflow(RFdiffusionWorkflow):
             descriptors_refolding.BOLTZ2_SCAFFOLD_NT_PLDDT.key: Threshold(min_value=0.8),
             descriptors_refolding.BOLTZ2_SCAFFOLD_NT_DESIGN_RMSD.key: Threshold(max_value=2.0),
             descriptors_refolding.BOLTZ2_SCAFFOLD_NT_NATIVE_MOTIF_RMSD.key: Threshold(max_value=2.0),
-            # descriptors_refolding.BOLTZ_SCAFFOLD_NT_NATIVE_MOTIF_RMSD.key: Threshold(max_value=2.0),
             descriptors_rfdiffusion.RADIUS_OF_GYRATION.key: Threshold(enabled=False),
         }
     )
