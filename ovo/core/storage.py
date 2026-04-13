@@ -372,6 +372,16 @@ class Storage:
             return os.path.join(self.storage_root, storage_path)
         return storage_path
 
+    def _basename(self, path: str) -> str:
+        """Get the base name (filename) from a path, supporting both regular paths and zip paths"""
+        path = self.resolve_path(path)
+        scheme, _, _ = self.parse_path(path)
+        if scheme == "zip":
+            _, arcpath = self._parse_zip_path(path)
+            return os.path.basename(arcpath)
+        else:
+            return os.path.basename(path)
+
     def store_file_path(self, source_abs_path: str, storage_rel_path: str, overwrite: bool = True) -> str:
         """Store the file in the local filesystem or in the S3 bucket
         :param source_abs_path: abs path (or s3 URI) to the source file
@@ -537,7 +547,7 @@ class Storage:
                     "storage_paths_by_dir must be a dictionary of lists, found value of type " + str(type(paths))
                 )
                 # Avoid overwriting files by mistake
-                filenames = [os.path.basename(p) for p in paths]
+                filenames = [self._basename(p) for p in paths]
                 assert len(filenames) == len(set(filenames)), (
                     "Storing duplicate file paths in the same zip directory are not allowed: " + ", ".join(filenames)
                 )
@@ -556,7 +566,7 @@ class Storage:
 
                 # Process each future to write to ZIP file
                 for future, subdir, file_path in futures:
-                    filename = os.path.basename(file_path)
+                    filename = self._basename(file_path)
                     file_data = future.result()  # this will raise exception if any
                     # Write the file to the zip with the desired structure
                     if file_data and filename:
@@ -653,7 +663,7 @@ class Storage:
                 executor.submit(
                     self.sync_file,
                     file_path,
-                    os.path.join(local_destination_dir, file_path if preserve_subdirs else os.path.basename(file_path)),
+                    os.path.join(local_destination_dir, file_path if preserve_subdirs else self._basename(file_path)),
                 )
                 for file_path in filtered_storage_paths
             ]
@@ -722,7 +732,7 @@ class Storage:
         workdir_scheme, workdir_bucket, workdir_prefix = self.parse_path(workdir)
 
         if name is None:
-            filename = os.path.basename(storage_path)
+            filename = self._basename(storage_path)
         else:
             filename = name + os.path.splitext(storage_path)[-1]
 
@@ -783,7 +793,7 @@ class Storage:
             if names is not None:
                 assert len(set(names)) == len(names), f"Names must be unique when single_directory=True, got: {names}"
             else:
-                basenames = [os.path.basename(p) for p in storage_paths]
+                basenames = [self._basename(p) for p in storage_paths]
                 assert len(set(basenames)) == len(basenames), (
                     f"Filenames must be unique when single_directory=True, got: {basenames}"
                 )
