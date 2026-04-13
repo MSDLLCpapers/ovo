@@ -51,20 +51,24 @@ from ovo.core.utils.residue_selection import (
 def show_design_metrics(
     design_id: str, descriptor_keys: list[str] = None, thresholds: dict[str, Threshold] = None
 ) -> pd.Series:
-    required_descriptor_keys = descriptor_keys
-    all_descriptor_keys = list(descriptor_keys) or []
+    required_descriptor_keys = descriptor_keys or []
+    all_descriptor_keys = list(required_descriptor_keys)
     thresholds = thresholds or {}
     for descriptor_key, threshold in thresholds.items():
-        if threshold.enabled and descriptor_key not in descriptor_keys:
+        if threshold.enabled and descriptor_key not in required_descriptor_keys:
             all_descriptor_keys.append(descriptor_key)
     descriptor_values = get_cached_design_descriptors(design_id, descriptor_keys=all_descriptor_keys)
     columns = wrapped_columns(len(descriptor_values), wrap=4)
     for column, (descriptor_key, value) in zip(columns, descriptor_values.items()):
+        if pd.isna(value) and descriptor_key not in required_descriptor_keys:
+            # do not show metric at all when value is missing and descriptor wasn't explicitly requested
+            continue
         descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
         delta = None
         delta_description = None
         delta_color: DeltaColor = "normal"
-        if descriptor_key in thresholds:
+        if descriptor_key in thresholds and thresholds[descriptor_key].enabled:
+            # show threshold value in green or red
             threshold = thresholds[descriptor_key]
             if formatted_threshold := threshold.format():
                 if threshold.passes(value):
@@ -75,9 +79,6 @@ def show_design_metrics(
                     delta_color = "red"
                     delta_description = "Rejected"
 
-            if pd.isna(value) and descriptor_key not in required_descriptor_keys:
-                # only show missing value when descriptor was explicitly requested
-                continue
         column.metric(
             label=descriptor.name,
             help=descriptor.description,
