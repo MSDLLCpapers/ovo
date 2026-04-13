@@ -84,7 +84,8 @@ def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: 
                 if subregion:
                     subregions.append(subregion)
                 contig += [
-                    f"{s[0][0]}{s[0][1]}" if len(s) == 1 else f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions
+                    f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions
+                    # f"{s[0][0]}{s[0][1]}" if len(s) == 1 else f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions
                 ]
             else:
                 contig.append(f"{len(region)}-{len(region)}")
@@ -115,6 +116,14 @@ def read_cif_gz(path: str) -> gemmi.Structure:
     return structure
 
 
+def contains_amino_acids(chain: gemmi.Chain) -> bool:
+    """
+    Determine if chain contains any polymer residues (i.e. is not a ligand/non-polymer).
+    Ligands may be present as a "chain" in the CIF, but we want to ignore these when determining chain breaks and contigs.
+    """
+    return any(residue.get_ca() is not None for residue in chain)
+
+
 def standardize(
     cif_gz_path: str,
     json_path: str,
@@ -127,7 +136,7 @@ def standardize(
     structure = read_cif_gz(cif_gz_path)
     structure.setup_entities()
     model = structure[0]
-    all_chain_names = [chain.name for chain in model]
+    all_chain_names = [chain.name for chain in model if contains_amino_acids(chain)]
     chains_str = " ".join(all_chain_names)
 
     # Load input spec JSON to get the v3 contig

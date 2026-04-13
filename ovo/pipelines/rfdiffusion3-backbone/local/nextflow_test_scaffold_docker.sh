@@ -28,6 +28,7 @@ nextflow run ../../main.nf \
   --input_pdb "$INPUT_DIR/5ELI.pdb" \
   --publish_dir $OUTPUT_DIR \
   --reference_files_dir "$MODELS_DIR" \
+  --run_parameters " +inference_sampler.num_steps=10 " \
   "$@"
 
 ls -l rfdiffusion3/*/

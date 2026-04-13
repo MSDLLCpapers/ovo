@@ -1,7 +1,7 @@
 nextflow.enable.dsl = 2
 
 process RFdiffusion3 {
-    def containerName = "rfdiffusion3"
+    def containerName = "rc-foundry"
     conda { params.getSharedEnv("ovo.${containerName}", workflow.profile) }
     container "${ workflow.containerEngine in ['singularity', 'apptainer']
         ? params.ovo_container_dir + '/ovo-' + containerName
@@ -60,7 +60,8 @@ process RFdiffusion3 {
         out_dir=output \
         inputs=input_spec.json \
         ckpt_path="\$CKPT_PATH" \
-        diffusion_batch_size=${num_designs} \
+        n_batches=${num_designs} \
+        diffusion_batch_size=1 \
         dump_trajectories=${dump_trajectories} \
         global_prefix=${batch_name} \
         skip_existing=False \

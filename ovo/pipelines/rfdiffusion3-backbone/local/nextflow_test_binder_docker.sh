@@ -11,13 +11,13 @@ DEFAULT_CONFIG=$(pwd)/../../nextflow_default.config
 LOCAL_OVERRIDE=$(pwd)/test_override.config
 OVO_MODULE_PATH=$(realpath "$PWD/../../../")
 INPUT_DIR=$(pwd)/test-input
-OUTPUT_DIR=$(pwd)/test-results
+OUTPUT_DIR=$(pwd)/test-results-binder
 
 # change to work dir
 mkdir -p "$OUTPUT_DIR"
 cd "$OUTPUT_DIR"
 # clear previous result
-rm -rf rfdiffusion3
+#rm -rf $OUTPUT_DIR
 
 nextflow run ../../main.nf \
   -profile ${PROFILE:-docker,cpu_env} \
@@ -25,12 +25,16 @@ nextflow run ../../main.nf \
   -config "$DEFAULT_CONFIG" \
   --shared_modules "ovo:$OVO_MODULE_PATH" \
   --num_designs 1 \
-  --contig "A70-82/0 10" \
-  --hotspot "A78,A79" \
+  --contig "A25-35/0 10-15" \
   --input_pdb "$INPUT_DIR/5ELI.pdb" \
   --publish_dir $OUTPUT_DIR \
   --reference_files_dir "$MODELS_DIR" \
-  --run_parameters " inference_sampler.num_steps=10 inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2 " \
+  --hotspot "A31,A33" \
+  --run_parameters " +inference_sampler.num_steps=10 " \
   "$@"
 
 ls -l rfdiffusion3/*/
+
+#  --run_parameters " inference_sampler.num_steps=10 inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2 " \
+  #--spec_overrides '{\"unindex\": \"A55,A59\", \"length\": \"80-180\", \"infer_ori_strategy\": \"com\"}' \
+  #--contig "A30-50/0 10" \
