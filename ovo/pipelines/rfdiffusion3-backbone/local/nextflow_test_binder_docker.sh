@@ -36,5 +36,5 @@ nextflow run ../../main.nf \
 ls -l rfdiffusion3/*/
 
 #  --run_parameters " inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2 " \
-  #--spec_overrides '{\"unindex\": \"A55,A59\", \"length\": \"80-180\", \"infer_ori_strategy\": \"com\"}' \
+  #--spec_overrides '{\"select_hotspots\": {\"A31\": \"BKBN\", \"A33\": \"ALL\"}, \"unindex\": \"A55,A59\", \"length\": \"80-180\", \"infer_ori_strategy\": \"com\"}' \
   #--contig "A30-50/0 10" \

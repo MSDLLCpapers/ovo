@@ -7,16 +7,12 @@
   "properties": {
     "input_pdb": {
       "type": "string",
-      "description": "Input PDB or CIF file for RFdiffusion3. Required unless --input_json is provided."
+      "description": "Input PDB or CIF file for RFdiffusion3."
     },
     "contig": {
       "type": "string",
-      "description": "Contig map string in v1 slash-separated format, e.g. 'A52-156/0 50-60' for binder design or 'A20-30/10-20/A40-50' for scaffold design. Auto-converted to RFdiffusion3 comma syntax internally. Required unless --input_json is provided.",
+      "description": "Contig map string in v1 slash-separated format, e.g. 'A52-156/0 50-60' for binder design or 'A20-30/10-20/A40-50' for scaffold design. Auto-converted to RFdiffusion3 comma syntax internally.",
       "pattern": "^[A-Z0-9\\-\\/ ]+$"
-    },
-    "input_json": {
-      "type": "string",
-      "description": "Optional: path to a pre-built RFdiffusion3 JSON spec file. When provided, --input_pdb, --contig, and --hotspot are ignored. Enables advanced RFD3 features (enzyme design, unindexed scaffolding, partial diffusion, RASA conditioning)."
     },
     "num_designs": {
       "type": "integer",

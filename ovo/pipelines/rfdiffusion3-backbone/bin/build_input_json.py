@@ -8,38 +8,6 @@ RFdiffusion3 (v3) comma-separated contig syntax for the JSON spec file.
 import argparse
 import json
 import os
-import re
-import sys
-
-
-# Valid keys for RFD3 DesignInputSpecification (from rfd3.inference.input_parsing).
-# Mirrored in ovo/core/database/models_rfdiffusion.py for early UI validation.
-RFD3_SPEC_FIELDS = {
-    "input",
-    "atom_array_input",
-    "contig",
-    "unindex",
-    "length",
-    "ligand",
-    "cif_parser_args",
-    "extra",
-    "dialect",
-    "select_fixed_atoms",
-    "select_unfixed_sequence",
-    "select_buried",
-    "select_partially_buried",
-    "select_exposed",
-    "select_hbond_acceptor",
-    "select_hbond_donor",
-    "select_hotspots",
-    "redesign_motif_sidechains",
-    "symmetry",
-    "ori_token",
-    "infer_ori_strategy",
-    "plddt_enhanced",
-    "is_non_loopy",
-    "partial_t",
-}
 
 
 def convert_contig_v1_to_v3(contig_v1: str) -> str:
@@ -74,15 +42,9 @@ def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dic
 
 def main():
     parser = argparse.ArgumentParser(description="Build RFdiffusion3 input JSON from params")
-    parser.add_argument("--input_pdb", type=str, help="Input PDB/CIF file path")
-    parser.add_argument("--contig", type=str, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')")
+    parser.add_argument("--input_pdb", type=str, required=True, help="Input PDB/CIF file path")
+    parser.add_argument("--contig", type=str, required=True, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')")
     parser.add_argument("--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79")
-    parser.add_argument(
-        "--input_json",
-        type=str,
-        default=None,
-        help="Pre-built RFD3 JSON (pass-through mode)",
-    )
     parser.add_argument("--output_json", type=str, required=True, help="Output JSON path")
     parser.add_argument(
         "--spec_overrides_file",
@@ -91,23 +53,6 @@ def main():
         help="Path to JSON file of spec field overrides to merge into the spec",
     )
     args = parser.parse_args()
-
-    input_json_name = os.path.basename(args.input_json) if args.input_json else None
-    if args.input_json and input_json_name != "NO_FILE":
-        # Pass-through: validate it's valid JSON and copy to output path
-        with open(args.input_json) as f:
-            spec = json.load(f)
-        with open(args.output_json, "w") as f:
-            json.dump(spec, f, indent=2)
-        print(f"Using provided input JSON: {args.input_json}")
-        return
-
-    if not args.input_pdb or not args.contig:
-        print(
-            "ERROR: --input_pdb and --contig are required when --input_json is not provided",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
     contig_v3 = convert_contig_v1_to_v3(args.contig)
     print(f"Converted contig: '{args.contig}' -> '{contig_v3}'")

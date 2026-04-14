@@ -98,20 +98,14 @@ process RFdiffusion3 {
 
 workflow {
 
-    if (!params.input_json) {
-        ["input_pdb", "contig"].each { param ->
-            params[param] = null
-            if (!params[param]) {
-                throw new IllegalArgumentException("Argument --${param} is required (or provide --input_json)!")
-            }
+    ["input_pdb", "contig"].each { param ->
+        if (!params[param]) {
+            throw new IllegalArgumentException("Argument --${param} is required!")
         }
     }
 
-    def input_pdb = params.input_json ? file("NO_FILE") : file(params.input_pdb)
-    def contig = params.contig ?: ""
-
     RFdiffusion3(
-        ["rfdiffusion3", input_pdb, contig, params.num_designs],
+        ["rfdiffusion3", params.input_pdb, params.contig, params.num_designs],
         params.rfdiffusion3_models_path,
         params.hotspot,
         params.dump_trajectories,
