@@ -83,9 +83,7 @@ def test_scaffold_boltz_end_to_end_logic(project_data):
     assert len(boltz2_pde.dropna()) == 2
     assert (boltz2_pde < 30).all()
 
-    boltz2_design_rmsd = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ_PRIMARY_DESIGN_RMSD.key, design_ids
-    )
+    boltz2_design_rmsd = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_DESIGN_RMSD.key, design_ids)
     assert len(boltz2_design_rmsd.dropna()) == 2
     assert (boltz2_design_rmsd < 30).all()
 
@@ -100,7 +98,5 @@ def test_scaffold_boltz_end_to_end_logic(project_data):
     assert (boltz2_plddt > 0.05).all()
     assert (boltz2_plddt <= 1).all()
 
-    boltz2_pdb_paths = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids
-    )
+    boltz2_pdb_paths = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids)
     assert len(boltz2_pdb_paths.dropna()) == 2

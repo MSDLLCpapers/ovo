@@ -82,16 +82,12 @@ def test_binder_default_end_to_end_logic(project_data):
     assert len(boltz2_binder_rmsd.dropna()) == 2
     assert (boltz2_binder_rmsd < 30).all()
 
-    boltz2_binder_plddt = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key, design_ids
-    )
+    boltz2_binder_plddt = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key, design_ids)
     assert len(boltz2_binder_plddt.dropna()) == 2
     assert (boltz2_binder_plddt > 0.05).all()
     assert (boltz2_binder_plddt <= 1).all()
 
-    boltz2_pdb_paths = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids
-    )
+    boltz2_pdb_paths = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids)
     assert len(boltz2_pdb_paths.dropna()) == 2
 
     rosetta_ddg = db.select_descriptor_values(descriptors_rfdiffusion.PYROSETTA_DDG.key, design_ids)
