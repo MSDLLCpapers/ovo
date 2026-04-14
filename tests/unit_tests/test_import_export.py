@@ -4,7 +4,8 @@ import zipfile
 import pytest
 from dataclasses import dataclass
 
-from ovo import db, storage
+from ovo import db, storage, DescriptorValue, DescriptorJob, UnknownWorkflow
+from ovo.core.database import descriptors_rfdiffusion
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionScaffoldDesignWorkflow,
     RFdiffusionParams,
@@ -23,7 +24,7 @@ from ovo import (
 from ovo.core.logic.import_export_logic import export_project, import_project
 
 
-def test_export_import_cycle(example_pdb_path):
+def test_export_import_cycle(example_pdb_path, recwarn):
     """Test that export and import work together correctly"""
 
     # Create a test project with some data
@@ -40,13 +41,16 @@ def test_export_import_cycle(example_pdb_path):
     db.save(test_round)
 
     input_pdb_path = storage.store_file_path(example_pdb_path, "project/inputs/test.pdb")
+    missing_pdb_path = (
+        "../foo/bar.pdb"  # This file won't be copied, but we want to make sure it doesn't cause export to fail
+    )
     test_design_job = DesignJob(
         id="test_export_import_design_job",
         author="test_user",
         scheduler_key="test",
         job_id="test_id",
         workflow=RFdiffusionScaffoldDesignWorkflow(
-            rfdiffusion_params=RFdiffusionParams(input_pdb_paths=[input_pdb_path])
+            rfdiffusion_params=RFdiffusionParams(input_pdb_paths=[input_pdb_path, missing_pdb_path])
         ),
     )
     db.save(test_design_job)
@@ -74,6 +78,28 @@ def test_export_import_cycle(example_pdb_path):
         db.save(test_design)
         assert len(test_design.spec.chains) == 1
         assert os.path.exists(os.path.join(storage.storage_root, test_design.structure_path))
+
+    # Test descriptor value
+    test_descriptor_job = DescriptorJob(
+        id=DescriptorJob.generate_id(),
+        project_id=test_project.id,
+        workflow=UnknownWorkflow(data={"name": "Test"}, error="Test error"),
+        author="test",
+        scheduler_key="test",
+        job_id="test",
+    )
+    db.save(test_descriptor_job)
+
+    test_zip_path = storage.store_file_str("Mock ZIP content", f"project/{test_project.id}/descriptors/test.zip")
+    storage_zip_path = f"zip://{test_zip_path}:foo/bar.pdb"
+    test_descriptor_value = DescriptorValue(
+        design_id=test_design.id,
+        descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key,
+        descriptor_job_id=test_descriptor_job.id,
+        chains="A",
+        value=storage_zip_path,
+    )
+    db.save(test_descriptor_value)
 
     # Test artifact for import/export testing
     @ArtifactTypes.register()
@@ -106,6 +132,12 @@ def test_export_import_cycle(example_pdb_path):
         # Export the project
         export_zip_path = export_project(test_project.id)
 
+        assert len(recwarn) > 0, "Expected at least one warning"
+        warning_messages = [str(w.message) for w in recwarn]
+        assert any(missing_pdb_path in msg for msg in warning_messages), (
+            f"Expected warning about missing file '{missing_pdb_path}', got: {warning_messages}"
+        )
+
         # Verify the ZIP file was created
         assert os.path.exists(export_zip_path)
         assert zipfile.is_zipfile(export_zip_path)
@@ -117,10 +149,18 @@ def test_export_import_cycle(example_pdb_path):
         db.remove(Design, test_design.id)
         db.remove(DesignJob, test_design_job.id)
         db.remove(ProjectArtifact, test_artifact.id)
+        db.remove(DescriptorJob, test_descriptor_job.id)
+        db.remove(
+            DescriptorValue,
+            design_id=test_design.id,
+            descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key,
+        )
         # Remove files
         os.unlink(os.path.join(storage.storage_root, test_design.structure_path))
         os.unlink(os.path.join(storage.storage_root, input_pdb_path))
         os.unlink(os.path.join(storage.storage_root, artifact_file_path))
+        os.unlink(os.path.join(storage.storage_root, test_zip_path))
+
         assert not db.count(Project, id=test_project.id), "Project should be deleted"
         assert not db.count(Design, id=test_design.id), "Design should be deleted"
         assert not db.count(ProjectArtifact, id=test_artifact.id), "Artifact should be deleted"
@@ -170,6 +210,20 @@ def test_export_import_cycle(example_pdb_path):
             "Path referenced inside Workflow dataclass should also be copied"
         )
 
+        imported_descriptor_job = db.get(DescriptorJob, test_descriptor_job.id)
+        assert imported_descriptor_job.project_id == test_project.id
+        assert isinstance(imported_descriptor_job.workflow, UnknownWorkflow)
+        assert imported_descriptor_job.workflow.data["name"] == "Test"
+
+        imported_descriptor_value = db.get(
+            DescriptorValue,
+            design_id=test_design.id,
+            descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key,
+        )
+        assert imported_descriptor_value.value == storage_zip_path
+        with open(os.path.join(storage.storage_root, test_zip_path)) as f:
+            assert f.read() == "Mock ZIP content"
+
         imported_artifact = db.get(ProjectArtifact, test_artifact.id)
         assert imported_artifact.project_id == test_project.id
         assert isinstance(imported_artifact.artifact, TestArtifact)
@@ -212,8 +266,8 @@ def test_export_import_with_missing_storage_files():
     )
     db.save(design)
 
-    # Export should raise an error for missing files
-    with pytest.raises(FileNotFoundError, match="No such file or directory:.*non_existent_file.pdb"):
+    # Export should print a warning for missing files
+    with pytest.warns(UserWarning, match="Skipping file found outside of storage root: non_existent_file.pdb"):
         export_project(project.id)
 
 

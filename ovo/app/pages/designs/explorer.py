@@ -13,9 +13,10 @@ from ovo.app.components.descriptor_scatterplot import (
 from ovo.app.components.navigation import design_navigation_selector
 from ovo.app.utils.cached_db import get_cached_design, get_cached_pool, get_cached_design_job
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
-from ovo.core.database.models import Design, Pool, DesignWorkflow, WorkflowTypes, UnknownWorkflow
+from ovo.core.database.models import Design, DesignWorkflow, UnknownWorkflow
 from ovo.app.utils.cached_db import get_cached_pools, get_cached_design_jobs
 from ovo.core.logic.descriptor_logic import get_wide_descriptor_table
+import traceback
 
 
 def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
@@ -109,7 +110,11 @@ def design_visualization_fragment(selected_design_ids: list[str]):
             f"failed to load workflow information: {design_job.workflow.error}"
         )
 
-    WorkflowType.visualize_single_design_structures(design_id)
+    try:
+        WorkflowType.visualize_single_design_structures(design_id)
+    except Exception as e:
+        traceback.print_exc()
+        st.error(e)
 
     st.markdown("### Sequence")
 

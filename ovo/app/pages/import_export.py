@@ -61,7 +61,7 @@ def export_tab():
         index=project_ids.index(session_state.project.id)
         if session_state.project and session_state.project.id in project_ids
         else None,
-        key="export_project_selector",
+        key=f"export_project_selector_{session_state.project.id}",
         format_func=lambda project_id: f"{projects_by_id[project_id].name} - {projects_by_id[project_id].author}",
     )
 
@@ -86,8 +86,14 @@ def export_tab():
         "all": "All designs",
     }
     selection = st.radio(
-        "Export", options=selection_options.keys(), format_func=selection_options.get, key="export_selection"
+        "Select designs to export:",
+        options=selection_options.keys(),
+        format_func=selection_options.get,
+        key=f"export_selection_{session_state.project.id}",
+        index=None,
     )
+    if not selection:
+        return
     accepted_only = selection == "accepted"
 
     # Get export summary

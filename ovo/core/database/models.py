@@ -476,8 +476,8 @@ class UnknownWorkflow(DesignWorkflow, DescriptorWorkflow):
     This can happen when a plugin is uninstalled.
     """
 
-    # Avoid saving this class to DB, handled by DataclassEncoder
-    __do_not_serialize__ = True
+    # Use "data" field when saving this class to DB, handled by DataclassEncoder
+    __serialize_field__ = "data"
     # Raw data dict as stored in the workflow column
     data: dict = None
     # Explanation for why this workflow couldn't be loaded
@@ -679,7 +679,7 @@ class DescriptorValue(Base):
     __tablename__ = "descriptor_value"
 
     design_id: Mapped[str] = mapped_column(String, primary_key=True)
-    descriptor_key: Mapped[str] = mapped_column(String, primary_key=True)
+    descriptor_key: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     descriptor_job_id: Mapped[str] = mapped_column(String, primary_key=True)
     # Comma-separated list of chain IDs for which this descriptor value applies
     # Can be same or a subset of descriptor_job.workflow.chains
@@ -751,7 +751,7 @@ class UnknownArtifact(Artifact):
     """
 
     # Avoid saving this class to DB, handled by DataclassEncoder
-    __do_not_serialize__ = True
+    __serialize_field__ = "data"
     # Raw data dict as stored in the artifact column
     data: dict = None
     # Explanation for why this artifact couldn't be loaded

@@ -24,11 +24,12 @@ def read_css():
 if __name__ == "__main__":
     import streamlit as st
     from ovo import config
-    from ovo.app.pages import main_pages, hidden_pages, workflow_page_tuples
+    from ovo.app.pages import get_pages, workflow_page_tuples
 
     st.markdown(f"<style>{read_css()}</style>", unsafe_allow_html=True)
 
     # Create navigation manually for selected pages
+    main_pages, hidden_pages = get_pages()
     for group, group_pages in main_pages.items():
         for page in group_pages:
             st.sidebar.page_link(page)

@@ -40,7 +40,7 @@ def initialize_page(page_title=None):
         page_icon=os.path.join(ASSETS_PATH, "ovo-favicons32x32.png"),
     )
 
-    from ovo.app.components.sidebar import project_sidebar_component
+    from ovo.app.components.project_components import project_sidebar_component
 
     if st.session_state.get("flash_success"):
         st.success(st.session_state.pop("flash_success"))

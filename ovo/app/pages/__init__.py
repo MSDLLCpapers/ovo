@@ -15,25 +15,31 @@ workflows_page = st.Page("app/pages/workflows.py", title="▶️ Workflows")
 import_export_page = st.Page("app/pages/import_export.py", title="📦 Import & Export")
 admin_debug_page = st.Page("app/pages/debug.py", title="🖥️ Debug")
 
-# Page paths relative to entry point (run_app.py)
-main_pages = {
-    "Browse": [
-        welcome_page,
-        project_page,
-        jobs_page,
-        designs_page,
-    ],
-    "Submit": [
-        workflows_page,
-    ],
-}
-# These pages are not shown in the sidebar but can be accessed via switch_page or direct URL
-hidden_pages = {"Hidden": [import_export_page]}
 
-if get_username() in config.auth.admin_users:
-    main_pages["Admin section"] = [
-        admin_debug_page,
-    ]
+def get_pages():
+    # NOTE this needs to be inside a function so that it's called for each user separately!
+    # Page paths relative to entry point (run_app.py)
+    main_pages = {
+        "Browse": [
+            welcome_page,
+            project_page,
+            jobs_page,
+            designs_page,
+        ],
+        "Submit": [
+            workflows_page,
+        ],
+    }
+
+    if get_username() in config.auth.admin_users:
+        main_pages["Admin section"] = [
+            admin_debug_page,
+        ]
+
+    # These pages are not shown in the sidebar but can be accessed via switch_page or direct URL
+    hidden_pages = {"Hidden": [import_export_page]}
+
+    return main_pages, hidden_pages
 
 
 builtin_workflow_pages: list[WorkflowPage] = [

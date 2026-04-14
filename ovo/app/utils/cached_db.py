@@ -189,7 +189,7 @@ def _get_cached_design_jobs_table(
 
 
 @clear_when_modified(Pool, Design)
-@st.cache_data(max_entries=100, ttl="1m")  # update every minute since the table contains datetimes
+@st.cache_data(show_spinner=False, max_entries=100, ttl="1m")  # update every minute since the table contains datetimes
 def get_cached_pools_table(project_id: str = None, round_ids: list[str] = None) -> pd.DataFrame:
     return get_pools_table(project_id=project_id, round_ids=round_ids)
 

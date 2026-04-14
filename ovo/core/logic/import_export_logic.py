@@ -72,7 +72,7 @@ def export_import_project(
     check_conflicts=True,
     count_only=False,
     accepted_only=False,
-) -> dict:
+) -> dict[str, int]:
     """
     Unified function to copy a project from source database/storage to destination database/storage.
 
@@ -189,7 +189,13 @@ def export_import_project(
 
     # Copy storage files
     print(f"Copying {len(storage_paths):,} storage files...")
-    source_storage.sync_files(storage_paths=storage_paths, local_destination_dir=dest_dir, preserve_subdirs=True)
+    source_storage.sync_files(
+        storage_paths=storage_paths,
+        local_destination_dir=dest_dir,
+        preserve_subdirs=True,
+        skip_outside_root=True,
+        copy_full_archives=not accepted_only,
+    )
     print("Storage copied successfully!")
 
     # Copy all objects to destination database
