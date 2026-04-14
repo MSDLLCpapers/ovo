@@ -156,6 +156,7 @@ def submit_design_workflow(
     pool_description: str,
     return_existing: bool = True,
     pipeline_name: str = None,
+    resume_failed: bool = False,
 ) -> tuple[DesignJob, Pool]:
     """Submit a design workflow to the scheduler and create a Pool and DesignJob in the DB.
 
@@ -166,6 +167,7 @@ def submit_design_workflow(
     :param pool_description: Description of the Pool to create
     :param return_existing: If a Pool with the same name and parameters already exists in this round, return it instead of raising an error
     :param pipeline_name: Override the pipeline name to submit, e.g. ovo.rfdiffusion-end-to-end or a github url with @version
+    :param resume_failed: If a Pool with the same name already exists in this round but its job has failed, submit the job again.
     :return: Tuple of (DesignJob, Pool)
     """
     scheduler = get_scheduler(scheduler_key)
@@ -196,7 +198,19 @@ def submit_design_workflow(
             raise ValueError(
                 f"Please choose a different pool name. Pool with name '{pool_name}' was already submitted in this round with different parameters."
             )
-        print("Pool with same name and params already exists in this round, returning existing pool")
+        if design_job.job_result is False:
+            print(f"Pool with name '{pool_name}' already exists in this round but its job has FAILED")
+            if resume_failed:
+                # Resume and update job ID (might be the same or a new one depending on the scheduler)
+                print("Resuming job...")
+                design_job.job_result = None
+                design_job.job_finished_date_utc = None
+                design_job.job_id = scheduler.resume(design_job.job_id)
+                db.save(design_job)
+            else:
+                print("Use resume_failed=True to resubmit the job, or choose a different pool name to submit a new job")
+        else:
+            print("Pool with same name and params already exists in this round, returning existing pool")
         return design_job, pool
 
     if config.props.read_only:
@@ -215,25 +229,35 @@ def submit_design_workflow(
         params=workflow.prepare_params(workdir=scheduler.workdir),
     )
 
-    design_job = DesignJob(
-        workflow=workflow,
-        job_id=job_id,
-        scheduler_key=scheduler_key,
-        author=username,
-    )
+    try:
+        design_job = DesignJob(
+            workflow=workflow,
+            job_id=job_id,
+            scheduler_key=scheduler_key,
+            author=username,
+        )
 
-    pool = Pool(
-        id=Pool.generate_id(),
-        author=username,
-        round_id=round_id,
-        name=pool_name,
-        description=pool_description,
-        design_job_id=design_job.id,
-        processed=False,
-    )
+        pool = Pool(
+            id=Pool.generate_id(),
+            author=username,
+            round_id=round_id,
+            name=pool_name,
+            description=pool_description,
+            design_job_id=design_job.id,
+            processed=False,
+        )
 
-    # TODO cancel job if this fails
-    db.save_all([design_job, pool])
+        db.save_all([design_job, pool])
+
+    except Exception:
+        traceback.print_exc()
+        # If there was an error saving to the DB, try to cancel the job in the scheduler to avoid orphaned jobs
+        try:
+            scheduler.cancel(job_id)
+        except Exception as cancel_exception:
+            traceback.print_exc()
+            print(f"Error cancelling job {job_id} after DB save failure: {cancel_exception}")
+        raise
 
     return design_job, pool
 

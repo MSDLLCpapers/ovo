@@ -187,14 +187,15 @@ class RefoldingWorkflow(DescriptorWorkflow):
 
     @classmethod
     def get_descriptor_key_prefix(cls, test: str, primary: bool = False) -> str:
-        if not primary:
-            return f"refolding|{test}"
-
-        if test.startswith("af2_"):
-            # Historical reasons - store AF2 metrics under "af2_primary" prefix to simplify downstream analysis
-            return "refolding|af2_primary"
-        else:
-            return f"refolding|{test}"
+        if primary:
+            # In the design workflow, store refolding metrics in a "primary" version of the descriptor key
+            # for example "af2_primary" or "boltz_primary" to simplify setting thresholds and downstream analysis
+            if test.startswith("af2_"):
+                return "refolding|af2_primary"
+            if test.startswith("boltz"):
+                return "refolding|boltz_primary"
+            # other test types will fall back to logic below
+        return f"refolding|{test}"
 
     def validate(self):
         super().validate()

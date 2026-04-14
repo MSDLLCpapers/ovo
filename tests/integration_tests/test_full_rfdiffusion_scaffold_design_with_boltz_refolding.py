@@ -62,9 +62,9 @@ def test_scaffold_boltz_end_to_end_logic(project_data):
 
     design_job = db.DesignJob.get(id=design_job.id)
     assert design_job.workflow.acceptance_thresholds[
-        descriptors_refolding.BOLTZ2_SCAFFOLD_NT_NATIVE_MOTIF_RMSD.key
+        descriptors_refolding.BOLTZ_PRIMARY_NATIVE_MOTIF_RMSD.key
     ].enabled, "Boltz motif RMSD threshold should be enabled for scaffold design workflow"
-    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ2_SCAFFOLD_NT_PLDDT.key].enabled, (
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ_PRIMARY_PLDDT.key].enabled, (
         "Boltz pLDDT threshold should be enabled for scaffold design workflow"
     )
     assert not design_job.workflow.acceptance_thresholds[descriptors_refolding.AF2_PRIMARY_PLDDT.key].enabled, (
@@ -79,28 +79,28 @@ def test_scaffold_boltz_end_to_end_logic(project_data):
     assert len(rag.dropna()) == 2
     assert (rag > 0).all()
 
-    boltz2_pde = db.select_descriptor_values(descriptors_refolding.BOLTZ2_SCAFFOLD_NT_PDE.key, design_ids)
+    boltz2_pde = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_PDE.key, design_ids)
     assert len(boltz2_pde.dropna()) == 2
     assert (boltz2_pde < 30).all()
 
     boltz2_design_rmsd = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ2_SCAFFOLD_NT_DESIGN_RMSD.key, design_ids
+        descriptors_refolding.BOLTZ_PRIMARY_DESIGN_RMSD.key, design_ids
     )
     assert len(boltz2_design_rmsd.dropna()) == 2
     assert (boltz2_design_rmsd < 30).all()
 
     boltz2_motif_rmsd = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ2_SCAFFOLD_NT_NATIVE_MOTIF_RMSD.key, design_ids
+        descriptors_refolding.BOLTZ_PRIMARY_NATIVE_MOTIF_RMSD.key, design_ids
     )
     assert len(boltz2_motif_rmsd.dropna()) == 2
     assert (boltz2_motif_rmsd < 30).all()
 
-    boltz2_plddt = db.select_descriptor_values(descriptors_refolding.BOLTZ2_SCAFFOLD_NT_PLDDT.key, design_ids)
+    boltz2_plddt = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_PLDDT.key, design_ids)
     assert len(boltz2_plddt.dropna()) == 2
     assert (boltz2_plddt > 0.05).all()
     assert (boltz2_plddt <= 1).all()
 
     boltz2_pdb_paths = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ2_SCAFFOLD_NT_PREDICTED_STRUCTURE_PATH.key, design_ids
+        descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids
     )
     assert len(boltz2_pdb_paths.dropna()) == 2

@@ -56,8 +56,8 @@ def test_binder_default_end_to_end_logic(project_data):
 
     # reload design_job to make sure it's up to date with the DB
     design_job = db.DesignJob.get(id=design_job.id)
-    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ2_BINDER_TT_IPDE.key].enabled
-    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ2_BINDER_TT_BINDER_PLDDT.key].enabled
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ_PRIMARY_IPDE.key].enabled
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key].enabled
     assert not design_job.warnings
 
     num_designs = db.Design.count(pool_id=pool.id)
@@ -72,25 +72,25 @@ def test_binder_default_end_to_end_logic(project_data):
     assert len(rag.dropna()) == 2
     assert (rag > 0).all()
 
-    boltz2_ipde = db.select_descriptor_values(descriptors_refolding.BOLTZ2_BINDER_TT_IPDE.key, design_ids)
+    boltz2_ipde = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_IPDE.key, design_ids)
     assert len(boltz2_ipde.dropna()) == 2
     assert (boltz2_ipde < 30).all()
 
     boltz2_binder_rmsd = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ2_BINDER_TT_TARGET_ALIGNED_BINDER_RMSD.key, design_ids
+        descriptors_refolding.BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD.key, design_ids
     )
     assert len(boltz2_binder_rmsd.dropna()) == 2
     assert (boltz2_binder_rmsd < 30).all()
 
     boltz2_binder_plddt = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ2_BINDER_TT_BINDER_PLDDT.key, design_ids
+        descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key, design_ids
     )
     assert len(boltz2_binder_plddt.dropna()) == 2
     assert (boltz2_binder_plddt > 0.05).all()
     assert (boltz2_binder_plddt <= 1).all()
 
     boltz2_pdb_paths = db.select_descriptor_values(
-        descriptors_refolding.BOLTZ2_BINDER_TT_PREDICTED_STRUCTURE_PATH.key, design_ids
+        descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids
     )
     assert len(boltz2_pdb_paths.dropna()) == 2
 

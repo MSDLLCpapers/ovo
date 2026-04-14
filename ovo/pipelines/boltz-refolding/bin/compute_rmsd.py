@@ -436,7 +436,7 @@ def compute_rmsd_binder(
         mpnn_coords = get_ca_coords(mpnn_binder_str, binder_chain)
         aligned_coords = get_ca_coords(aligned_binder_str, binder_chain)
         diff = mpnn_coords - aligned_coords
-        binder_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1))).item()
+        target_aligned_binder_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1))).item()
 
         # Extract binder pLDDT from the Boltz prediction CIF file
         binder_plddt = get_chain_plddt(boltz_cif_path, binder_chain)
@@ -451,7 +451,7 @@ def compute_rmsd_binder(
             {
                 "id": name,
                 "complex_rmsd": full_rmsd,
-                "binder_rmsd": binder_rmsd,
+                "target_aligned_binder_rmsd": target_aligned_binder_rmsd,
                 "binder_plddt": binder_plddt / 100,  # convert to 0-1 range for consistency with Boltz JSON
                 **metrics,
             }

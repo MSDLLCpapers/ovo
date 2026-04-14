@@ -1,4 +1,9 @@
-from ovo.core.database.models import NumericGlobalDescriptor, StructureFileDescriptor, ResidueNumberDescriptor
+from ovo.core.database.models import (
+    NumericGlobalDescriptor,
+    StructureFileDescriptor,
+    ResidueNumberDescriptor,
+    Descriptor,
+)
 
 # Hardcoded test options for refolding
 REFOLDING_TESTS_SCAFFOLD = {
@@ -595,7 +600,7 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 description=f"Target-aligned RMSD between the backbone of the binder structure and its Boltz prediction using {description}",
                 unit="Å",
                 tool=f"Boltz ({label})",
-                key=f"refolding|{test}|binder_rmsd",
+                key=f"refolding|{test}|target_aligned_binder_rmsd",
                 min_value=0,
                 comparison="lower_is_better",
                 color_scale="rmsd",
@@ -700,37 +705,149 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
             ),
         ]
 
+BOLTZ_PRIMARY_STRUCTURE_PATH = StructureFileDescriptor(
+    name=f"Boltz-2 prediction",
+    description=f"Structure predicted by Boltz",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|boltz_predicted_structure_path",
+    structure_type="prediction",
+    b_factor_value="plddt",
+)
+BOLTZ_PRIMARY_DESIGN_RMSD = NumericGlobalDescriptor(
+    name="Boltz Design RMSD",
+    description=f"Aligned RMSD between the backbone of the designed structure and its Boltz prediction",
+    unit="Å",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|design_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+BOLTZ_PRIMARY_NATIVE_MOTIF_RMSD = NumericGlobalDescriptor(
+    name="Boltz Native Motif RMSD",
+    description=f"Aligned RMSD of all atoms of the fixed input motif residues in the original input structure and the Boltz prediction",
+    unit="Å",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|native_motif_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+BOLTZ_PRIMARY_CONFIDENCE_SCORE = NumericGlobalDescriptor(
+    name="Boltz Confidence Score",
+    description=f"Boltz confidence score for the predicted structure. Corresponds to 0.8 * complex_plddt + 0.2 * iptm (ptm for single chains). 0 = worst, 1 = best.",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|confidence_score",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_PTM_SCORE = NumericGlobalDescriptor(
+    name="Boltz pTM score",
+    description=f"Predicted TM score of the full structure by Boltz (0 = worst, 1 = best)",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|ptm",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_IPTM_SCORE = NumericGlobalDescriptor(
+    name="Boltz ipTM score",
+    description=f"Boltz interface predicted TM score (0 = worst, 1 = best) based on all pairs of residues between the interacting chains",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|iptm",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_LIGAND_IPTM_SCORE = NumericGlobalDescriptor(
+    name="Boltz Ligand ipTM score",
+    description=f"Boltz interface predicted TM score for ligand interactions (0 = worst, 1 = best)",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|ligand_iptm",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_PROTEIN_IPTM_SCORE = NumericGlobalDescriptor(
+    name="Boltz Protein ipTM score",
+    description=f"Boltz interface predicted TM score for protein-protein interactions (0 = worst, 1 = best)",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|protein_iptm",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_PLDDT = NumericGlobalDescriptor(
+    name="Boltz pLDDT",
+    description=f"Average pLDDT confidence score of the whole structure (0 = worst, 1 = best)",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|complex_plddt",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_IPLDDT = NumericGlobalDescriptor(
+    name="Boltz ipLDDT",
+    description=f"Average pLDDT score when upweighting interface tokens (0 = worst, 1 = best)",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|complex_iplddt",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_PDE = NumericGlobalDescriptor(
+    name="Boltz pDE",
+    description=f"Predicted distance error of the whole structure",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|complex_pde",
+    min_value=0,
+    comparison="lower_is_better",
+)
+BOLTZ_PRIMARY_IPDE = NumericGlobalDescriptor(
+    name="Boltz ipDE",
+    description=f"Predicted distance error of the complex interface",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|complex_ipde",
+    min_value=0,
+    comparison="lower_is_better",
+)
+BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD = NumericGlobalDescriptor(
+    name="Boltz Target-aligned Binder RMSD",
+    description=f"Target-aligned RMSD between the backbone of the binder structure and its Boltz prediction",
+    unit="Å",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|target_aligned_binder_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+BOLTZ_PRIMARY_COMPLEX_RMSD = NumericGlobalDescriptor(
+    name="Boltz Complex RMSD",
+    description=f"Aligned RMSD between the backbone of the complex structure and its Boltz prediction",
+    unit="Å",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|complex_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+BOLTZ_PRIMARY_BINDER_PLDDT = NumericGlobalDescriptor(
+    name="Boltz Binder pLDDT",
+    description=f"Average pLDDT confidence score of the binder chain (0 = worst, 1 = best)",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|binder_plddt",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+
+REFOLDING_DESCRIPTORS.extend(
+    [v for k, v in globals().items() if isinstance(v, Descriptor) and k.startswith("BOLTZ_PRIMARY")]
+)
+
 DESCRIPTORS = REFOLDING_DESCRIPTORS
 DESCRIPTORS_BY_KEY = {d.key: d for d in DESCRIPTORS}
-
-# Boltz-2 scaffold with no template input
-BOLTZ2_SCAFFOLD_NT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
-    "refolding|boltz2_scaffold_nt|boltz_predicted_structure_path"
-]
-BOLTZ2_SCAFFOLD_NT_DESIGN_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|design_rmsd"]
-BOLTZ2_SCAFFOLD_NT_NATIVE_MOTIF_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|native_motif_rmsd"]
-BOLTZ2_SCAFFOLD_NT_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|complex_plddt"]
-BOLTZ2_SCAFFOLD_NT_PDE = DESCRIPTORS_BY_KEY["refolding|boltz2_scaffold_nt|complex_pde"]
-# TODO add remaining metrics
-
-# Boltz-2 binder with target template input
-BOLTZ2_BINDER_TT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
-    "refolding|boltz2_binder_tt|boltz_predicted_structure_path"
-]
-BOLTZ2_BINDER_TT_TARGET_ALIGNED_BINDER_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|binder_rmsd"]
-BOLTZ2_BINDER_TT_IPDE = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|complex_ipde"]
-BOLTZ2_BINDER_TT_BINDER_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_tt|binder_plddt"]
-# TODO add remaining metrics
-
-# Boltz-2 binder without any template input
-BOLTZ2_BINDER_NT_PREDICTED_STRUCTURE_PATH = DESCRIPTORS_BY_KEY[
-    "refolding|boltz2_binder_nt|boltz_predicted_structure_path"
-]
-BOLTZ2_BINDER_NT_TARGET_ALIGNED_BINDER_RMSD = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_nt|binder_rmsd"]
-BOLTZ2_BINDER_NT_IPDE = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_nt|complex_ipde"]
-BOLTZ2_BINDER_NT_BINDER_PLDDT = DESCRIPTORS_BY_KEY["refolding|boltz2_binder_nt|binder_plddt"]
-# TODO add remaining metrics
-
 
 PRESETS = [
     {
@@ -747,5 +864,15 @@ PRESETS = [
         "label": "ESMFold PAE & RMSD",
         "x": ESMFOLD_PAE,
         "y": ESMFOLD_DESIGN_BACKBONE_RMSD,
+    },
+    {
+        "label": "Boltz pDE & Design RMSD",
+        "x": BOLTZ_PRIMARY_PDE,
+        "y": BOLTZ_PRIMARY_DESIGN_RMSD,
+    },
+    {
+        "label": "Boltz ipDE & Binder RMSD",
+        "x": BOLTZ_PRIMARY_IPDE,
+        "y": BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD,
     },
 ]
