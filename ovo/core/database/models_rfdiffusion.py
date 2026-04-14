@@ -85,10 +85,12 @@ class RFdiffusionParams(WorkflowParams):
     # RFD3 InputSpec fields (ignored for RFD1)
     rfd3_unindex: str | None = None  # unindexed motif, contig string e.g. "A244,A274,A320"
     rfd3_select_fixed_atoms: str | None = None  # fixed atoms override, contig string e.g. "A244:TIP,A274:BKBN"
+    rfd3_select_hotspots: str | None = None  # atom-level hotspots dict JSON e.g. '{"E64": "CD2,CZ", "E88": "CG,CZ"}'
     rfd3_ligand: str | None = None  # ligand CCD names e.g. "HAX,OAA"
     rfd3_length: str | None = None  # total length constraint e.g. "100-150" or "120"
     rfd3_infer_ori_strategy: str | None = None  # override auto-derived infer_ori_strategy: "hotspots" or "com"
-    rfd3_is_non_loopy: bool = False  # True = prefer helices/sheets, fewer loops
+    rfd3_is_non_loopy: bool | None = None  # True = prefer helices/sheets, fewer loops. Default True for binder design.
+    rfd3_ori_token: str | None = None  # explicit ORI token [x,y,z] e.g. "10.5,20.3,15.1"
     rfd3_spec_overrides: str | None = (
         None  # additional arbitrary JSON overrides for RFD3 InputSpec, applied on top of named params
     )
@@ -190,10 +192,29 @@ class RFdiffusionParams(WorkflowParams):
             if self.rfd3_length:
                 if not re.match(r"^\d+(-\d+)?$", str(self.rfd3_length).strip()):
                     raise ValueError(f"rfd3_length must be an integer or 'min-max' range, got: '{self.rfd3_length}'")
+            if self.rfd3_select_hotspots:
+                try:
+                    parsed_hotspots = json.loads(self.rfd3_select_hotspots)
+                    if not isinstance(parsed_hotspots, dict):
+                        raise ValueError('rfd3_select_hotspots must be a JSON dict, e.g. {"E64": "CD2,CZ"}')
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"rfd3_select_hotspots is not valid JSON: {e}") from e
             if self.rfd3_infer_ori_strategy and self.rfd3_infer_ori_strategy not in ("hotspots", "com"):
                 raise ValueError(
                     f"rfd3_infer_ori_strategy must be 'hotspots' or 'com', got: '{self.rfd3_infer_ori_strategy}'"
                 )
+            if self.rfd3_ori_token:
+                parts = self.rfd3_ori_token.split(",")
+                if len(parts) != 3:
+                    raise ValueError(
+                        f"rfd3_ori_token must be 3 comma-separated floats (x,y,z), got: '{self.rfd3_ori_token}'"
+                    )
+                try:
+                    [float(p) for p in parts]
+                except ValueError:
+                    raise ValueError(
+                        f"rfd3_ori_token must be 3 comma-separated floats (x,y,z), got: '{self.rfd3_ori_token}'"
+                    )
             if self.rfd3_spec_overrides:
                 try:
                     parsed = json.loads(self.rfd3_spec_overrides)

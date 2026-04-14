@@ -320,8 +320,29 @@ def show_rfdiffusion3_params(workflow: RFdiffusionWorkflow):
             or None
         )
 
+    if design_type == "binder":
+        workflow.rfdiffusion_params.rfd3_select_hotspots = (
+            st.text_area(
+                "Atom-level hotspots (select_hotspots)",
+                value=workflow.rfdiffusion_params.rfd3_select_hotspots,
+                placeholder='e.g. {"E64": "CD2,CZ", "E88": "CG,CZ"}',
+                key="rfd3_select_hotspots",
+                help="Dict of residue → atom names for atom-level hotspot control. "
+                "Overrides residue-level hotspots above when set. "
+                "Hotspots will typically be at most 4.5Å to any heavy atom in the designed structure.",
+            )
+            or None
+        )
+        if workflow.rfdiffusion_params.rfd3_select_hotspots:
+            try:
+                parsed_hs = json.loads(workflow.rfdiffusion_params.rfd3_select_hotspots)
+                if not isinstance(parsed_hs, dict):
+                    st.error('Atom-level hotspots must be a JSON dict, e.g. {"E64": "CD2,CZ"}')
+            except json.JSONDecodeError as e:
+                st.error(f"Invalid JSON: {e}")
+
     workflow.rfdiffusion_params.rfd3_select_fixed_atoms = (
-        st.text_input(
+        st.text_area(
             "Fixed atoms (select_fixed_atoms)",
             value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
             placeholder='e.g. A123,A234 or {"A123": "CA,CB,C,N"}',
@@ -330,6 +351,23 @@ def show_rfdiffusion3_params(workflow: RFdiffusionWorkflow):
         )
         or None
     )
+
+    # is_non_loopy: default True for binder (RFD3 docs recommend it for PPI), Auto (None) for scaffold
+    is_non_loopy_options = ["Auto", "True", "False"]
+    is_non_loopy_default = "True" if design_type == "binder" else "Auto"
+    current = workflow.rfdiffusion_params.rfd3_is_non_loopy
+    if current is None:
+        current_label = is_non_loopy_default
+    else:
+        current_label = str(current)
+    is_non_loopy_selected = st.selectbox(
+        "Fewer loops (is_non_loopy)",
+        options=is_non_loopy_options,
+        index=is_non_loopy_options.index(current_label),
+        key="rfd3_is_non_loopy",
+        help="True = fewer loops, more helices/sheets (recommended for binder). False = more loops. Auto = no bias (RFD3 default).",
+    )
+    workflow.rfdiffusion_params.rfd3_is_non_loopy = {"Auto": None, "True": True, "False": False}[is_non_loopy_selected]
 
 
 def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
@@ -444,13 +482,6 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
             st.markdown("**InputSpec overrides (RFdiffusion3)**")
             col1, col2 = st.columns(2)
             with col1:
-                workflow.rfdiffusion_params.rfd3_is_non_loopy = st.checkbox(
-                    "Prefer helical/sheet designs (is_non_loopy)",
-                    value=workflow.rfdiffusion_params.rfd3_is_non_loopy,
-                    key="rfd3_is_non_loopy",
-                    help="Produces output structures with fewer loops and more helices/sheets.",
-                )
-            with col2:
                 infer_ori_options = ["", "hotspots", "com"]
                 workflow.rfdiffusion_params.rfd3_infer_ori_strategy = (
                     st.selectbox(
@@ -459,7 +490,18 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                         format_func=lambda x: "Auto-detect" if x == "" else x,
                         index=infer_ori_options.index(workflow.rfdiffusion_params.rfd3_infer_ori_strategy or ""),
                         key="rfd3_infer_ori_strategy",
-                        help="Controls placement of the ORI token. 'hotspots' places it near hotspot COM, 'com' uses input structure COM.",
+                        help="Controls placement of the ORI token. 'hotspots' places it near hotspot COM, 'com' uses input structure COM. Auto-detect sets 'hotspots' when hotspots are provided, 'com' otherwise.",
+                    )
+                    or None
+                )
+            with col2:
+                workflow.rfdiffusion_params.rfd3_ori_token = (
+                    st.text_input(
+                        "ORI token (ori_token)",
+                        value=workflow.rfdiffusion_params.rfd3_ori_token,
+                        placeholder="e.g. 10.5,20.3,15.1",
+                        key="rfd3_ori_token",
+                        help="Explicit [x,y,z] origin override to control center of mass placement of the designed structure. Overrides infer_ori_strategy.",
                     )
                     or None
                 )
@@ -501,10 +543,12 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                         named_param_keys = {
                             "unindex",
                             "select_fixed_atoms",
+                            "select_hotspots",
                             "ligand",
                             "length",
                             "infer_ori_strategy",
                             "is_non_loopy",
+                            "ori_token",
                         }
                         overlapping = set(parsed.keys()) & named_param_keys
                         if overlapping:

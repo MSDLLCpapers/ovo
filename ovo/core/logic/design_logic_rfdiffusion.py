@@ -469,14 +469,21 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
                 spec_overrides["select_fixed_atoms"] = fixed_atoms_dict
             except json.JSONDecodeError:
                 spec_overrides["select_fixed_atoms"] = fixed_atoms
+        if p.rfd3_select_hotspots:
+            spec_overrides["select_hotspots"] = json.loads(p.rfd3_select_hotspots)
         if p.rfd3_ligand:
             spec_overrides["ligand"] = p.rfd3_ligand
         if p.rfd3_length:
             spec_overrides["length"] = p.rfd3_length
         if p.rfd3_infer_ori_strategy:
             spec_overrides["infer_ori_strategy"] = p.rfd3_infer_ori_strategy
-        if p.rfd3_is_non_loopy:
+        if p.rfd3_is_non_loopy is None and design_type == "binder":
+            # RFD3 docs strongly recommend is_non_loopy for PPI design
             spec_overrides["is_non_loopy"] = True
+        elif p.rfd3_is_non_loopy is not None:
+            spec_overrides["is_non_loopy"] = p.rfd3_is_non_loopy
+        if p.rfd3_ori_token:
+            spec_overrides["ori_token"] = [float(x) for x in p.rfd3_ori_token.split(",")]
         if p.rfd3_spec_overrides:
             spec_overrides.update(json.loads(p.rfd3_spec_overrides))
         if spec_overrides:
