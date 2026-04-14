@@ -12,6 +12,36 @@ import re
 import sys
 
 
+# Valid keys for RFD3 DesignInputSpecification (from rfd3.inference.input_parsing).
+# Mirrored in ovo/core/database/models_rfdiffusion.py for early UI validation.
+RFD3_SPEC_FIELDS = {
+    "input",
+    "atom_array_input",
+    "contig",
+    "unindex",
+    "length",
+    "ligand",
+    "cif_parser_args",
+    "extra",
+    "dialect",
+    "select_fixed_atoms",
+    "select_unfixed_sequence",
+    "select_buried",
+    "select_partially_buried",
+    "select_exposed",
+    "select_hbond_acceptor",
+    "select_hbond_donor",
+    "select_hotspots",
+    "redesign_motif_sidechains",
+    "symmetry",
+    "ori_token",
+    "infer_ori_strategy",
+    "plddt_enhanced",
+    "is_non_loopy",
+    "partial_t",
+}
+
+
 def convert_contig_v1_to_v3(contig_v1: str) -> str:
     # split contig into list of lists of segments
     subcontigs: list[list[str]] = [

@@ -84,7 +84,8 @@ def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: 
                 if subregion:
                     subregions.append(subregion)
                 contig += [
-                    f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions
+                    f"{s[0][0]}{s[0][1]}-{s[-1][1]}"
+                    for s in subregions
                     # f"{s[0][0]}{s[0][1]}" if len(s) == 1 else f"{s[0][0]}{s[0][1]}-{s[-1][1]}" for s in subregions
                 ]
             else:

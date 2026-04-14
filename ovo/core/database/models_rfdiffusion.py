@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -16,6 +17,36 @@ from ovo.core.utils.residue_selection import (
     create_partial_diffusion_binder_contig,
     parse_contig_for_input_structure,
 )
+
+# Valid keys for RFD3 DesignInputSpecification (from rfd3.inference.input_parsing).
+# Canonical source: ovo/pipelines/rfdiffusion3-backbone/bin/build_input_json.py
+# Used for early validation of user-provided spec overrides.
+RFD3_SPEC_FIELDS = {
+    "input",
+    "atom_array_input",
+    "contig",
+    "unindex",
+    "length",
+    "ligand",
+    "cif_parser_args",
+    "extra",
+    "dialect",
+    "select_fixed_atoms",
+    "select_unfixed_sequence",
+    "select_buried",
+    "select_partially_buried",
+    "select_exposed",
+    "select_hbond_acceptor",
+    "select_hbond_donor",
+    "select_hotspots",
+    "redesign_motif_sidechains",
+    "symmetry",
+    "ori_token",
+    "infer_ori_strategy",
+    "plddt_enhanced",
+    "is_non_loopy",
+    "partial_t",
+}
 
 MODEL_WEIGHTS_SCAFFOLD = ["Base", "ActiveSite"]
 MODEL_WEIGHTS_BINDER = ["Complex_base", "Complex_beta"]
@@ -58,7 +89,9 @@ class RFdiffusionParams(WorkflowParams):
     rfd3_length: str | None = None  # total length constraint e.g. "100-150" or "120"
     rfd3_infer_ori_strategy: str | None = None  # override auto-derived infer_ori_strategy: "hotspots" or "com"
     rfd3_is_non_loopy: bool = False  # True = prefer helices/sheets, fewer loops
-    # rfd3_spec_overrides: dict | None = None  # additional arbitrary overrides for RFD3 InputSpec, e.g. {"infer_ori_strategy": "com"}
+    rfd3_spec_overrides: str | None = (
+        None  # additional arbitrary JSON overrides for RFD3 InputSpec, applied on top of named params
+    )
     # Skip RFdiffusion backbone design, use custom backbone input from the given directory or .zip file
     custom_backbones: str = None
 
@@ -161,6 +194,19 @@ class RFdiffusionParams(WorkflowParams):
                 raise ValueError(
                     f"rfd3_infer_ori_strategy must be 'hotspots' or 'com', got: '{self.rfd3_infer_ori_strategy}'"
                 )
+            if self.rfd3_spec_overrides:
+                try:
+                    parsed = json.loads(self.rfd3_spec_overrides)
+                    if not isinstance(parsed, dict):
+                        raise ValueError("rfd3_spec_overrides must be a JSON object (dict)")
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"rfd3_spec_overrides is not valid JSON: {e}") from e
+                unknown_keys = set(parsed.keys()) - RFD3_SPEC_FIELDS
+                if unknown_keys:
+                    raise ValueError(
+                        f"Unknown InputSpec keys in rfd3_spec_overrides: {', '.join(sorted(unknown_keys))}. "
+                        f"Valid keys: {', '.join(sorted(RFD3_SPEC_FIELDS))}"
+                    )
 
 
 @dataclass

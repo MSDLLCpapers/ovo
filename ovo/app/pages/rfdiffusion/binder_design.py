@@ -9,6 +9,7 @@ from ovo.app.components.preview_components import parameters_binder_preview_comp
 from ovo.app.components.scheduler_components import wait_with_statusbar
 from ovo.app.components.submission_components import (
     pool_submission_inputs,
+    show_rfdiffusion3_params,
     show_rfdiffusion_advanced_settings,
     review_workflow_submission,
     show_rfdiffusion_binder_seq_design_inputs,
@@ -400,6 +401,8 @@ def settings_step():
                 re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in workflow.rfdiffusion_params.hotspots.split(",")
             ):
                 st.error("Invalid hotspots format, expected 'A123,A124,A131'")
+
+    show_rfdiffusion3_params(workflow)
 
     show_rfdiffusion_advanced_settings(workflow)
 

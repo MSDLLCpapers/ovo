@@ -17,6 +17,7 @@ from ovo.app.components.preview_components import visualize_rfdiffusion_preview,
 from ovo.app.components.scheduler_components import wait_with_statusbar
 from ovo.app.components.submission_components import (
     pool_submission_inputs,
+    show_rfdiffusion3_params,
     show_rfdiffusion_advanced_settings,
     review_workflow_submission,
 )
@@ -381,39 +382,8 @@ def settings_step():
             value=workflow.protein_mpnn_params.num_sequences,
             key="num_sequences",
         )
-        
-        if is_rfd3:
-            st.write("### RFdiffusion3 parameters")
-            workflow.rfdiffusion_params.rfd3_unindex = (
-                st.text_input(
-                    "Unindexed motif (unindex)",
-                    value=workflow.rfdiffusion_params.rfd3_unindex,
-                    placeholder="e.g. A244,A274,A320",
-                    key="rfd3_unindex",
-                    help="Residues whose relative position in the sequence is unknown to the model. Useful for scaffolding around active sites.",
-                )
-                or None
-            )
-            workflow.rfdiffusion_params.rfd3_select_fixed_atoms = (
-                st.text_input(
-                    "Fixed atoms (select_fixed_atoms)",
-                    value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
-                    placeholder="e.g. A123,A234 or {\"A123\": \"CA,CB,C,N\"}",
-                    key="rfd3_select_fixed_atoms",
-                    help="Override which atoms are fixed in 3D space. Contig string or dict syntax (e.g. \"A244\":\"TIP\",\"A274\":\"BKBN\").",
-                )
-                or None
-            )
-            workflow.rfdiffusion_params.rfd3_ligand = (
-                st.text_input(
-                    "Ligand (ligand)",
-                    value=workflow.rfdiffusion_params.rfd3_ligand,
-                    placeholder="e.g. HAX,OAA",
-                    key="rfd3_ligand",
-                    help="Ligand CCD names from RCSB PDB to include in the design.",
-                )
-                or None
-            )
+
+    show_rfdiffusion3_params(workflow)
 
     show_rfdiffusion_advanced_settings(workflow)
 

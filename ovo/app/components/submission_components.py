@@ -280,6 +280,58 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
             )
 
 
+def show_rfdiffusion3_params(workflow: RFdiffusionWorkflow):
+    """Show RFdiffusion3-specific InputSpec parameters, filtered by design type.
+    Only renders when backbone_generator is 'rfdiffusion3'.
+
+    Scaffold: unindex, ligand, select_fixed_atoms (enzyme/scaffolding use case)
+    Binder: select_fixed_atoms (hotspots handled by existing UI field)
+    """
+    if workflow.rfdiffusion_params.backbone_generator != "rfdiffusion3":
+        return
+
+    design_type = workflow.get_refolding_design_type()
+
+    assert design_type in REFOLDING_TESTS_BY_TYPE, (
+        f"Unknown design type '{design_type}' for RFdiffusion3 parameters. Expected one of: {', '.join(REFOLDING_TESTS_BY_TYPE.keys())}"
+    )
+
+    st.write("### RFdiffusion3 parameters")
+
+    if design_type == "scaffold":
+        workflow.rfdiffusion_params.rfd3_unindex = (
+            st.text_input(
+                "Unindexed motif (unindex)",
+                value=workflow.rfdiffusion_params.rfd3_unindex,
+                placeholder="e.g. A244,A274,A320",
+                key="rfd3_unindex",
+                help="Residues whose relative position in the sequence is unknown to the model. Useful for scaffolding around active sites.",
+            )
+            or None
+        )
+        workflow.rfdiffusion_params.rfd3_ligand = (
+            st.text_input(
+                "Ligand (ligand)",
+                value=workflow.rfdiffusion_params.rfd3_ligand,
+                placeholder="e.g. HAX,OAA",
+                key="rfd3_ligand",
+                help="Ligand CCD names from RCSB PDB to include in the design.",
+            )
+            or None
+        )
+
+    workflow.rfdiffusion_params.rfd3_select_fixed_atoms = (
+        st.text_input(
+            "Fixed atoms (select_fixed_atoms)",
+            value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
+            placeholder='e.g. A123,A234 or {"A123": "CA,CB,C,N"}',
+            key="rfd3_select_fixed_atoms",
+            help='Override which atoms are fixed in 3D space. Contig string or dict syntax (e.g. "A244":"TIP","A274":"BKBN").',
+        )
+        or None
+    )
+
+
 def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
     st.markdown("Advanced settings")
 
@@ -411,7 +463,7 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                     )
                     or None
                 )
-            
+
             workflow.rfdiffusion_params.rfd3_length = (
                 st.text_input(
                     "Total length constraint (length)",
@@ -422,6 +474,46 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 )
                 or None
             )
+
+            workflow.rfdiffusion_params.rfd3_spec_overrides = (
+                st.text_area(
+                    "Additional InputSpec overrides (JSON)",
+                    value=workflow.rfdiffusion_params.rfd3_spec_overrides,
+                    placeholder='e.g. {"select_unfixed_sequence": "A20-35", "redesign_motif_sidechains": true}',
+                    key="rfd3_spec_overrides",
+                    help="JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict.",
+                    height=80,
+                )
+                or None
+            )
+            if workflow.rfdiffusion_params.rfd3_spec_overrides:
+                try:
+                    parsed = json.loads(workflow.rfdiffusion_params.rfd3_spec_overrides)
+                    if not isinstance(parsed, dict):
+                        st.error("Spec overrides must be a JSON object (dict)")
+                    else:
+                        from ovo.core.database.models_rfdiffusion import RFD3_SPEC_FIELDS
+
+                        unknown = set(parsed.keys()) - RFD3_SPEC_FIELDS
+                        if unknown:
+                            st.error(f"Unknown InputSpec keys: {', '.join(sorted(unknown))}")
+                        # Warn about keys that overlap with dedicated UI fields
+                        named_param_keys = {
+                            "unindex",
+                            "select_fixed_atoms",
+                            "ligand",
+                            "length",
+                            "infer_ori_strategy",
+                            "is_non_loopy",
+                        }
+                        overlapping = set(parsed.keys()) & named_param_keys
+                        if overlapping:
+                            st.warning(
+                                f"Keys [{', '.join(sorted(overlapping))}] overlap with dedicated parameters above. "
+                                f"The values from this field will take precedence."
+                            )
+                except json.JSONDecodeError as e:
+                    st.error(f"Invalid JSON: {e}")
 
         st.markdown("#### Protein MPNN ")
 
