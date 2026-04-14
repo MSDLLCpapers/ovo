@@ -104,7 +104,7 @@ def download_descriptor_table(
     filename, design_ids, descriptor_keys=None, key="default", width="content", descriptor_job_id=None
 ):
     if st.button(
-        "Download descriptor table" if len(design_ids) > 1 else "Download descriptors",
+        "Download full descriptor table" if len(design_ids) > 1 else "Download descriptors",
         key=f"prepare_descriptors_{key}",
         width=width,
     ):

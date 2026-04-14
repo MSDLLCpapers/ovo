@@ -181,6 +181,17 @@ class Threshold:
 
         return min_allowed, max_allowed
 
+    def passes(self, value: Any) -> bool:
+        if pd.isna(value):
+            # missing value does not pass
+            return False
+        passes = True
+        if self.max_value is not None:
+            passes &= value <= self.max_value
+        if self.min_value is not None:
+            passes &= value >= self.min_value
+        return passes
+
 
 class WorkflowTypes:
     # workflow name -> class
@@ -414,7 +425,10 @@ class DesignWorkflow(Workflow):
                 row,
                 pd.Series(
                     {
-                        ("Thresholds", ALL_DESCRIPTORS_BY_KEY[key].name): t.format()
+                        (
+                            "Thresholds",
+                            ALL_DESCRIPTORS_BY_KEY[key].name if key in ALL_DESCRIPTORS_BY_KEY else key,
+                        ): t.format()
                         for key, t in self.acceptance_thresholds.items()
                         if t.enabled
                     },

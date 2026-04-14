@@ -38,4 +38,7 @@ nextflow run ../../main.nf \
   --run_parameters " --cyclic --designed_chains A " \
   $@
 
-head batch1/boltz2_binder_tt/*/*.cif
+ls -lR batch1
+head batch1/boltz2_binder_tt/*.pdb
+head batch1/boltz2_binder_tt.jsonl
+echo "Output saved to: $OUTPUT_DIR"

@@ -80,6 +80,7 @@ process BoltzRefolding {
         --design_type ${design_type} \
         --output_metrics_path "${meta.batch_name}/${meta.test}.jsonl" \
         --output_pdb_dir "${meta.batch_name}/${meta.test}/" \
+        --native_pdb "${native_pdb}" \
         ${run_parameters}
 
     """

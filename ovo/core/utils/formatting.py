@@ -170,12 +170,14 @@ def parse_duration(duration: str) -> int | None:
         "h": 3600,
         "m": 60,
         "s": 1,
+        "ms": 0.001,
     }
 
     total_seconds = 0
 
     for word in duration.split():
-        number, token = word[:-1], word[-1]
+        # get all letters after number
+        number, token = re.match(r"(\d*\.?\d*)(.*)", word).groups()
         if token not in units:
             raise ValueError(f"Invalid duration token {token} in duration: {duration}")
 
