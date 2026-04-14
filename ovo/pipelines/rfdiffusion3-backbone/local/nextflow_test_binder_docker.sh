@@ -30,11 +30,11 @@ nextflow run ../../main.nf \
   --publish_dir $OUTPUT_DIR \
   --reference_files_dir "$MODELS_DIR" \
   --hotspot "A31,A33" \
-  --run_parameters " +inference_sampler.num_steps=10 " \
+  --run_parameters " inference_sampler.num_timesteps=10 " \
   "$@"
 
 ls -l rfdiffusion3/*/
 
-#  --run_parameters " inference_sampler.num_steps=10 inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2 " \
+#  --run_parameters " inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2 " \
   #--spec_overrides '{\"unindex\": \"A55,A59\", \"length\": \"80-180\", \"infer_ori_strategy\": \"com\"}' \
   #--contig "A30-50/0 10" \
