@@ -316,6 +316,8 @@ def get_cached_interface_residue_stats(
     interface_residue_stats = {}
     for design_id, residues in interface_residues.dropna().items():
         for residue in residues.split(","):
+            if not residue:
+                continue
             assert residue[0] == "B", f"Expected target to be B, got: {residue[0]} in {design_id}"
             input_residue = f"{target_chain_id}{residue[1:]}"
             interface_residue_stats[input_residue] = interface_residue_stats.get(input_residue, 0) + 1

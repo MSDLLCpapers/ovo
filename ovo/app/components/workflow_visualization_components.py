@@ -590,8 +590,7 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     with middle:
         st.write("##### Design aligned to prediction")
 
-        # here, we do not need manual alignment, but we still do it
-        structures, rmsd = align_multiple_proteins_pdb(
+        structures, _ = align_multiple_proteins_pdb(
             pdb_strs=[
                 storage.read_file_str(paths[sequence_design_descriptor.key]),
                 storage.read_file_str(paths[prediction_descriptor.key]),
@@ -638,11 +637,18 @@ def rfdiffusion_binder_design_visualization(design_id: str):
 
         st.write(
             f"""
-            {prediction_descriptor.name} vs design backbone RMSD: **{rmsd:.2f} Å**
-            
             Agreement between {sequence_design_descriptor.name} and {prediction_descriptor.name}
             """
         )
+        # TODO can we generalize this
+        if prediction_descriptor == descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH:
+            rmsd_descriptor = descriptors_refolding.BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD
+        elif prediction_descriptor == descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH:
+            rmsd_descriptor = descriptors_refolding.AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD
+
+        rmsd_value = get_cached_design_descriptors(design_id, [rmsd_descriptor.key])[rmsd_descriptor.key]
+        if not pd.isna(rmsd_value):
+            st.write(f"{rmsd_descriptor.name}: **{rmsd_value:.2f} Å**")
 
     with right:
         st.write("##### Predicted binding pose")
