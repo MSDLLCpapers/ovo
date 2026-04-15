@@ -362,6 +362,7 @@ def settings_step():
         )
 
         generator_options = ["rfdiffusion", "rfdiffusion3"]
+        prev_generator = workflow.rfdiffusion_params.backbone_generator
         workflow.rfdiffusion_params.backbone_generator = st.selectbox(
             "Backbone generator",
             options=generator_options,
@@ -369,6 +370,9 @@ def settings_step():
             index=generator_options.index(workflow.rfdiffusion_params.backbone_generator),
             key="backbone_generator",
         )
+        if workflow.rfdiffusion_params.backbone_generator != prev_generator:
+            # Clear previous preview (only compatible with RFdiffusion v1)
+            workflow.preview_job_id = None
 
         is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
 

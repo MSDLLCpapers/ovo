@@ -389,13 +389,13 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
 
         is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
 
-        # Swap timesteps default when switching backbone generator
-        if is_rfd3 and workflow.rfdiffusion_params.timesteps == 50:
-            workflow.rfdiffusion_params.timesteps = 200
-            st.session_state["timesteps"] = 200
-        elif not is_rfd3 and workflow.rfdiffusion_params.timesteps == 200:
-            workflow.rfdiffusion_params.timesteps = 50
-            st.session_state["timesteps"] = 50
+        # Reset timesteps to default when backbone generator changes
+        prev_generator = st.session_state.get("_prev_backbone_generator")
+        if prev_generator is not None and prev_generator != workflow.rfdiffusion_params.backbone_generator:
+            default_timesteps = 200 if is_rfd3 else 50
+            workflow.rfdiffusion_params.timesteps = default_timesteps
+            st.session_state["timesteps"] = default_timesteps
+        st.session_state["_prev_backbone_generator"] = workflow.rfdiffusion_params.backbone_generator
 
         if is_rfd3:
             timestep_label = "Num timesteps (inference_sampler.num_timesteps)"
