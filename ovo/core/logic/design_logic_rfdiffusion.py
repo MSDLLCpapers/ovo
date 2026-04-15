@@ -403,15 +403,15 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
         params["mpnn_run_parameters"] = (
             f'-omit_AAs "{workflow.protein_mpnn_params.omit_aa}" '
             + f"-temperature {workflow.protein_mpnn_params.sampling_temp} "
-            + (f'-bias_AA "{workflow.protein_mpnn_params.bias_aa}"' if workflow.protein_mpnn_params.bias_aa else "")
+            + (f'-bias_AA "{workflow.protein_mpnn_params.bias_aa}" ' if workflow.protein_mpnn_params.bias_aa else "")
             + f" {workflow.protein_mpnn_params.run_parameters}"
         ).strip()
     else:
         # Otherwise use LigandMPNN
         params["mpnn_run_parameters"] = (
             f'--omit_AA "{workflow.protein_mpnn_params.omit_aa}" '
-            + f"--temperature {workflow.protein_mpnn_params.sampling_temp}"
-            + (f'--bias_AA "{workflow.protein_mpnn_params.bias_aa}"' if workflow.protein_mpnn_params.bias_aa else "")
+            + f"--temperature {workflow.protein_mpnn_params.sampling_temp} "
+            + (f'--bias_AA "{workflow.protein_mpnn_params.bias_aa}" ' if workflow.protein_mpnn_params.bias_aa else "")
         )
 
     if workflow.rfdiffusion_params.cyclic_offset:
