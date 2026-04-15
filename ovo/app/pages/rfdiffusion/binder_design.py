@@ -408,7 +408,7 @@ def check_contig_parsed(contig: str | None, verbose: bool = False) -> bool:
     if contig.islower():
         st.warning("Input contigs are lowercase. Workflow can behave unexpectedly.")
     try:
-        parse_contig_for_input_structure(contig) if contig else None
+        _ = parse_contig_for_input_structure(contig) if contig else None
         return True
     except Exception as e:
         if verbose:

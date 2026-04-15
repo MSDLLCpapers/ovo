@@ -86,7 +86,7 @@ class RFdiffusionParams(WorkflowParams):
                     f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{contig}"'
                 )
             # verify that contig can be parsed
-            parse_contig_for_input_structure(contig)
+            _ = parse_contig_for_input_structure(contig)
 
         if self.hotspots:
             assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
