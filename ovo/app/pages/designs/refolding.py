@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 import streamlit as st
 
 from ovo import db, schedulers
@@ -11,7 +9,7 @@ from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors,
 )
-from ovo.core.database import Pool, Design, DesignJob
+from ovo.core.database import Pool, DesignJob
 from ovo.core.database.descriptors_refolding import REFOLDING_DESCRIPTORS
 from ovo.core.database.models_refolding import (
     REFOLDING_TESTS_BY_TYPE,
@@ -151,30 +149,12 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
 
         # collect designs by their native PDB path (each workflow job only supports a single native structure)
         st.write("Preparing workflow inputs...")
-        groups = defaultdict(list)
-        for pool in pools:
-            index_by_id = db.select_dict(Design, "id", "contig_index", id__in=design_ids, pool_id=pool.id)
-            if not pool.design_job_id:
-                # Assume chain A is designed if no design workflow associated with the pool, and no native structure (e.g. for custom PDB uploads)
-                default_designed_chains = ["A"]
-                groups[(None, tuple(default_designed_chains))] += list(index_by_id.keys())
-                continue
-            design_workflow = design_workflows_by_pool_id[pool.id]
-            ids_by_index = defaultdict(list)
-            for design_id, contig_index in index_by_id.items():
-                ids_by_index[contig_index].append(design_id)
-            for contig_index, ids in ids_by_index.items():
-                native_pdb_path = design_workflow.get_refolding_native_pdb_path(contig_index)
-                designed_chains = design_workflow.get_refolding_designed_chains()
-                groups[(native_pdb_path, tuple(designed_chains))] += ids
-
-        for (native_pdb_path, designed_chains), group_design_ids in groups.items():
-            workflow = RefoldingWorkflow(
-                design_type=design_type,
-                tests=tests,
-                design_ids=group_design_ids,
-                native_pdb_path=native_pdb_path,
-                chains=list(designed_chains),
-            )
+        workflows = RefoldingWorkflow.from_designs(
+            pool_ids=pool_ids,
+            design_ids=design_ids,
+            tests=tests,
+            design_type=design_type,
+        )
+        for workflow in workflows:
             submit_descriptor_workflow(workflow, scheduler_key, st.session_state.project.id)
         st.rerun()
