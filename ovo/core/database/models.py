@@ -18,7 +18,7 @@ from sqlalchemy.orm import mapped_column
 from ovo.core.database.encoder import DataclassType
 from ovo.core.database.db_proxy import DBProxy
 from ovo.core.scheduler.base_scheduler import Scheduler
-from ovo.core.utils.formatting import generate_id
+from ovo.core.utils.formatting import generate_id, generate_unique_id
 from ovo.core.utils.pdb import (
     get_sequences_from_pdb_str,
     ChainNotFoundError,
@@ -679,14 +679,7 @@ class DescriptorJob(Base, MetadataMixin, JobMixin):
     @classmethod
     def generate_id(cls, tries=100):
         """Generate unique UID shortened for memory efficiency in descriptor_value table"""
-        for length in range(6, 10):
-            for i in range(tries):
-                new_id = str(uuid.uuid4()).replace("-", "")[:length]
-                try:
-                    DescriptorJob.get(id=new_id)
-                except NoResultFound:
-                    return new_id
-        raise ValueError(f"Failed to generate unique id of length {length} after {tries} tries")
+        return generate_unique_id(cls, tries=tries)
 
 
 class DescriptorValue(Base):
@@ -699,6 +692,30 @@ class DescriptorValue(Base):
     # Can be same or a subset of descriptor_job.workflow.chains
     chains: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(String, nullable=True)
+
+
+class Labeling(Base, MetadataMixin):
+    """User-defined labels for organizing and categorizing designs"""
+
+    __tablename__ = "labeling"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=None, index=True)
+    label: Mapped[str] = mapped_column(String, default=None, nullable=False, index=True)
+    explanation: Mapped[str] = mapped_column(String, default=None, nullable=True)
+
+    @classmethod
+    def generate_id(cls, tries=100):
+        """Generate unique UID shortened for memory efficiency in descriptor_value table"""
+        return generate_unique_id(cls, tries=tries)
+
+
+class DesignLabeling(Base):
+    """Many-to-many relationship between designs and labelings"""
+
+    __tablename__ = "design_labeling"
+
+    design_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    labeling_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
 
 
 class ArtifactTypes:
@@ -951,6 +968,8 @@ __all__ = [
     "Design",
     "DescriptorJob",
     "DescriptorValue",
+    "Labeling",
+    "DesignLabeling",
     "Descriptor",
     "NumericDescriptor",
     "NumericGlobalDescriptor",

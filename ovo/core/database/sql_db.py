@@ -8,7 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from ovo.core.database.base_db import T
 from ovo.core.database.cache_clearing import CacheClearingEngine
-from ovo.core.database.models import Base, DescriptorValue, Design
+from ovo.core.database.models import Base, DescriptorValue, Design, Labeling, DesignLabeling
 import sys
 
 
@@ -397,3 +397,194 @@ class SqlDBEngine(CacheClearingEngine):
 
         series = pd.Series({design_id: value for design_id, value in result})
         return series.reindex(design_ids)
+
+    def get_or_create_labeling(self, label: str, username: str, explanation: str | None = None) -> Labeling:
+        """Get an existing labeling or create a new one if it doesn't exist."""
+        self.check_read_only()
+
+        # Try to find existing labeling
+        existing_labelings = self.select(
+            Labeling, label=label.strip(), author=username, explanation=explanation, limit=1
+        )
+
+        if existing_labelings:
+            return existing_labelings[0]
+
+        # Create new labeling if not found
+        labeling = Labeling(id=Labeling.generate_id(), label=label.strip(), author=username, explanation=explanation)
+        self.save(labeling)
+        return labeling
+
+    def add_label(self, label: str, design_ids: list[str], username: str, explanation: str | None = None):
+        """Add a label to multiple designs.
+
+        Args:
+            label: The label to add
+            design_ids: List of design IDs to add the label to
+            username: The username of the person adding the label
+            explanation: Optional explanation for adding the label (for audit/logging purposes)
+        """
+        self.check_read_only()
+
+        # Create Labeling
+        labeling = self.get_or_create_labeling(label, username, explanation)
+
+        # Add the labeling to the designs
+        design_labelings = []
+        for design_id in design_ids:
+            design_labelings.append(DesignLabeling(design_id=design_id, labeling_id=labeling.id))
+
+        self.save_all(design_labelings)
+        return labeling
+
+    def remove_label(self, label: str, design_ids: list[str], **kwargs):
+        """Remove a label from multiple designs.
+
+        Args:
+            label: The label to remove
+            design_ids: List of design IDs to remove the label from
+        """
+        self.check_read_only()
+
+        # Get the labeling record(s) for the specified label and author
+        # This assumes that the same label can be added multiple times by the same user with different explanations, and we want to remove all of them when removing a label.
+        labelings = self.select(Labeling, label=label, **kwargs)
+
+        if not labelings:
+            return
+
+        # Bulk delete associations
+        labeling_ids = [labeling.id for labeling in labelings]
+        with self._create_session() as session:
+            session.query(DesignLabeling).filter(
+                DesignLabeling.design_id.in_(design_ids), DesignLabeling.labeling_id.in_(labeling_ids)
+            ).delete()
+            session.commit()
+
+        # If there are no more design_labeling associations for this labeling, we can remove the labeling record itself
+        for labeling in labelings:
+            remaining_associations = self.count(DesignLabeling, labeling_id=labeling.id)
+            if remaining_associations == 0:
+                self.remove(Labeling, id=labeling.id)
+
+    def remove_designs_labeling(self, labeling_id: str, design_ids: list[str]):
+        """Remove a specific design labeling by its ID.
+
+        Args:
+            labeling_id: The ID of the design labeling to remove
+            design_ids: List of design IDs to remove the labeling from
+        """
+        self.check_read_only()
+
+        with self._create_session() as session:
+            session.query(DesignLabeling).filter(
+                DesignLabeling.design_id.in_(design_ids), DesignLabeling.labeling_id == labeling_id
+            ).delete(synchronize_session=False)
+            session.commit()
+
+        # Manually trigger cache clearing for DesignLabeling model
+        self._clear_all_cache(DesignLabeling)
+
+        remaining_associations = self.count(DesignLabeling, labeling_id=labeling_id)
+        if remaining_associations == 0:
+            self.remove(Labeling, id=labeling_id)
+
+    def get_designs_with_all_labels(self, label_names: list[str], design_ids: list[str] = None) -> list[str]:
+        """Get design IDs that have ALL of the specified labels using a single optimized query."""
+        if not label_names:
+            return design_ids or []
+
+        with self._create_session() as session:
+            # Build the base query joining DesignLabeling and Labeling
+            query = (
+                session.query(DesignLabeling.design_id)
+                .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
+                .filter(Labeling.label.in_(label_names))
+            )
+
+            # If design_ids filter is provided, apply it
+            if design_ids:
+                query = query.filter(DesignLabeling.design_id.in_(design_ids))
+
+            # Group by design_id and ensure ALL labels are present
+            query = query.group_by(DesignLabeling.design_id).having(
+                func.count(func.distinct(Labeling.label)) == len(set(label_names))
+            )
+
+            return [row[0] for row in query.all()]
+
+    def get_designs_with_any_labels(self, label_names: list[str], design_ids: list[str] = None) -> list[str]:
+        """Get design IDs that have ANY of the specified labels using a single optimized query."""
+        if not label_names:
+            return design_ids or []
+
+        with self._create_session() as session:
+            # Build the base query joining DesignLabeling and Labeling
+            query = (
+                session.query(DesignLabeling.design_id)
+                .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
+                .filter(Labeling.label.in_(label_names))
+                .distinct()
+            )
+
+            # If design_ids filter is provided, apply it
+            if design_ids:
+                query = query.filter(DesignLabeling.design_id.in_(design_ids))
+
+            return [row[0] for row in query.all()]
+
+    def get_labelings_for_design(self, design_id: str) -> list[Labeling]:
+        """Get all labelings for a specific design using a single optimized query."""
+        if not design_id:
+            return []
+
+        with self._create_session() as session:
+            query = (
+                session.query(Labeling)
+                .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
+                .filter(DesignLabeling.design_id == design_id)
+                .order_by(Labeling.created_date_utc)  # from least recent to most recent
+            )
+            return query.all()
+
+    def get_available_labels_for_design_ids(self, design_ids: list[str]) -> list[str]:
+        """Get unique labels available for the given design IDs."""
+        if not design_ids:
+            return []
+
+        with self._create_session() as session:
+            query = (
+                session.query(Labeling.label)
+                .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
+                .filter(DesignLabeling.design_id.in_(design_ids))
+                .distinct()
+            )
+            return sorted([row[0] for row in query.all()])
+
+    def get_available_labels_for_pool_ids(self, pool_ids: list[str], **design_filters) -> list[str]:
+        """Get unique labels available for designs in the given pool IDs.
+
+        Args:
+            pool_ids: List of pool IDs to get labels for
+            **design_filters: Additional filters to apply to Design model (e.g., accepted=True)
+
+        Returns:
+            Sorted list of unique label strings available for designs in the specified pools
+        """
+        if not pool_ids:
+            return []
+
+        with self._create_session() as session:
+            query = (
+                session.query(Labeling.label)
+                .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
+                .join(Design, DesignLabeling.design_id == Design.id)
+                .filter(Design.pool_id.in_(pool_ids))
+            )
+
+            # Apply additional Design filters if provided
+            if design_filters:
+                query = query.filter(*self._create_filters(Design, design_filters))
+
+            query = query.distinct()
+            return sorted([row[0] for row in query.all()])

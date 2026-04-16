@@ -3,7 +3,7 @@ import streamlit as st
 import ast
 from io import StringIO
 import yaml
-from ovo import Design, Pool, Project, DesignJob, DescriptorJob, Round
+from ovo import Design, Pool, Project, DesignJob, DescriptorJob, Round, Labeling, DesignLabeling
 from ovo import db, get_username, config
 from ovo.app.utils.page_init import initialize_page
 
@@ -136,3 +136,25 @@ except:
     kwargs = {}
 descriptor_job_df = db.select_dataframe(model=DescriptorJob, limit=10000, **kwargs)
 st.dataframe(descriptor_job_df)
+
+st.write("#### Labeling")
+kwargs = st.text_input("Filter JSON", placeholder='{"label": "Selection 1"}', key="labeling_kwargs")
+try:
+    kwargs = ast.literal_eval(kwargs)
+except:
+    if kwargs:
+        st.warning("Invalid kwargs format. Please enter a valid dictionary.")
+    kwargs = {}
+labeling_df = db.select_dataframe(model=Labeling, limit=1000, **kwargs)
+st.dataframe(labeling_df)
+
+st.write("#### Design Labeling")
+kwargs = st.text_input("Filter JSON", placeholder='{"design_id": "ovo_abc"}', key="design_labeling_kwargs")
+try:
+    kwargs = ast.literal_eval(kwargs)
+except:
+    if kwargs:
+        st.warning("Invalid kwargs format. Please enter a valid dictionary.")
+    kwargs = {}
+design_labeling_df = db.select_dataframe(model=DesignLabeling, limit=1000, index_col="design_id", **kwargs)
+st.dataframe(design_labeling_df)

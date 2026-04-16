@@ -100,6 +100,8 @@ def get_pools_table(project_id: str = None, round_ids: list[str] = None):
         DesignJob, "id", job_result=False, id__in=[p.design_job_id for p in pools if p.design_job_id]
     )
 
+    filtered_pools = [pool for pool in pools if not pool.design_job_id or pool.design_job_id not in failed_job_ids]
+
     df = pd.DataFrame(
         [
             {
@@ -111,13 +113,12 @@ def get_pools_table(project_id: str = None, round_ids: list[str] = None):
                 "Total Designs": total_by_pool.get(pool.id, 0) if pool.processed else None,
                 "Job ID": pool.design_job_id,
             }
-            for pool in pools
-            if (not pool.design_job_id or pool.design_job_id not in failed_job_ids)
+            for pool in filtered_pools
         ]
     )
     if len(round_ids) > 1:
         round_names = db.select_dict(Round, "id", "name", id__in=round_ids)
-        df.insert(0, "Round", [round_names.get(pool.round_id) for pool in pools])
+        df.insert(0, "Round", [round_names.get(pool.round_id) for pool in filtered_pools])
 
     return df
 

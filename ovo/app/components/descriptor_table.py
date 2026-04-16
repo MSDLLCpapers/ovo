@@ -65,14 +65,20 @@ def descriptor_table(design_ids: List[str], descriptors_df: pd.DataFrame, descri
         f"Duplicate descriptors found in list: {[d.key for d in descriptors]}"
     )
     sequence_cols = [col for col in descriptors_df.columns if col[0] == "Sequence"]
+    labels_cols = [col for col in descriptors_df.columns if col[0] == "Labels"]
     descriptor_cols = [(descriptor.tool, descriptor.name) for descriptor in descriptors]
     available_cols = set(descriptors_df.columns)
-    selected_df = descriptors_df[sequence_cols + [d for d in descriptor_cols if d in available_cols]]
+    selected_df = descriptors_df[sequence_cols + labels_cols + [d for d in descriptor_cols if d in available_cols]]
     styles = {}
     column_config = {}
 
     # When using positional column indices for column config, 0 refers to the first index column
     col_offset = selected_df.index.nlevels
+
+    # Add column config for label column
+    if labels_cols:
+        col_idx = selected_df.columns.get_loc(labels_cols[0]) + col_offset
+        column_config[col_idx] = st.column_config.MultiselectColumn()
 
     for descriptor in descriptors:
         col = (descriptor.tool, descriptor.name)

@@ -3,7 +3,18 @@ from typing import List, Collection
 
 from ovo import db, config
 from ovo.core.database.cache_clearing import clear_when_modified
-from ovo.core.database.models import Project, DescriptorValue, Descriptor, Pool, Round, Design, DesignJob, DescriptorJob
+from ovo.core.database.models import (
+    Project,
+    DescriptorValue,
+    Descriptor,
+    Pool,
+    Round,
+    Design,
+    DesignJob,
+    DescriptorJob,
+    Labeling,
+    DesignLabeling,
+)
 import streamlit as st
 
 from ovo.core.logic.descriptor_logic import get_available_descriptors, get_available_descriptors_per_job
@@ -223,3 +234,50 @@ def get_cached_workflow_pools_and_jobs(project_id: str, workflow_names: Collecti
         pools_by_id[pool.id] = pool
         jobs_by_id[job.id] = job
     return pools_by_id, jobs_by_id
+
+
+@clear_when_modified(Labeling, DesignLabeling)
+@st.cache_data(ttl="1h")
+def get_cached_labelings_for_design(design_id: str) -> list[Labeling]:
+    return db.get_labelings_for_design(design_id)
+
+
+@clear_when_modified(Labeling)
+@st.cache_data(ttl="1h")
+def get_cached_all_available_labels_unique() -> list[str]:
+    return sorted(db.select_unique_values(Labeling, "label"))
+
+
+@clear_when_modified(Labeling, DesignLabeling)
+@st.cache_data(ttl="5m")
+def get_cached_design_ids_with_labels(label_names: list[str], design_ids: list[str], any=False) -> list[str]:
+    if any:
+        return db.get_designs_with_any_labels(label_names, design_ids)
+    else:
+        return db.get_designs_with_all_labels(label_names, design_ids)
+
+
+@clear_when_modified(Labeling)
+@st.cache_data(ttl="5m")
+def get_cached_labeling_explanations_by_label_name(label_name: str) -> list[str]:
+    """Get all unique labeling explanations with the given label name, from most recent."""
+    labelings = db.select(Labeling, label=label_name, order_by="-created_date_utc")
+    explanations = []
+    for labeling in labelings:
+        if labeling.explanation and labeling.explanation not in explanations:
+            explanations.append(labeling.explanation)
+    return explanations
+
+
+@clear_when_modified(Labeling, DesignLabeling)
+@st.cache_data(ttl="5m")
+def get_cached_available_labels_for_design_ids(design_ids: list[str]) -> list[str]:
+    """Get unique labels available for the given design IDs."""
+    return db.get_available_labels_for_design_ids(design_ids)
+
+
+@clear_when_modified(Labeling, DesignLabeling, Design)
+@st.cache_data(ttl="5m")
+def get_cached_available_labels_for_pool_ids(pool_ids: list[str], **design_filters) -> list[str]:
+    """Get unique labels available for the given pool IDs, applying optional filters on the designs in those pools."""
+    return db.get_available_labels_for_pool_ids(pool_ids, **design_filters)

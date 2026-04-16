@@ -103,3 +103,4 @@ def refresh_button(key: str, text="Refresh"):
                    </style>""".replace("KEY", iframe_key)
             )
             time_ago(datetime.now(), prefix="Refreshed", key=iframe_key, flash=just_refreshed)
+    return just_refreshed

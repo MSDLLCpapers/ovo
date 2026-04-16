@@ -7,6 +7,8 @@ from collections import deque
 from typing import Collection, Any
 from datetime import datetime
 import time
+import uuid
+from sqlalchemy.exc import NoResultFound
 
 import numpy as np
 import pandas as pd
@@ -52,6 +54,33 @@ def generate_id(previous_ids: Collection[str]) -> str:
     while new_id is None or new_id in previous_ids:
         new_id = "".join(random.choices(string.ascii_letters.lower(), k=length))
     return new_id
+
+
+def generate_unique_id(model_class, tries=100, min_length=6, max_length=10):
+    """Generate unique UID shortened for memory efficiency using UUID prefix.
+
+    This function generates shortened UUIDs and checks uniqueness by querying the database.
+
+    Args:
+        model_class: The SQLAlchemy model class that has a get(id=...) class method
+        tries: Maximum number of attempts per length (default: 100)
+        min_length: Minimum ID length to try (default: 6)
+        max_length: Maximum ID length to try (default: 10)
+
+    Returns:
+        str: A unique identifier
+
+    Raises:
+        ValueError: If no unique ID could be generated within the specified constraints
+    """
+    for length in range(min_length, max_length):
+        for i in range(tries):
+            new_id = str(uuid.uuid4()).replace("-", "")[:length]
+            try:
+                model_class.get(id=new_id)
+            except NoResultFound:
+                return new_id
+    raise ValueError(f"Failed to generate unique id of length {max_length - 1} after {tries} tries")
 
 
 def get_hash_of_bytes(value: bytes) -> str:

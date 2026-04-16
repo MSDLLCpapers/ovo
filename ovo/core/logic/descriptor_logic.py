@@ -123,6 +123,22 @@ def get_wide_descriptor_table(
             seq_column = f"sequence_{chain_ids}"
         df.insert(0, seq_column, pd.Series(sequences_by_design_id))
 
+    # Add design labels (comma separated) as a column
+    design_labels_dict = {}
+    for design_id in design_ids:
+        labelings = db.get_labelings_for_design(design_id)
+        labels = [labeling.label for labeling in labelings]
+        design_labels_dict[design_id] = ",".join(labels) if labels else None
+    design_labels_series = pd.Series(design_labels_dict)
+
+    if not design_labels_series.isna().all():
+        if human_readable:
+            labels_column = ("Labels", "") if nested else "Labels"
+        else:
+            assert not nested, "nested=True is not supported when human_readable=False"
+            labels_column = "labels"
+        df.insert(0, labels_column, design_labels_series)
+
     return df
 
 
@@ -575,6 +591,32 @@ def export_design_descriptors_excel(df: pd.DataFrame, output_path=None) -> Bytes
 
     # Add filters
     sheet.autofilter(1, 0, n_rows - 1, n_cols - 1)
+
+    # Add cell comments for labels column showing explanation for each label
+    labels_level_index = None
+    for i, level_name in enumerate(df.index.names):
+        if level_name in ["Labels", "labels"] or (isinstance(level_name, tuple) and level_name[0] == "Labels"):
+            labels_level_index = i
+            break
+
+    if labels_level_index is not None:
+        labels_excel_col = labels_level_index
+        design_ids = df.index.get_level_values(0).tolist()
+
+        for row_idx, design_id in enumerate(design_ids, start=row_offset):
+            labelings = db.get_labelings_for_design(design_id)
+            if labelings:
+                # Create comment text with label: explanation pairs
+                comment_parts = []
+                for labeling in labelings:
+                    if labeling.explanation:
+                        comment_parts.append(f"{labeling.label}: {labeling.explanation}")
+                    else:
+                        comment_parts.append(f"{labeling.label}: No explanation provided")
+
+                if comment_parts:
+                    comment_text = "\n".join(comment_parts)
+                    sheet.write_comment(row_idx, labels_excel_col, comment_text, {"x_scale": 2, "y_scale": 1.5})
 
     # Apply background colors
     for i, (descriptor, col) in enumerate(zip(descriptors, df.columns), start=column_offset):

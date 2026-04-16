@@ -28,6 +28,7 @@ from ovo.app.utils.cached_db import (
     get_cached_design_job,
     get_cached_design_jobs_table,
 )
+from ovo.app.components.design_labeling import design_labeling_fragment
 
 
 @st.fragment
@@ -501,7 +502,7 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
             )
             return
     else:
-        st.subheader(design_id)
+        design_labeling_fragment(design_id=design_id, key_suffix=f"job_detail_{design_id}")
 
         design = get_cached_design(design_id)
         pool = get_cached_pool(design.pool_id)

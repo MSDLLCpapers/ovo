@@ -16,6 +16,7 @@ from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.database.models import Design, DesignWorkflow, UnknownWorkflow
 from ovo.app.utils.cached_db import get_cached_pools, get_cached_design_jobs
 from ovo.core.logic.descriptor_logic import get_wide_descriptor_table
+from ovo.app.components.design_labeling import design_labeling_fragment
 import traceback
 
 
@@ -54,6 +55,8 @@ def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
         st.stop()
 
     selected_design_ids = descriptor_scatterplot_component(settings=scatterplot_settings, design_ids=design_ids)
+
+    # TODO: Could enable here labeling of the selected designs
 
     st.subheader("Descriptors")
 
@@ -95,7 +98,7 @@ def design_visualization_fragment(selected_design_ids: list[str]):
     # Use the navigation selector component
     design_id = design_navigation_selector(selected_design_ids, key="selected_design")
 
-    st.subheader(design_id)
+    design_labeling_fragment(design_id=design_id, key_suffix=f"explorer_{design_id}")
 
     design = get_cached_design(design_id)
     pool = get_cached_pool(design.pool_id)
