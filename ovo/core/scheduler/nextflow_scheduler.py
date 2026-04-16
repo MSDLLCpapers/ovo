@@ -12,7 +12,7 @@ import pandas as pd
 import psutil
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from ovo.core.scheduler.base_scheduler import JobNotFound, Scheduler, SchedulerTypes
 from ovo.core.scheduler.simple_queue_mixin import SimpleQueueMixin
 from ovo.cli.common import init_nextflow, run_nextflow, OVOCliError
@@ -552,7 +552,7 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
             if match_start:
                 start_time = match_start.group(1)
                 local_date = datetime.strptime(f"{datetime.now().year} {start_time}", "%Y %b-%d %H:%M:%S.%f")
-                return datetime.utcnow() - datetime.now() + local_date
+                return local_date.astimezone(timezone.utc).replace(tzinfo=None)
         return None
 
     def get_job_stop_time(self, job_id: str) -> datetime | None:
@@ -568,7 +568,7 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
             if match_stop:
                 stop_time = match_stop.group(1)
                 local_date = datetime.strptime(f"{datetime.now().year} {stop_time}", "%Y %b-%d %H:%M:%S.%f")
-                return datetime.utcnow() - datetime.now() + local_date
+                return local_date.astimezone(timezone.utc).replace(tzinfo=None)
         return None
 
     def _get_shared_module_paths(self):

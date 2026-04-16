@@ -3,7 +3,7 @@ import traceback
 import warnings
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable
 
 import pandas as pd
@@ -58,7 +58,9 @@ def get_design_jobs_table(
                 ("Pool", "description"): pool.description,
                 ("Job", "status"): format_pool_status(job, pool.processed, update_status=update),
                 ("Job", "duration"): format_job_duration(job),
-                ("Job", "created"): naturaltime(job.created_date_utc, when=datetime.utcnow()),
+                ("Job", "created"): naturaltime(
+                    job.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)
+                ),
                 ("Designs", "accepted"): accepted_by_pool.get(pool.id, 0) if pool.processed else None,
                 ("Designs", "total"): total_by_pool.get(pool.id, 0) if pool.processed else None,
             }
@@ -104,7 +106,7 @@ def get_pools_table(project_id: str = None, round_ids: list[str] = None):
                 "ID": pool.id,
                 "Name": pool.name,
                 "Description": pool.description,
-                "Created": naturaltime(pool.created_date_utc, when=datetime.utcnow()),
+                "Created": naturaltime(pool.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)),
                 "Accepted Designs": accepted_by_pool.get(pool.id, 0) if pool.processed else "Not processed yet",
                 "Total Designs": total_by_pool.get(pool.id, 0) if pool.processed else None,
                 "Job ID": pool.design_job_id,

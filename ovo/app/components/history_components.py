@@ -4,7 +4,7 @@ from typing import Callable
 import streamlit as st
 
 from ovo.app.utils.cached_db import get_cached_workflow_pools_and_jobs
-from datetime import datetime
+from datetime import datetime, timezone
 import timeago
 from ovo.core.database import Pool, WorkflowTypes
 
@@ -65,7 +65,7 @@ def history_dropdown_component(
 
 
 def format_label(pool_id: str, pools_by_id: dict[str, Pool]):
-    delta = datetime.utcnow() - pools_by_id[pool_id].created_date_utc
+    delta = datetime.now(timezone.utc).replace(tzinfo=None) - pools_by_id[pool_id].created_date_utc
     return "{id} | {name} | {when_created}".format(
         id=pool_id,
         name=pools_by_id[pool_id].name,
