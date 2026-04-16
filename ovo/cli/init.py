@@ -525,16 +525,28 @@ global-exclude *.map
                         "description": "Plugin module entry point that registers the plugin capabilities in OVO",
                         "content": f'''
 plugin = dict(
-    pages = {{
-        # "Tool name": [
-        #     dict(page="my_module.my_page", title="🔥 My plugin page")
+    extension_points = {{
+        # "ovo.workflow_page": [
+        #     dict(
+        #         module_name="{module_name}",
+        #         title="🔥 My plugin page",
+        #         path="{module_name}.my_page",
+        #         category="Category name",
+        #         labels=["Label"],
+        #         short_description="Description of my page",
+        #         thumbnail=None,
+        #     ),
         # ],
+        "ovo.design_view": [
+            dict(
+                title="🔥 My design view",
+                path="{module_name}.design_view_{module_suffix}:{module_name}_fragment",
+                labels=[],
+            )
+        ],
+        # "ovo.descriptors": ["{module_name}.descriptors_{module_suffix}"],
     }},
-    design_views = {{
-        "🔥 My design view": "{module_name}.design_view_{module_suffix}:{module_name}_fragment",
-    }},
-    # descriptors = "{module_name}.descriptors_{module_suffix}",
-    # modules = [
+    # submodule_names = [
     #     "{module_name}.models_{module_suffix}",
     # ]
 )
@@ -571,16 +583,28 @@ plugin = dict(
                         "description": "Plugin module entry point that registers the plugin capabilities in OVO",
                         "content": f'''
 plugin = dict(
-    pages = {{
-        # "Tool name": [
-        #     dict(page="{module_name}.my_page", title="💥 My plugin page")
+    extension_points = {{
+        # "ovo.workflow_page": [
+        #     dict(
+        #         module_name="{module_name}",
+        #         title="💥 My plugin page",
+        #         path="{module_name}.my_page",
+        #         category="Category name",
+        #         labels=["Label"],
+        #         short_description="Description of my page",
+        #         thumbnail=None,
+        #     ),
         # ],
+        "ovo.design_view": [
+            dict(
+                title="💥 My Method",
+                path="{module_name}.design_view_{module_suffix}:{module_name}_fragment",
+                labels=[],
+            )
+        ],
+        "ovo.descriptors": ["{module_name}.descriptors_{module_suffix}"],
     }},
-    design_views = {{
-        "💥 My Method": "{module_name}.design_view_{module_suffix}:{module_name}_fragment",
-    }},
-    descriptors = "{module_name}.descriptors_{module_suffix}",
-    modules = [
+    submodule_names = [
         "{module_name}.models_{module_suffix}",
     ]
 )

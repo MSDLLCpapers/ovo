@@ -1578,7 +1578,7 @@ wheels = [
 
 [[package]]
 name = "ovo"
-version = "1.0.2"
+version = "1.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "appdirs" },
@@ -1588,6 +1588,7 @@ dependencies = [
     { name = "boto3" },
     { name = "cmap" },
     { name = "humanize" },
+    { name = "jinja2" },
     { name = "jsonschema" },
     { name = "matplotlib" },
     { name = "mypy-boto3" },
@@ -1639,6 +1640,7 @@ requires-dist = [
     { name = "boto3" },
     { name = "cmap" },
     { name = "humanize" },
+    { name = "jinja2", specifier = ">=3.1.5" },
     { name = "jsonschema" },
     { name = "matplotlib", specifier = ">=3.9.4" },
     { name = "mypy-boto3" },
