@@ -14,7 +14,7 @@ from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_scatterplot import (
-    descriptor_scatterplot_pool_details_component,
+    descriptor_scatterplot_component,
     descriptor_scatterplot_input_component,
 )
 from ovo.app.components.navigation import design_navigation_selector
@@ -465,24 +465,18 @@ def show_all_designs(all_design_ids: list):
     if not scatterplot_settings:
         return
 
-    selected_design_ids, selection_label = descriptor_scatterplot_pool_details_component(
+    displayed_design_ids = descriptor_scatterplot_component(
         settings=scatterplot_settings,
         design_ids=all_design_ids,
         highlight_accepted=True,
         selected_thresholds=st.session_state.selected_thresholds,
     )
 
-    if selection_label:
-        st.info(f"Selected region: {selection_label}")
-        displayed_design_ids = selected_design_ids
+    if len(displayed_design_ids) < len(all_design_ids):
         st.header(
             f"Showing {len(displayed_design_ids):,} {'design' if len(displayed_design_ids) == 1 else 'designs'} selected in scatterplot"
         )
     else:
-        st.caption(
-            ":material/info: Select a region in the scatterplot to display designs that fall within the selected range."
-        )
-        displayed_design_ids = all_design_ids
         st.header(f"Showing all {len(displayed_design_ids):,} designs")
     return displayed_design_ids
 

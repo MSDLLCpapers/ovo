@@ -7,7 +7,7 @@ from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.descriptor_scatterplot import (
-    descriptor_scatterplot_design_explorer_component,
+    descriptor_scatterplot_component,
     descriptor_scatterplot_input_component,
 )
 from ovo.app.components.navigation import design_navigation_selector
@@ -53,9 +53,7 @@ def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
         st.write("No descriptors available for the selected designs.")
         st.stop()
 
-    selected_design_ids = descriptor_scatterplot_design_explorer_component(
-        settings=scatterplot_settings, design_ids=design_ids
-    )
+    selected_design_ids = descriptor_scatterplot_component(settings=scatterplot_settings, design_ids=design_ids)
 
     st.subheader("Descriptors")
 
