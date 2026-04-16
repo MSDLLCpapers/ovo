@@ -693,14 +693,18 @@ def bindcraft_binder_design_visualization(design_id: str):
     show_design_metrics(
         design_id,
         descriptor_keys=[
+            "bindcraft|sequence|Length",
+            "bindcraft|dssp|Average_Binder_Helix%",
+            "bindcraft|dssp|Average_Binder_BetaSheet%",
+            "bindcraft|dssp|Average_Binder_Loop%",
             "bindcraft|af2|Average_pLDDT",
             "bindcraft|af2|Average_i_pAE",
             "bindcraft|af2|Average_Hotspot_RMSD",
+            "bindcraft|interface|Average_InterfaceUnsatHbondsPercentage",
             "bindcraft|interface|Average_dG",
             "bindcraft|interface|Average_Relaxed_Clashes",
             "bindcraft|interface|Average_n_InterfaceResidues",
-            "bindcraft|dssp|Average_Binder_Helix%",
-            "bindcraft|dssp|Average_Binder_BetaSheet%",
+            "bindcraft|interface|Average_n_InterfaceHbonds",
         ],
     )
 
@@ -708,7 +712,7 @@ def bindcraft_binder_design_visualization(design_id: str):
         structures=[
             StructureVisualization(
                 pdb=storage.read_file_str(design.structure_path),
-                color="chain-id",
+                color="plddt",
             )
         ],
         key="bindcraft_1",

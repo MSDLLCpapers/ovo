@@ -33,7 +33,8 @@ def test_scaffold_end_to_end_logic(project_data, input_method: str):
 
     workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"], custom_backbones=custom_backbones
+            input_pdb_paths=[storage.store_input(project.id, RESOURCES_DIR / "examples/inputs/5ELI_A.pdb")],
+            custom_backbones=custom_backbones,
         ),
         protein_mpnn_params=ProteinMPNNParams(
             num_sequences=2,

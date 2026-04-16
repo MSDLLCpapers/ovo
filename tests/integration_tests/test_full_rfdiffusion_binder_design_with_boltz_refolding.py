@@ -1,4 +1,4 @@
-from ovo import db, design_logic
+from ovo import db, design_logic, storage
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
@@ -18,7 +18,7 @@ def test_binder_default_end_to_end_logic(project_data):
 
     workflow = RFdiffusionBinderDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
+            input_pdb_paths=[storage.store_input(project.id, RESOURCES_DIR / "examples/inputs/5ELI_A.pdb")],
             contigs=["A74-97/0 20"],
             num_designs=1,
             timesteps=15,  # use 15 diffusion timesteps for faster testing

@@ -159,6 +159,7 @@ def submit_design_workflow(
     return_existing: bool = True,
     pipeline_name: str = None,
     resume_failed: bool = False,
+    submission_args: dict = None,
 ) -> tuple[DesignJob, Pool]:
     """Submit a design workflow to the scheduler and create a Pool and DesignJob in the DB.
 
@@ -170,6 +171,7 @@ def submit_design_workflow(
     :param return_existing: If a Pool with the same name and parameters already exists in this round, return it instead of raising an error
     :param pipeline_name: Override the pipeline name to submit, e.g. ovo.rfdiffusion-end-to-end or a github url with @version
     :param resume_failed: If a Pool with the same name already exists in this round but its job has failed, submit the job again.
+    :param submission_args: Extra submission arguments to override in the scheduler, e.g. {"profile": "conda"} or {"stub": True}
     :return: Tuple of (DesignJob, Pool)
     """
     scheduler = get_scheduler(scheduler_key)
@@ -229,6 +231,7 @@ def submit_design_workflow(
     job_id = scheduler.submit(
         pipeline_name=pipeline_name or workflow.get_pipeline_name(),
         params=workflow.prepare_params(workdir=scheduler.workdir),
+        submission_args=submission_args,
     )
 
     try:

@@ -20,8 +20,9 @@ cd "$OUTPUT_DIR"
 rm -rf rfdiffusion
 
 nextflow run ../../main.nf \
+  -stub \
   -process.containerOptions="-v \"$MODELS_DIR:$MODELS_DIR\"" \
-  -profile ${PROFILE:-docker,cpu_env} \
+  -profile ${PROFILE:-conda,cpu_env} \
   -work-dir "$WORK_DIR" \
   -config "$DEFAULT_CONFIG" \
   --shared_modules "ovo:$OVO_MODULE_PATH" \
@@ -30,7 +31,6 @@ nextflow run ../../main.nf \
   --settings_advanced "$INPUT_DIR/custom_settings_advanced.json" \
   --settings_filters "$INPUT_DIR/custom_settings_filters.json" \
   --time_limit_seconds 120 \
-  --alphafold_single_model \
   --publish_dir $OUTPUT_DIR \
   --reference_files_dir "$MODELS_DIR" \
   "$@"

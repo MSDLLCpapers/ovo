@@ -76,9 +76,11 @@ def _include_trajectory_designs(
     }
 
     trajectory_dir_names = [
-        "Relaxed",
         "LowConfidence",
         "Clashing",
+        # "Relaxed",
+        # NOTE: We do not include "Relaxed" trajectories because these are the trajectories that proceed
+        # to MPNN redesign and other stages, so they will be present in the regular Accepted/Rejected folders.
     ]
     # All trajectory variants and paths to their directories.
     trajectory_dir_paths = {
@@ -125,15 +127,6 @@ def _include_trajectory_designs(
                 filename.removesuffix(".pdb"),
             )
 
-            rows.append(
-                {
-                    "ID": design_id,
-                    "Rank": None,
-                    "Model": "rejected trajectory (no model)",  # model
-                    "DesignVariant": f"Trajectory-{trajectory_dir_name}",
-                    **empty_values,
-                }
-            )
             design = Design(
                 id=design_id,
                 pool_id=pool_id,
@@ -149,6 +142,16 @@ def _include_trajectory_designs(
                 **extra_spec_args,
             )
             designs.append(design)
+            rows.append(
+                {
+                    "ID": design_id,
+                    "Rank": None,
+                    "Model": "rejected trajectory (no model)",  # model
+                    "DesignVariant": f"Trajectory-{trajectory_dir_name}",
+                    **empty_values,
+                    "Length": len(design.spec.chains[0].sequence),
+                }
+            )
             trajectory_count += 1
     return designs, rows, design_id_mapping
 
@@ -189,6 +192,7 @@ def process_workflow_results(
         descriptor_job=descriptor_job,
         design_id_mapping=design_id_mapping,
         descriptor_tables={
+            "bindcraft|sequence": final_df,
             "bindcraft|af2": final_df,
             "bindcraft|mpnn": final_df,
             "bindcraft|interface": final_df,
