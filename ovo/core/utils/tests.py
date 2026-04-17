@@ -53,7 +53,7 @@ def assert_similar_sequence(a: str, b: str, min_identity: float):
         raise AssertionError(f"Sequences are not similar enough: {identity:.2f} < {min_identity:.2f}:\n{diff}")
 
 
-def create_test_project_data(prefix="OVO"):
+def create_test_project_data(prefix="OVO", test_input_filename: str = "examples/inputs/5ELI_A.pdb"):
     from ovo import db, storage, Design, Pool
 
     round_name = prefix + " " + datetime.datetime.now().strftime("%a %d %b %Y")
@@ -95,8 +95,8 @@ def create_test_project_data(prefix="OVO"):
     # Create a test design
     test_design = Design.from_pdb_file(
         storage=storage,
-        filename="5ELI_A.pdb",
-        pdb_str=(RESOURCES_DIR / "examples/inputs/5ELI_A.pdb").read_text(),
+        filename=os.path.basename(test_input_filename),
+        pdb_str=(RESOURCES_DIR / test_input_filename).read_text(),
         chains=["A"],
         project_id=project.id,
         pool_id=pool.id,

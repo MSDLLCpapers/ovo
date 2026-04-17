@@ -940,8 +940,24 @@ class FileDescriptor(Descriptor):
 class StructureFileDescriptor(FileDescriptor):
     """Descriptor storing a structure file path as a value (PDB, mmCIF)"""
 
-    structure_type: Literal["backbone_design", "sequence_design", "prediction", "experimentally_resolved"] = None
+    structure_type: Literal[
+        "backbone_design", "sequence_design", "prediction", "experimentally_resolved", "topology"
+    ] = None
     b_factor_value: Literal["plddt", "fractional_plddt"] = None
+
+
+@dataclass
+class TrajectoryFileDescriptor(FileDescriptor):
+    """Descriptor storing an MD trajectory file path as a value (.trr)"""
+
+    pass
+
+
+@dataclass
+class TopologyFileDescriptor(StructureFileDescriptor):
+    """Descriptor storing an MD topology file path as a value (.gro)"""
+
+    pass
 
 
 # include all models
@@ -980,6 +996,8 @@ __all__ = [
     "ResidueNumberDescriptor",
     "FileDescriptor",
     "StructureFileDescriptor",
+    "TopologyFileDescriptor",
+    "TrajectoryFileDescriptor",
     "DataclassType",
     "Artifact",
     "UnknownArtifact",

@@ -214,11 +214,18 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     jobs_by_id = {job.id: job for job in jobs_for_design_ids}
 
     # Use job IDs as options instead of job objects
+    job_labels = {
+        job_id: f"**{job.workflow.name}** ({datetime_from_utc_to_local(job.created_date_utc).strftime('%Y-%m-%d %H:%M')})"
+        for job_id, job in jobs_by_id.items()
+    }
+    if len(set(job_labels.values())) != len(job_labels.values()):
+        # If there are duplicate labels, append job ID to differentiate
+        job_labels = {job_id: f"{label} {job_id}" for job_id, label in job_labels.items()}
     job_id = st.segmented_control(
         "Select clustering result",
         options=list(jobs_by_id.keys()),
         default=jobs_for_design_ids[0].id if len(jobs_for_design_ids) == 1 else None,
-        format_func=lambda job_id: f"**{jobs_by_id[job_id].workflow.name}** ({datetime_from_utc_to_local(jobs_by_id[job_id].created_date_utc).strftime('%Y-%m-%d %H:%M')})",
+        format_func=job_labels.get,
     )
     if job_id is None:
         st.info("Please select a clustering result above")
