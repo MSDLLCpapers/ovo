@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, TypedDict
 from ovo.core.database import DescriptorWorkflow, WorkflowTypes, Design, Base
+from __MODULE_NAME__ import descriptors___MODULE_SUFFIX__
 
 
 class __WORKFLOW_CLASS_NAME__ParamsType(TypedDict):
@@ -57,5 +58,12 @@ class __WORKFLOW_CLASS_NAME__(DescriptorWorkflow):
             },
             # mapping from design.id to ID column in produced file
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
+            # individual files per design
+            design_files={
+                # TODO adapt this to your output files or remove this if you don't produce per-design files
+                # filename produced by pipeline -> subdir in storage, file suffix in storage, descriptor key
+                "__MODULE_SUFFIX__/{}.csv": ("descriptors", "___MODULE_SUFFIX__.csv", descriptors___MODULE_SUFFIX__.EXAMPLE_FILE.key),
+            },
+            callback=callback,
         )
         return descriptor_values + [job]

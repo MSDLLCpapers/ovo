@@ -424,10 +424,10 @@ def plugin():
         console.print("=" * console.size.width)
         console.print("")
 
-        module_name = Prompt.ask("Enter the plugin module name (such as ovo_my_plugin)")
+        module_name = Prompt.ask("Enter the plugin module name starting with ovo_ (such as ovo_some_tool)")
         while not module_name.startswith("ovo_"):
             console.print("[red]Please use a module name starting with ovo_[/red]")
-            module_name = Prompt.ask("Enter the plugin module name (such as ovo_my_plugin)")
+            module_name = Prompt.ask("Enter the plugin module name (such as ovo_some_tool)")
         module_suffix = module_name.removeprefix("ovo_")
 
         plugin_dir = os.path.abspath(module_name)
@@ -437,7 +437,7 @@ def plugin():
 
         while not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", module_name):
             console.print("[red]Invalid module name, must be a valid Python identifier[/red]")
-            module_name = Prompt.ask("Enter the plugin module name (such as ovo_my_plugin)")
+            module_name = Prompt.ask("Enter the plugin module name (such as ovo_some_tool)")
 
         console.print("")
         table = Table(show_lines=True)

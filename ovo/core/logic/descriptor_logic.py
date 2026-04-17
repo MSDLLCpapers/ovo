@@ -1,5 +1,6 @@
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO, BytesIO
 from typing import List, Collection, Callable
 
@@ -335,6 +336,8 @@ def read_descriptor_file_values(
     design_id_mapping: dict[str, str | tuple],
     filenames: dict[str, str] = None,
     descriptor_tables: dict[str, pd.DataFrame] = None,
+    design_files: dict[str, tuple[str, str, str]] = None,
+    callback: Callable = None,
 ) -> list[DescriptorValue]:
     """Process descriptor job, return list of DescriptorValues to be inserted into DB.
 
@@ -342,6 +345,13 @@ def read_descriptor_file_values(
     :param design_id_mapping: Mapping from design.id to table_id (basename of PDB file = id column in descriptor output file)
     :param filenames: Dict of "pipeline_name|tool_key" -> filename in output directory (with or without file extension - will look for .csv or .jsonl)
     :param descriptor_tables: Optional dictionary of pre-loaded descriptor tables (tool_key -> pd.DataFrame).
+    :param design_files: Optional dict of filename produced by pipeline -> (subdir in storage, file suffix in storage, descriptor_key), for individual design files
+                         (e.g. per-design PDB output files or CSV files with more detailed descriptors, to be stored as storage path descriptors).
+                         For example pssm/{}.csv (with {} replaced by value of design_id_mapping) -> (descriptors, _pssm.csv, some|descriptor|key)
+                         Will store the descriptor files under pool/{pool_id}/descriptors/{descriptor_job_id}/{design_id}{file_suffix}.
+    :param callback: Optional callback function for reporting progress, will be called with value between 0 and 1 and text description of the current step
+
+    :return: List of DescriptorValue objects to be saved to DB
     """
     assert len(design_id_mapping) == len(set(design_id_mapping.values())), (
         f"Duplicate ids in design_id_mapping: {design_id_mapping}"
@@ -349,6 +359,10 @@ def read_descriptor_file_values(
 
     if descriptor_tables is None:
         descriptor_tables = {}
+
+    # source path -> (design_id, storage subdir, storage suffix, descriptor_key),
+    # e.g. path/to/contig1_batch1/pssm/first.csv -> (descriptors, ovo_xyz_01, _pssm.csv, some|descriptor|key)
+    design_file_paths = {}
 
     if filenames:
         scheduler = get_scheduler(descriptor_job.scheduler_key)
@@ -384,6 +398,26 @@ def read_descriptor_file_values(
                             batch_descriptors[descriptor_key_prefix].append(df.set_index(id_column))
                         any_files_in_batch = True
                         any_files_in_contig = True
+                for design_file_template, (storage_subdir, storage_suffix, descriptor_key) in (design_files or {}).items():
+                    assert isinstance(storage_subdir, str) and isinstance(storage_suffix, str) and isinstance(descriptor_key, str), (
+                        f"Expected (storage_subdir string, storage_suffix string, descriptor_key string) tuple, got: {(storage_suffix, descriptor_key)}"
+                    )
+                    for design_id, table_ids in design_id_mapping.items():
+                        if isinstance(table_ids, str):
+                            table_ids = (table_ids,)
+                        for table_id in table_ids:
+                            design_file_path = os.path.join(
+                                source_output_path, batch_name, design_file_template.format(table_id)
+                            )
+                            if storage.file_exists(design_file_path):
+                                any_files_in_batch = True
+                                any_files_in_contig = True
+                                design_file_paths[design_file_path] = (
+                                    design_id,
+                                    storage_subdir,
+                                    storage_suffix,
+                                    descriptor_key,
+                                )
                 if not any_files_in_batch:
                     break
                 batch_number += 1
@@ -416,7 +450,59 @@ def read_descriptor_file_values(
             )
         )
 
+    if design_file_paths:
+        with storage.archive_context(delete_if_exists=True):
+            with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
+                futures = [
+                    executor.submit(
+                        _store_design_file_descriptor,
+                        source_path,
+                        # Storage path:
+                        # project/[project_id]/pool/[pool_id]/descriptors/[descriptor_job_id]/[design_id]_suffix.ext
+                        os.path.join(
+                            storage.get_project_path(descriptor_job.project_id, Design.design_id_to_pool_id(design_id)),
+                            storage_subdir,
+                            descriptor_job.id,
+                            f"{design_id}{storage_suffix}",
+                        ),
+                        descriptor_key,
+                        descriptor_job.id,
+                        design_id,
+                        descriptor_job.workflow.chains,
+                    )
+                    for source_path, (design_id, storage_subdir, storage_suffix, descriptor_key) in design_file_paths.items()
+                ]
+
+                for i, future in enumerate(futures):
+                    descriptor_values.append(future.result())
+                    if callback:
+                        callback(
+                            value=(i + 1) / len(futures),
+                            text=f"Storing file ({i + 1}/{len(futures)})",
+                        )
+
     return descriptor_values
+
+
+def _store_design_file_descriptor(
+    source_path: str,
+    storage_path: str,
+    descriptor_key: str,
+    descriptor_job_id: str,
+    design_id: str,
+    chains: list[str],
+) -> DescriptorValue:
+    return DescriptorValue(
+        descriptor_key=descriptor_key,
+        value=storage.store_file_path(
+            source_abs_path=source_path,
+            storage_rel_path=storage_path,
+            overwrite=False,
+        ),
+        design_id=design_id,
+        descriptor_job_id=descriptor_job_id,
+        chains=",".join(chains),
+    )
 
 
 def save_descriptor_job_for_design_job(

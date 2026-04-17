@@ -45,7 +45,7 @@ process __MODULE_SUFFIX__ {
     tuple val(batch_dir), path(pdb_dir)
     val chains
   output:
-    path "${batch_dir}/*", emit: output_csv
+    path "${batch_dir}/*", emit: outputs
   script:
   """
   set -euxo pipefail
@@ -55,7 +55,8 @@ process __MODULE_SUFFIX__ {
   python3 ${moduleDir}/bin/example.py \
     ${pdb_dir} \
     "${batch_dir}"/__MODULE_SUFFIX__.csv \
-    --chain "${chains}"
+    --output-dir "${batch_dir}/__MODULE_SUFFIX__/" \
+    --chains "${chains}"
 
   """
 }

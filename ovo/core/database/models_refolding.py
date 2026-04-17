@@ -89,7 +89,7 @@ class RefoldingWorkflow(DescriptorWorkflow):
                 any_files_in_batch = False
 
                 for design_id in self.design_ids:
-                    pool_id = design_id.split("_")[1]
+                    pool_id = Design.design_id_to_pool_id(design_id)
                     for test in self.tests:
                         source_structure_path = f"{batch_output_path}/{test}/{design_id}_{test}.pdb"
                         if storage.file_exists(source_structure_path):
@@ -123,7 +123,7 @@ class RefoldingWorkflow(DescriptorWorkflow):
                         design_id,
                         test,
                         batch_output_path,
-                        os.path.join("project", job.project_id, "pools", pool_id, "designs"),
+                        storage.get_project_path(job.project_id, pool_id),
                         job.id,
                         self.chains,
                     )
