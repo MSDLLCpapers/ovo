@@ -48,7 +48,7 @@ class __WORKFLOW_CLASS_NAME__(DescriptorWorkflow):
 
     def process_results(self, job: "DescriptorJob", callback: Callable = None) -> list[Base]:
         """Process results of a successful workflow - download files from workdir, save DesignJob, Pool and Designs"""
-        from ovo.core.logic.descriptor_logic import read_descriptor_file_values
+        from ovo.core.logic.descriptor_logic import read_descriptor_file_values, read_per_design_files
 
         descriptor_values = read_descriptor_file_values(
             descriptor_job=job,
@@ -58,11 +58,20 @@ class __WORKFLOW_CLASS_NAME__(DescriptorWorkflow):
             },
             # mapping from design.id to ID column in produced file
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
+        )
+        # TODO adapt this to your output files or remove this if you don't produce per-design files
+        descriptor_values += read_per_design_files(
+            descriptor_job=job,
+            # mapping from design.id to ID column in produced file
+            design_id_mapping={design_id: design_id for design_id in self.design_ids},
             # individual files per design
             design_files={
-                # TODO adapt this to your output files or remove this if you don't produce per-design files
                 # filename produced by pipeline -> subdir in storage, file suffix in storage, descriptor key
-                "__MODULE_SUFFIX__/{}.csv": ("descriptors", "___MODULE_SUFFIX__.csv", descriptors___MODULE_SUFFIX__.EXAMPLE_FILE.key),
+                "__MODULE_SUFFIX__/{}.csv": (
+                    "descriptors",
+                    "___MODULE_SUFFIX__.csv",
+                    descriptors___MODULE_SUFFIX__.EXAMPLE_FILE.key,
+                ),
             },
             callback=callback,
         )
