@@ -101,6 +101,42 @@ class SqlDBEngine(CacheClearingEngine):
                     text("CREATE INDEX ix_descriptor_value_descriptor_key ON descriptor_value (descriptor_key)")
                 )
                 session.commit()
+            # Add missing MetadataMixin columns to project artifact
+            project_artifact_columns = [c["name"] for c in inspector.get_columns("project_artifact")]
+            if "author" not in project_artifact_columns:
+                row_count = session.execute(text("SELECT COUNT(*) FROM project_artifact")).scalar()
+                if row_count == 0:
+                    print("Applying automigration: adding metadata columns to project_artifact", file=sys.stderr)
+                    session.execute(text("DROP TABLE project_artifact"))
+                    session.commit()
+                    Base.metadata.create_all(self._engine)
+                else:
+                    raise NotImplementedError(
+                        "Automigration to add metadata columns to project_artifact "
+                        "is not implemented for non-empty tables, manual migration is required. "
+                        "\n"
+                        "\nPlease consider renaming the existing project_artifact table, "
+                        "restarting OVO to create a new one with the correct schema, and then migrating the data from the old table to the new one:"
+                        "\n"
+                        "\nALTER TABLE project_artifact RENAME TO project_artifact_old;"
+                        "\nDROP INDEX IF EXISTS ix_project_artifact_project_id;"
+                        "\nDROP INDEX IF EXISTS ix_project_artifact_artifact_type;"
+                        "\nDROP INDEX IF EXISTS ix_project_artifact_descriptor_job_id;"
+                        "\nDROP INDEX IF EXISTS ix_project_artifact_design_job_id;"
+                        "\n"
+                        "\nRestart OVO to create new project_artifact table with metadata columns."
+                        "\nThen migrate data:"
+                        "\n"
+                        "\nINSERT INTO"
+                        "\nproject_artifact("
+                        "\n    id, project_id, artifact_type, descriptor_job_id,"
+                        "\n    design_job_id, artifact, author, created_date_utc"
+                        "\n)"
+                        "\nSELECT"
+                        "\nid, project_id, artifact_type, descriptor_job_id,"
+                        "\ndesign_job_id, artifact, 'unknown', CURRENT_TIMESTAMP"
+                        "\nFROM project_artifact_old;"
+                    )
 
     def _create_session(self) -> Session:
         return Session(bind=self._engine, expire_on_commit=False)
@@ -191,11 +227,21 @@ class SqlDBEngine(CacheClearingEngine):
         if order_by is None:
             return []
         if isinstance(order_by, str):
-            return [self._create_order_by_single(model, order_by)]
+            order_by = [order_by]
+        else:
+            try:
+                order_by = list(order_by)
+            except:
+                order_by = [order_by]
+        # process an iterable of column names
         return [self._create_order_by_single(model, k) for k in order_by]
 
     def _create_order_by_single(self, model: Type[T], order_by):
-        return getattr(model, order_by) if not order_by.startswith("-") else getattr(model, order_by[1:]).desc()
+        if isinstance(order_by, str):
+            return getattr(model, order_by) if not order_by.startswith("-") else getattr(model, order_by[1:]).desc()
+        else:
+            # Assume that the caller passed an already constructed order_by expression, e.g. model.column.desc()
+            return order_by
 
     def _create_filters(self, model: Type[T], kwargs):
         filters = []

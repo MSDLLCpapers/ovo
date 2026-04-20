@@ -796,7 +796,20 @@ class UnknownArtifact(Artifact):
         return []
 
 
-class ProjectArtifact(Base):
+@ArtifactTypes.register()
+@dataclass
+class AttachmentArtifact(Artifact):
+    """Artifact for user-uploaded attachments"""
+
+    file_path: str
+    original_filename: str
+    size_bytes: int
+
+    def get_storage_paths(self) -> list[str]:
+        return [self.file_path] if self.file_path else []
+
+
+class ProjectArtifact(Base, MetadataMixin):
     __tablename__ = "project_artifact"
     id: Mapped[str] = mapped_column(String, primary_key=True, default_factory=lambda: str(uuid.uuid4()))
     project_id: Mapped[str] = mapped_column(String, nullable=False, default=None, index=True)
@@ -1003,4 +1016,5 @@ __all__ = [
     "UnknownArtifact",
     "ArtifactTypes",
     "ProjectArtifact",
+    "AttachmentArtifact",
 ]

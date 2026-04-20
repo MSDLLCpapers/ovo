@@ -124,6 +124,7 @@ def test_export_import_cycle(example_pdb_path, recwarn):
         artifact=TestArtifact(
             file_paths=[artifact_file_path],
         ),
+        author="test",
     )
     db.save(test_artifact)
     assert os.path.exists(os.path.join(storage.storage_root, artifact_file_path))

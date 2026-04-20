@@ -2,6 +2,7 @@ import humanize
 import streamlit as st
 
 from ovo import storage, get_username, config
+from ovo.app.components.attachment_components import add_project_attachments, list_project_attachments
 from ovo.app.components.project_components import edit_project_dialog, project_stats_fragment
 from ovo.app.pages import import_export_page
 from ovo.app.utils.page_init import initialize_page
@@ -38,3 +39,9 @@ if st.button(":material/edit: " + ("Edit description" if project.description els
     edit_project_dialog(project_id=project.id)
 
 project_stats_fragment(project.id)
+
+st.markdown("#### Project attachments")
+
+add_project_attachments(project)
+
+list_project_attachments(project)

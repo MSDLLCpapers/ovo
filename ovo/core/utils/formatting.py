@@ -100,7 +100,7 @@ def get_hashed_path_for_bytes(value: bytes) -> str:
 
 def safe_filename(filename):
     # Allow only the specified characters
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", filename).strip(".")
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", filename).strip(".") or "unnamed"
 
 
 def parse_args(argv: list[str]) -> dict:

@@ -156,7 +156,16 @@ class Storage:
             return content
         return None
 
-    def _cache_store(self, file_path, content: str | bytes):
+    def _cache_store(self, file_path, content: str | bytes | None):
+        if content is None:
+            if file_path in self._cache_memory:
+                self.memory_cache_size -= len(self._cache_memory[file_path])
+                del self._cache_memory[file_path]
+            if file_path in self._cache_disk:
+                self.disk_cache_size -= os.path.getsize(self._cache_disk[file_path])
+                os.remove(self._cache_disk[file_path])
+                del self._cache_disk[file_path]
+            return
         if len(content) <= self.memory_cache_limit_per_file_bytes:
             # Cache recent files in memory (unless they are too big)
             self._cache_memory[file_path] = content
@@ -181,6 +190,11 @@ class Storage:
             old_file, old_disk_path = self._cache_disk.popitem(last=False)
             self.disk_cache_size -= os.path.getsize(old_disk_path)
             os.remove(old_disk_path)
+
+    def clear_cache(self, storage_path: str):
+        """Clear the cache for a specific file path"""
+        abs_path = self.resolve_path(storage_path)
+        self._cache_store(abs_path, None)
 
     @staticmethod
     def parse_path(path: str) -> tuple[str, str, str]:
@@ -828,6 +842,24 @@ class Storage:
             return self.prepare_workflow_input(
                 storage_path="input_pdb_paths.txt", workdir=workdir, input_bytes="\n".join(paths).encode("utf-8")
             )
+
+    def remove(self, storage_path: str):
+        """Remove the file from storage"""
+        self.clear_cache(storage_path)
+        abs_path = self.resolve_path(storage_path)
+        scheme, bucket, key = self.parse_path(abs_path)
+        if scheme == "s3":
+            try:
+                self.aws.s3.delete_object(Bucket=bucket, Key=key)
+            except ClientError as e:
+                print("S3 ERROR", e, e.response)
+                if e.response["Error"]["Code"] in ("NoSuchKey", "404", 404):
+                    raise FileNotFoundError(f"File not found: {abs_path}") from e
+                raise
+        elif scheme == "zip":
+            raise NotImplementedError("Removing files from zip archives is not supported yet")
+        else:
+            os.remove(abs_path)
 
 
 class ZipWriteContext:
