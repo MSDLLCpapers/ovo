@@ -4,6 +4,7 @@ from ovo import db, config
 from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.navigation import project_round_selector, pool_selector_table
 from ovo.app.utils.page_init import initialize_page
+from ovo.app.utils.testing import is_test_dialog_shown
 from ovo.app.components.create_new_pool import create_new_pool
 from ovo.core.database import Design
 from ovo.core.plugins import load_variable, get_extension_points, DesignView
@@ -27,7 +28,7 @@ rounds = get_cached_rounds(project_id=project.id)
 rounds_by_id = {r.id: r for r in rounds}
 if not rounds:
     st.write("*No designs available in this project. Upload a pool or submit a workflow in the left panel.*")
-    if st.button(":material/upload: Upload designs", key="empty_upload"):
+    if st.button(":material/upload: Upload designs", key="empty_upload") or is_test_dialog_shown("create_new_pool"):
         create_new_pool()
     st.stop()
 
@@ -45,7 +46,7 @@ else:
             ":material/upload: Upload designs",
             disabled=config.props.read_only,
             help="Ovo is running in read-only mode, design upload is disabled" if config.props.read_only else None,
-        ):
+        ) or is_test_dialog_shown("create_new_pool"):
             create_new_pool()
         if refresh_button("refresh_pools"):
             clear_cache = True

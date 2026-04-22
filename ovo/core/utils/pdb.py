@@ -746,6 +746,10 @@ class ChainNotFoundError(Exception):
     pass
 
 
+class NoStructuresFound(Exception):
+    pass
+
+
 def get_sequences_from_pdb_str(
     pdb_str: str,
     chains: list[str] = None,

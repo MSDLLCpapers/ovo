@@ -30,6 +30,7 @@ from ovo.core.logic.proteinqc_logic import get_descriptor_cmap, get_descriptor_c
 from ovo.core.utils.export import write_sheet
 from ovo.core.database.models_clustering import ProteinClusteringTool
 from ovo.core.scheduler.base_scheduler import Scheduler
+from ovo.core.utils.pdb import NoStructuresFound
 
 
 def get_available_descriptors(design_ids: list[str]) -> dict[str, Descriptor]:
@@ -143,7 +144,23 @@ def get_wide_descriptor_table(
     return df
 
 
-def submit_descriptor_workflow(workflow: DescriptorWorkflow, scheduler_key: str, project_id: str):
+def submit_descriptor_workflow(
+    workflow: DescriptorWorkflow,
+    scheduler_key: str,
+    project_id: str,
+    pipeline_name: str = None,
+    submission_args: dict = None,
+):
+    """Submit a descriptor workflow to the scheduler and create a DescriptorJob in the DB.
+
+    :param workflow: DescriptorWorkflow object to submit
+    :param scheduler_key: Key of the scheduler to use
+    :param project_id: ID of the Project to associate the DescriptorJob with
+    :param pipeline_name: Override the pipeline name to submit, e.g. ovo.proteinqc or a github url with @version
+    :param submission_args: Extra submission arguments to override in the scheduler, e.g. {"profile": "conda"} or {"stub": True}
+    :return: DescriptorJob
+    """
+
     if config.props.read_only:
         raise RuntimeError("Cannot submit design workflow: OVO server is in read-only mode")
 
@@ -155,8 +172,9 @@ def submit_descriptor_workflow(workflow: DescriptorWorkflow, scheduler_key: str,
 
     # Submit the workflow
     job_id = scheduler.submit(
-        pipeline_name=workflow.get_pipeline_name(),
+        pipeline_name=pipeline_name or workflow.get_pipeline_name(),
         params=workflow.prepare_params(workdir=scheduler.workdir),
+        submission_args=submission_args,
     )
 
     # Create descriptor job
@@ -174,25 +192,41 @@ def submit_descriptor_workflow(workflow: DescriptorWorkflow, scheduler_key: str,
     return descriptor_job
 
 
-def prepare_proteinqc_params(workflow: ProteinQCWorkflow, workdir: str) -> dict:
+def prepare_design_structures(designs: list[Design], workdir: str):
+    """Prepare a txt file (or single pdb file if single design) with PDB file paths, all stored in a provided workdir"""
     storage_paths = []
     design_ids = []
-    for design in db.select(Design, id__in=workflow.design_ids):
+    for design in designs:
         if not design.structure_path:
             print(f"Design {design.id} has no pdb path. Skipping...")
             continue
         storage_paths.append(design.structure_path)
         design_ids.append(design.id)
 
-    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
-    input_path = storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
+    if not storage_paths:
+        raise NoStructuresFound("No structures found for the selected designs.")
 
-    return {
-        "input_pdb": input_path,
-        "tools": ",".join(workflow.tools),
-        "chains": ",".join(list(workflow.chains)),
-        "batch_size": 50,
-    }
+    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
+    return storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
+
+
+def prepare_design_sequences(designs: list[Design], workdir: str):
+    """Prepare a csv file with a design_id column and a sequence column for each chain and store it in a provided workdir"""
+    sequences = []
+    design_ids = []
+    for design in designs:
+        if not design.spec or not design.spec.chains:
+            print(f"Design {design.id} has no spec chains. Skipping...")
+            continue
+        sequences.append({chain_id: chain.sequence for chain in design.spec.chains for chain_id in chain.chain_ids})
+        design_ids.append(design.id)
+
+    if not sequences:
+        raise ValueError("No sequences found for the selected designs.")
+
+    df = pd.DataFrame(sequences, index=design_ids)
+
+    return storage.prepare_workflow_input(storage_path="designs.csv", input_bytes=df.to_csv().encode(), workdir=workdir)
 
 
 def prepare_refolding_params(workflow: RefoldingWorkflow, workdir: str) -> dict:

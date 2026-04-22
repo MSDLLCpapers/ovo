@@ -5,6 +5,8 @@ from ovo.core.database.models import DescriptorWorkflow, WorkflowTypes, Design, 
 from ovo.core.scheduler.base_scheduler import Scheduler
 from dataclasses import dataclass
 
+from ovo.core.utils.pdb import NoStructuresFound
+
 
 @dataclass
 class ProteinQCTool:
@@ -12,6 +14,7 @@ class ProteinQCTool:
     tool_key: str = None
     supports_conda: bool = False
     supports_multichain: bool = False
+    supports_sequence_input: bool = False
 
 
 SEQ_COMPOSITION = ProteinQCTool(
@@ -19,6 +22,7 @@ SEQ_COMPOSITION = ProteinQCTool(
     tool_key="seq_composition",
     supports_conda=True,
     supports_multichain=True,
+    supports_sequence_input=True,
 )
 
 ESM_1V = ProteinQCTool(
@@ -26,6 +30,7 @@ ESM_1V = ProteinQCTool(
     tool_key="esm_1v",
     supports_conda=True,
     supports_multichain=True,
+    supports_sequence_input=True,
 )
 
 ESM_IF = ProteinQCTool(
@@ -54,6 +59,7 @@ PROTEINSOL = ProteinQCTool(
     tool_key="proteinsol",
     supports_conda=True,
     supports_multichain=True,
+    supports_sequence_input=True,
 )
 
 PROTEINQC_TOOLS = [SEQ_COMPOSITION, ESM_1V, ESM_IF, DSSP, PEPPATCH, PROTEINSOL]
@@ -64,19 +70,41 @@ PROTEINQC_TOOLS_BY_KEY = {tool.tool_key: tool for tool in PROTEINQC_TOOLS}
 @dataclass
 class ProteinQCWorkflow(DescriptorWorkflow):
     tools: List[str] = None
+    batch_size: int = 20
 
     def get_pipeline_name(self) -> str:
         return "ovo.proteinqc"
 
     def prepare_params(self, workdir: str) -> dict:
-        # TODO: Submit only if there is not existing running job
-        # TODO: Submit only if descriptors are missing
-        from ovo.core.logic.descriptor_logic import prepare_proteinqc_params
+        from ovo.core.logic.descriptor_logic import prepare_design_structures, prepare_design_sequences
+        from ovo import db
 
-        return prepare_proteinqc_params(
-            workflow=self,
-            workdir=workdir,
-        )
+        designs = db.select(Design, id__in=self.design_ids)
+        if self.supports_sequence_input():
+            input_path = prepare_design_sequences(designs, workdir=workdir)
+        else:
+            try:
+                input_path = prepare_design_structures(designs, workdir=workdir)
+            except NoStructuresFound:
+                sequence_tools = [tool.name for tool in PROTEINQC_TOOLS if tool.supports_sequence_input]
+                structure_tools = [
+                    tool.name
+                    for tool in PROTEINQC_TOOLS
+                    if tool.tool_key in self.tools and not tool.supports_sequence_input
+                ]
+                raise ValueError(
+                    "No structures found for the provided designs, "
+                    f"but some tools require structure input ({', '.join(structure_tools)}). "
+                    "Please provide structures for your designs, "
+                    f"or select only tools that support sequence input ({', '.join(sequence_tools)})."
+                )
+
+        return {
+            "input_pdb": input_path,
+            "tools": ",".join(self.tools),
+            "chains": ",".join(list(self.chains)),
+            "batch_size": self.batch_size,
+        }
 
     def process_results(self, job: DescriptorJob, callback: Callable = None) -> list[Base]:
         from ovo.core.logic.descriptor_logic import read_descriptor_file_values
@@ -90,8 +118,14 @@ class ProteinQCWorkflow(DescriptorWorkflow):
         )
         return descriptor_values + [job]
 
+    def supports_sequence_input(self) -> bool:
+        """Check if all tools support sequence-only input (i.e. no structure required)"""
+        return all(PROTEINQC_TOOLS_BY_KEY[tool_key].supports_sequence_input for tool_key in self.tools)
+
     def validate(self):
         super().validate()
+        if not self.chains or any(not chain for chain in self.chains):
+            raise ValueError("Chain IDs cannot be empty")
         if not self.tools:
             raise ValueError("No tools specified for ProteinQC workflow")
         unsupported_multi_chain_tools = []

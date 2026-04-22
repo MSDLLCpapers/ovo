@@ -721,6 +721,9 @@ def bindcraft_binder_design_visualization(design_id: str):
 
 def visualize_design_structure(design_id: str, height="500px"):
     design = get_cached_design(design_id)
+    if not design.structure_path:
+        st.write("No structure available for this design.")
+        return
 
     molstar_custom_component(
         structures=[

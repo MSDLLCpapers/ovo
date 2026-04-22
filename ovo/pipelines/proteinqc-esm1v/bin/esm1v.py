@@ -127,8 +127,21 @@ if __name__ == "__main__":
         sequences_by_id = {
             record.id.split("|")[0]: str(record.seq) for record in SeqIO.parse(options.input_path, "fasta")
         }
+    elif options.input_path.endswith(".csv"):
+        csv_df = pd.read_csv(options.input_path, index_col=0)
+        # Verify all chain columns exist
+        for chain in chains:
+            if chain not in csv_df.columns:
+                raise ValueError(f"Column '{chain}' not found in CSV file. Available columns: {list(csv_df.columns)}")
+        # Extract and concatenate sequences from specified chain columns
+        sequences_by_id = {}
+        for seq_id, row in csv_df.iterrows():
+            for chain in chains:
+                if pd.notna(row[chain]):  # Only add non-empty sequences
+                    sequences_by_id[f"{seq_id}_{chain}"] = str(row[chain])
+        print(f"Reading sequences from CSV with chains: {chains}")
     else:
-        raise ValueError("Input must be a directory with PDB files, a PDB file, or a FASTA file")
+        raise ValueError("Input must be a directory with PDB files, a PDB file, a FASTA file, or a CSV file")
 
     models_path = options.esm_models_dir
 

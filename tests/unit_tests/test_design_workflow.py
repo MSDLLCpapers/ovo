@@ -2,7 +2,6 @@ from unittest.mock import ANY
 
 import pytest
 
-from ovo.core.logic import design_logic
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionScaffoldDesignWorkflow,

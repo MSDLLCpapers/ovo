@@ -17,6 +17,7 @@ from ovo.core.database.models import (
 )
 import streamlit as st
 
+from ovo.core.logic import design_logic
 from ovo.core.logic.descriptor_logic import get_available_descriptors, get_available_descriptors_per_job
 from ovo.core.logic.design_logic import get_design_jobs_table, get_pools_table
 
@@ -129,6 +130,13 @@ def get_cached_design_ids(pool_ids: list[str], **filters) -> list[str]:
     ids = db.select_values(Design, "id", pool_id__in=pool_ids, **filters)
     order = dict(zip(pool_ids, range(len(pool_ids))))
     return sorted(ids, key=lambda design_id: order.get(Design.design_id_to_pool_id(design_id)))
+
+
+@clear_when_modified(Design)
+@st.cache_data(max_entries=10, ttl="1h")
+def get_cached_common_chain_ids(design_ids: list[str]) -> tuple[list[str], list[str]]:
+    """Get common chain IDs that exist across the given design IDs."""
+    return design_logic.get_common_chain_ids(design_ids)
 
 
 @clear_when_modified(Round)

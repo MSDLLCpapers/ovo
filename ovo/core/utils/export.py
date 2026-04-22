@@ -113,3 +113,16 @@ def shorten_sheet_names(names_orig: list[str], max_length: int = 27, max_iter: i
         collisions = set([name for name in names_final if names_final.count(name) > 1])
         raise ValueError(f"The colliding sheet names could not be resolved. Collisions: {collisions}")
     return names_final
+
+
+def parse_tabular_file(file, header=0):
+    """Parse CSV, TSV, or XLSX file and return a pandas DataFrame."""
+    filename = file.name.lower()
+    if filename.endswith(".csv"):
+        return pd.read_csv(file, header=header)
+    elif filename.endswith(".tsv"):
+        return pd.read_csv(file, sep="\t", header=header)
+    elif filename.endswith((".xlsx", ".xls")):
+        return pd.read_excel(file, header=header)
+    else:
+        raise ValueError(f"Unsupported file type: {filename}")

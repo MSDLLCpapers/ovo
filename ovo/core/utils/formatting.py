@@ -161,10 +161,12 @@ def truncated_list(items: Collection[Any], max_items: int, sep: str = ", ") -> s
         return sep.join(str(item) for item in list(items)[:max_items]) + sep + "..."
 
 
-def truncate_middle(text: str, max_length: int) -> str:
+def truncate_middle(text: str, max_length: int) -> str | None:
     """Truncate a string in the middle if it exceeds the maximum length, adding ellipsis.
     :return: The truncated string if it exceeds max_length, otherwise the original string.
     """
+    if text is None:
+        return text
     if len(text) <= max_length:
         return text
     else:

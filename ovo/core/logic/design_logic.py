@@ -1,6 +1,8 @@
+import os
 import sys
 import traceback
 import warnings
+import zipfile
 
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -10,13 +12,24 @@ import pandas as pd
 from humanize import naturaltime
 from sqlalchemy.orm.attributes import flag_modified
 
-from ovo import db, config
+from ovo import db, config, storage
 from ovo import get_scheduler
 from ovo.core.auth import get_username
-from ovo.core.database.models import Design, Threshold, DescriptorValue, Round, DesignJob, Base, DesignWorkflow
+from ovo.core.database.models import (
+    Design,
+    Threshold,
+    DescriptorValue,
+    Round,
+    DesignJob,
+    Base,
+    DesignWorkflow,
+    DesignSpec,
+    DesignChain,
+)
 from ovo.core.database.models import Pool, Workflow
 from ovo.core.logic.filtering_logic import filter_designs_by_thresholds
 from ovo.core.logic.job_logic import update_job_status, format_job_duration
+from ovo.core.utils.pdb import mmcif_to_pdb
 
 
 def get_design_jobs_table(
@@ -483,3 +496,131 @@ def collect_storage_paths(download_fields: dict[str, tuple[Base, str]], design_i
                     f"Unexpected field type {type(path)} for {field_name}.{subfield_name}, expected str or list"
                 )
     return storage_paths
+
+
+def create_designs_from_dataframe(
+    df: pd.DataFrame,
+    id_column: str,
+    column_chains: dict[str, str],
+    pool_id: str,
+) -> list[Design]:
+    """
+    Create Design objects from a DataFrame.
+
+    Args:
+        df: pandas DataFrame with design data
+        id_column: column name to use as design ID
+        column_chains: mapping of column names to chain IDs (e.g., {"seq_A": "A", "seq_B": "B"})
+        pool_id: pool ID for the designs
+
+    Returns:
+        list of Design objects
+    """
+    designs = []
+    for idx, row in df.iterrows():
+        # Ensure design_id starts with "ovo_" prefix and contains pool_id
+        design_id = f"ovo_{pool_id}_{row[id_column]}"
+
+        # Create design chains from selected sequence columns
+        chains = []
+        for seq_col, chain_ids_str in column_chains.items():
+            if pd.isna(row[seq_col]):
+                continue
+            # Split chain IDs by comma or space, then clean up
+            chain_ids = [cid.strip() for cid in chain_ids_str.replace(",", " ").split() if cid.strip()]
+            chains.append(
+                DesignChain(
+                    type="protein",
+                    chain_ids=chain_ids,
+                    sequence=str(row[seq_col]),
+                )
+            )
+
+        if not chains:
+            # No sequence columns with valid data for this design, skip it
+            continue
+
+        designs.append(
+            Design(
+                id=design_id,
+                pool_id=pool_id,
+                spec=DesignSpec(chains=chains),
+                structure_path=None,  # No structure file for sequence-only designs
+            )
+        )
+
+    return designs
+
+
+def create_designs_from_structure_files(
+    structure_files: list, chains: list[str], pool: Pool, project_id: str
+) -> tuple[list[Design], list[str]]:
+    shared_args = dict(
+        storage=storage,
+        chains=chains,
+        project_id=project_id,
+        pool_id=pool.id,
+    )
+    designs = []
+    conversion_warnings = []
+    for file in structure_files:
+        if file.name.lower().endswith(".pdb"):
+            designs.append(Design.from_pdb_file(filename=file.name, pdb_str=file.read().decode(), **shared_args))
+        elif file.name.lower().endswith((".cif", ".mmcif")):
+            pdb_filename = os.path.splitext(file.name)[0] + ".pdb"
+            result = mmcif_to_pdb(file.read().decode())
+            conversion_warnings.extend(result.warnings)
+            designs.append(Design.from_pdb_file(filename=pdb_filename, pdb_str=result.pdb_string, **shared_args))
+        elif file.name.lower().endswith(".zip"):
+            found = False
+            with zipfile.ZipFile(file) as z:
+                for zip_info in z.infolist():
+                    if zip_info.filename.startswith("__MACOSX/"):
+                        continue
+                    filename = os.path.basename(zip_info.filename)
+                    if filename.startswith("."):
+                        continue
+                    if filename.lower().endswith(".pdb"):
+                        found = True
+                        print("Reading", zip_info.filename)
+                        pdb_str = z.read(zip_info.filename).decode()
+                        designs.append(
+                            Design.from_pdb_file(
+                                filename=filename,
+                                pdb_str=pdb_str,
+                                **shared_args,
+                            )
+                        )
+                    elif filename.lower().endswith((".cif", ".mmcif")):
+                        found = True
+                        print("Reading and converting", zip_info.filename)
+                        pdb_filename = os.path.splitext(filename)[0] + ".pdb"
+                        result = mmcif_to_pdb(z.read(zip_info.filename).decode())
+                        conversion_warnings.extend(result.warnings)
+                        designs.append(
+                            Design.from_pdb_file(
+                                filename=pdb_filename,
+                                pdb_str=result.pdb_string,
+                                **shared_args,
+                            )
+                        )
+            if not found:
+                raise ValueError(f"No PDB or CIF files found in zip archive '{file.name}'")
+    return designs, conversion_warnings
+
+
+def get_common_chain_ids(design_ids: list[str]) -> tuple[list[str], list[str]]:
+    """Get chain IDs that exist across all provided designs' specs"""
+    specs = db.select_values(Design, "spec", id__in=design_ids)
+    chain_id_counts = {}
+    for spec in specs:
+        if not spec:
+            continue
+        for chain in spec.chains:
+            for chain_id in chain.chain_ids:
+                if chain_id not in chain_id_counts:
+                    chain_id_counts[chain_id] = 0
+                chain_id_counts[chain_id] += 1
+    common_chain_ids = sorted([chain_id for chain_id, count in chain_id_counts.items() if count == len(specs)])
+    available_chain_ids = sorted(chain_id_counts.keys())
+    return common_chain_ids, available_chain_ids

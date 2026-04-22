@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 
 from ovo.app.components.descriptor_job_components import refresh_descriptors
+from ovo.app.components.submission_components import chain_ids_input
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors_per_job,
@@ -62,12 +63,9 @@ def submit_clustering_dialog(design_ids: list[str]):
             st.info("Add at least one tool to continue")
             return
 
-        chains = st.text_input(
-            "Chain(s) to analyze",
-            value="A",
-            key="protein_clustering_chains_input_multi",
-        )
-        chains = chains.replace(" ", "").replace(",", "")
+        chains = chain_ids_input(design_ids)
+        if not chains:
+            return
 
         workflows = []
         tools_to_remove = []
