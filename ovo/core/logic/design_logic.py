@@ -286,7 +286,7 @@ def get_log(design_job: DesignJob, task_id: str = None, preview: bool = False, t
     assert isinstance(design_job, DesignJob), f"Expected DesignJob, got {type(design_job).__name__}"
     scheduler = get_scheduler(design_job.scheduler_key)
     log = scheduler.get_log(design_job.job_id, task_id=task_id, preview=preview)
-    if tail is not None:
+    if tail is not None and log is not None:
         log_lines = log.splitlines()
         log = "\n".join(log_lines[-tail:])
     return log

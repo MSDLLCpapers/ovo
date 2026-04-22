@@ -16,6 +16,7 @@ schedulers
 ../rfdiffusion/index
 ../proteinqc/index
 ../plugins/index
+release_notes
 ```
 
 ## OVO presentation at the Protein Design Workflows webinar

@@ -70,6 +70,7 @@ class AuthConfig:
 
 @dataclass
 class ConfigProps:
+    check_new_version: bool = True
     pyrosetta_license: bool = False
     read_only: bool = False
     rfdiffusion_backbones_limit: int = 1000
