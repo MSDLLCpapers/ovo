@@ -1,3 +1,5 @@
+import traceback
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -391,15 +393,20 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
             )
         else:
             st.warning("Representative structure not available")
+            
     with right_col_struct:
         st.markdown("**Aligned Cluster Structures**")
 
-        visualize_align_structure_selection(
-            design_ids=cluster_design_ids,
-            max_examples=15,
-            key=f"cluster_{selected_cluster_id}_aligned",
-            chains=job.workflow.chains,
-        )
+        try:
+            visualize_align_structure_selection(
+                design_ids=cluster_design_ids,
+                max_examples=15,
+                key=f"cluster_{selected_cluster_id}_aligned",
+                chains=job.workflow.chains,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            st.error(f"Error visualizing aligned structures: {str(e)}")
 
     st.subheader(f"Download Cluster {selected_cluster_id}")
     download_job_designs_component(cluster_design_ids, cluster_pools)

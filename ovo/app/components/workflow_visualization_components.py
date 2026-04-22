@@ -897,7 +897,8 @@ def visualize_align_structure_selection(
         st.warning(
             f"Showing only first {max_examples} out of {len(design_ids):,} selected designs for performance reasons."
         )
-    st.text(
-        f"The RMSD for the aligned structures is {round(rmsd, 3)}",
-        help="The root mean square deviation (RMSD) of Cα atom positions after optimal rotational and translational superposition relative to a reference structure for all members of the cluster.",
-    )
+    if rmsd is not None:
+        st.text(
+            f"The RMSD for the aligned structures is {round(rmsd, 3)}",
+            help="The root mean square deviation (RMSD) of Cα atom positions after optimal rotational and translational superposition relative to a reference structure for all members of the cluster.",
+        )
