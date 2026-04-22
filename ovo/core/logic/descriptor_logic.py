@@ -499,7 +499,11 @@ def read_per_design_files(
             batch_name = f"contig{contig_number}_batch{batch_number}"
             any_files_in_batch = False
             for design_file_template, (storage_subdir, storage_suffix, descriptor_key) in design_files.items():
-                assert isinstance(storage_subdir, str) and isinstance(storage_suffix, str) and isinstance(descriptor_key, str), (
+                assert (
+                    isinstance(storage_subdir, str)
+                    and isinstance(storage_suffix, str)
+                    and isinstance(descriptor_key, str)
+                ), (
                     "Expected (storage_subdir string, storage_suffix string, descriptor_key string) tuple, "
                     f"got: {(storage_subdir, storage_suffix, descriptor_key)}"
                 )
@@ -554,7 +558,12 @@ def read_per_design_files(
                     design_id,
                     descriptor_job.workflow.chains,
                 )
-                for source_path, (design_id, storage_subdir, storage_suffix, descriptor_key) in design_file_paths.items()
+                for source_path, (
+                    design_id,
+                    storage_subdir,
+                    storage_suffix,
+                    descriptor_key,
+                ) in design_file_paths.items()
             ]
 
             for i, future in enumerate(futures):

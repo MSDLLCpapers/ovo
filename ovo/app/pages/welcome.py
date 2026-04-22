@@ -46,7 +46,9 @@ def get_latest_ovo_version():
         response.raise_for_status()
         latest_version = response.json()["info"]["version"]
         latest_version_tuple = tuple(int("".join(v for v in x if v.isnumeric())) for x in latest_version.split("."))
-        current_version_tuple = tuple(int("".join([v for v in x if v.isnumeric()] or "0")) for x in __version__.split("."))
+        current_version_tuple = tuple(
+            int("".join([v for v in x if v.isnumeric()] or "0")) for x in __version__.split(".")
+        )
         if latest_version_tuple > current_version_tuple:
             return latest_version
         else:

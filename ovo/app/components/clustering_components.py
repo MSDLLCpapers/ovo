@@ -393,7 +393,7 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
             )
         else:
             st.warning("Representative structure not available")
-            
+
     with right_col_struct:
         st.markdown("**Aligned Cluster Structures**")
 
