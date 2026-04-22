@@ -4,8 +4,23 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
+import shutil
 import pytest
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+TEST_HOME_DIR = os.path.join(REPO_ROOT, "test-results", "plugin_tests")
+os.environ["USER"] = "test_user"
+os.environ["OVO_HOME"] = ""
+
+# Remove test-results directory if it exists
+if os.path.exists(TEST_HOME_DIR):
+    shutil.rmtree(TEST_HOME_DIR)
+
+# Initialize OVO config.yml in test-results directory
+subprocess.run(["ovo", "init", "home", TEST_HOME_DIR, "-y", "--no-env"])
+assert os.path.exists(os.path.join(TEST_HOME_DIR, "config.yml")), "OVO init home failed"
+os.environ["OVO_HOME"] = TEST_HOME_DIR
+os.environ["NO_VERIFY_SSL"] = "1"
 
 
 @pytest.fixture
