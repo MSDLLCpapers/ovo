@@ -60,7 +60,7 @@ def get_cached_projects(project_ids: Collection[str], order_by="-created_date_ut
 @clear_when_modified(DescriptorJob)
 @st.cache_data(max_entries=100, ttl="1h")
 def get_cached_descriptor_jobs_for_design_ids(
-    design_ids: Collection[str], workflow_names: List[str], project_id, only_exact_design_ids: bool = True
+    design_ids: Collection[str], workflow_names: List[str] | None, project_id, only_exact_design_ids: bool = True
 ) -> list[DescriptorJob]:
     """Returns list of jobs where the processed design ids match the provided design ids and the workflow name is in the provided workflow names."""
     finished_jobs = db.select(
@@ -73,7 +73,7 @@ def get_cached_descriptor_jobs_for_design_ids(
         j
         for j in finished_jobs
         if j.workflow
-        and j.workflow.name in workflow_names
+        and (workflow_names is None or j.workflow.name in workflow_names)
         and len(set(design_ids).intersection(set(j.workflow.design_ids))) > 0
     ]
     # Only consider jobs with a Workflow that consists only of provided design_ids and workflow names
