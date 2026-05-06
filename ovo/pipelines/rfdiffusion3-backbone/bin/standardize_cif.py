@@ -100,23 +100,6 @@ def chunk_string(s: str, chunk_size: int = 40) -> list:
     return [s[i : i + chunk_size] for i in range(0, len(s), chunk_size)]
 
 
-def read_cif_gz(path: str) -> gemmi.Structure:
-    """Read a .cif.gz file into a gemmi Structure."""
-    if path.endswith(".gz"):
-        with gzip.open(path, "rb") as f:
-            content = f.read()
-        with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        try:
-            structure = gemmi.read_structure(tmp_path)
-        finally:
-            os.unlink(tmp_path)
-    else:
-        structure = gemmi.read_structure(path)
-    return structure
-
-
 def contains_amino_acids(chain: gemmi.Chain) -> bool:
     """
     Determine if chain contains any polymer residues (i.e. is not a ligand/non-polymer).
@@ -134,7 +117,7 @@ def standardize(
 ):
     """Convert a single .cif.gz to a standardized PDB with REMARK annotations."""
     # Read CIF.gz
-    structure = read_cif_gz(cif_gz_path)
+    structure = gemmi.read_structure(cif_gz_path)
     structure.setup_entities()
     model = structure[0]
     all_chain_names = [chain.name for chain in model if contains_amino_acids(chain)]
