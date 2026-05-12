@@ -15,6 +15,7 @@ from io import StringIO
 from utils import PDBSelector, get_resname_resnum_atomname_atomnum_str
 import re
 import pydssp_numpy
+import shutil
 
 # Author: Christopher Warren, Marco Ancona, David Prihoda
 
@@ -598,8 +599,8 @@ if __name__ == "__main__":
 
             passed_per_design[pdb_name] = passed
             if passed:
-                # link path
-                os.symlink(os.path.abspath(path), os.path.join(options.filtered_output, pdb_name + ".pdb"))
+                # copy passing file (symlinks will break on some executors)
+                shutil.copy(os.path.abspath(path), os.path.join(options.filtered_output, pdb_name + ".pdb"))
 
         if parsed_filters:
             df["passed_filters"] = pd.Series(passed_per_design)
