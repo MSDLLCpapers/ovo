@@ -87,7 +87,7 @@ class RFdiffusionParams(WorkflowParams):
     rfd3_select_fixed_atoms: str | None = None  # fixed atoms override, contig string e.g. "A244:TIP,A274:BKBN"
     rfd3_select_hotspots: str | None = None  # atom-level hotspots dict JSON e.g. '{"E64": "CD2,CZ", "E88": "CG,CZ"}'
     rfd3_ligand: str | None = None  # ligand CCD names e.g. "HAX,OAA"
-    rfd3_length: str | None = None  # total length constraint e.g. "100-150" or "120"
+    # rfd3_length: str | None = None  # total length constraint e.g. "100-150" or "120"
     rfd3_infer_ori_strategy: str | None = None  # override auto-derived infer_ori_strategy: "hotspots" or "com"
     rfd3_is_non_loopy: bool | None = None  # True = prefer helices/sheets, fewer loops. Default True for binder design.
     rfd3_ori_token: str | None = None  # explicit ORI token [x,y,z] e.g. "10.5,20.3,15.1"
@@ -189,9 +189,6 @@ class RFdiffusionParams(WorkflowParams):
                 f"backbone_generator must be 'rfdiffusion' or 'rfdiffusion3', got: '{self.backbone_generator}'"
             )
         if self.backbone_generator == "rfdiffusion3":
-            if self.rfd3_length:
-                if not re.match(r"^\d+(-\d+)?$", str(self.rfd3_length).strip()):
-                    raise ValueError(f"rfd3_length must be an integer or 'min-max' range, got: '{self.rfd3_length}'")
             if self.rfd3_select_hotspots:
                 try:
                     parsed_hotspots = json.loads(self.rfd3_select_hotspots)

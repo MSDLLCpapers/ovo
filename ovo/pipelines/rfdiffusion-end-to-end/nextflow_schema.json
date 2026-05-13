@@ -47,7 +47,7 @@
     },
     "rfdiffusion3_models_path": {
       "type": "string",
-      "description": "Path to RFdiffusion3 checkpoint file (auto-derived from reference_files_dir if not set)"
+      "description": "Path to RFdiffusion3 checkpoint file or a directory containing the file 'rfd3_latest.ckpt'"
     },
     "rfdiffusion3_spec_overrides": {
       "type": "string",

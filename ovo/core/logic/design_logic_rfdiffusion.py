@@ -266,16 +266,14 @@ def process_rfdiffusion_design(
     backbone_filename = os.path.basename(source_backbone_path).removesuffix(".pdb")
 
     rfdiffusion_backbone_trb_path = None
-    if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key:
+    if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key and "rfdiffusion3" not in source_backbone_path:
         source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
         source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
-        # TODO if file doesnt exist (RFD3)
-        if storage.file_exists(os.path.join(source_dir, source_trb_path)):
-            rfdiffusion_backbone_trb_path = storage.store_file_path(
-                source_abs_path=f"{source_dir}/{source_trb_path}",
-                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
-                overwrite=False,
-            )
+        rfdiffusion_backbone_trb_path = storage.store_file_path(
+            source_abs_path=f"{source_dir}/{source_trb_path}",
+            storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
+            overwrite=False,
+        )
 
     backbone_pdb_path = storage.store_file_path(
         source_abs_path=f"{source_dir}/{source_backbone_path}",
@@ -355,15 +353,6 @@ def process_rfdiffusion_design(
                 ),
             ]
         )
-        if rfdiffusion_backbone_trb_path:
-            descriptor_values.append(
-                DescriptorValue(
-                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
-                    value=rfdiffusion_backbone_trb_path,
-                    **shared_args,
-                )
-            )
-
         if rfdiffusion_backbone_trb_path:
             descriptor_values.append(
                 DescriptorValue(
@@ -470,8 +459,6 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
             spec_overrides["select_hotspots"] = json.loads(p.rfd3_select_hotspots)
         if p.rfd3_ligand:
             spec_overrides["ligand"] = p.rfd3_ligand
-        if p.rfd3_length:
-            spec_overrides["length"] = p.rfd3_length
         if p.rfd3_infer_ori_strategy:
             spec_overrides["infer_ori_strategy"] = p.rfd3_infer_ori_strategy
         if p.rfd3_is_non_loopy is None and design_type == "binder":
@@ -505,14 +492,6 @@ def get_rfdiffusion_run_parameters(
             args += f" diffuser.T={timesteps or workflow.rfdiffusion_params.timesteps} "
 
     if workflow.rfdiffusion_params.backbone_generator != "rfdiffusion3":
-        if workflow.rfdiffusion_params.contigmap_length:
-            length_range = (
-                workflow.rfdiffusion_params.contigmap_length
-                if "-" in str(workflow.rfdiffusion_params.contigmap_length)
-                else f"{workflow.rfdiffusion_params.contigmap_length}-{workflow.rfdiffusion_params.contigmap_length}"
-            )
-            args += f" contigmap.length={length_range} "
-
         if workflow.rfdiffusion_params.inpaint_seq:
             args += f" contigmap.inpaint_seq=[{workflow.rfdiffusion_params.inpaint_seq}] "
 
@@ -520,6 +499,17 @@ def get_rfdiffusion_run_parameters(
             args += (
                 f" inference.ckpt_override_path=rfdiffusion_models/{workflow.rfdiffusion_params.model_weights}_ckpt.pt "
             )
+
+    if workflow.rfdiffusion_params.contigmap_length:
+        length_range = (
+            workflow.rfdiffusion_params.contigmap_length
+            if "-" in str(workflow.rfdiffusion_params.contigmap_length)
+            else f"{workflow.rfdiffusion_params.contigmap_length}-{workflow.rfdiffusion_params.contigmap_length}"
+        )
+        if workflow.rfdiffusion_params.backbone_generator != "rfdiffusion3":
+            args += f" contigmap.length={length_range} "
+        else:
+            args += f" +specification.length={length_range} "
 
     args += f" {workflow.rfdiffusion_params.run_parameters} "
 

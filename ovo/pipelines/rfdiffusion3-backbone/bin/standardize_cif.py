@@ -24,6 +24,7 @@ ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: str):
+    """Get contig where the order of segments corresponds to order in the structure"""
     # get chain lengths from sampled_contig
     sampled_contig_positions = sampled_contig.split(",")
     chain_lengths = [0]
@@ -41,8 +42,6 @@ def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: 
             assert pos[0].isalpha() and "-" not in pos, f"Expected format 123 or A123, got: {pos} in {sampled_contig}"
             chain_lengths[-1] += 1
             verify_positions[chain][chain_lengths[-1]] = pos
-    print(verify_positions)
-    print(chain_lengths)
     # output chain -> output pos -> metadata
     mapping_by_chain = {}
     chain = "A"
@@ -130,9 +129,6 @@ def standardize(
     diffused_index_map = json_data["diffused_index_map"]
     sampled_contig = json_data["specification"]["extra"]["sampled_contig"]
 
-    print(f"Diffused index map: {diffused_index_map}")
-    print(f"Sampled contig: {sampled_contig}")
-
     # Build v1-style standardized contig (required by downstream prepare_json.py)
     std_contig_v1 = get_standardized_contig(diffused_index_map=diffused_index_map, sampled_contig=sampled_contig)
 
@@ -148,10 +144,6 @@ def standardize(
             else:
                 print(f"WARNING: Hotspot residue {res} not found in diffused_index_map. Skipping.", file=sys.stderr)
         std_hotspots = ",".join(parts)
-
-    # Write PDB
-    os.makedirs(os.path.dirname(output_pdb_path) or ".", exist_ok=True)
-    structure.write_pdb(output_pdb_path)
 
     # Build REMARK lines — single space after 'REMARK   1' (required by prepare_json.py parser)
     remarks = []
@@ -170,10 +162,10 @@ def standardize(
     else:
         remarks.append("REMARK   1 Input hotspots: ")
         remarks.append("REMARK   1 Standardized hotspots: ")
-
-    # Prepend REMARK lines to the PDB file
-    with open(output_pdb_path) as f:
-        pdb_content = f.read()
+        
+    # Prepend REMARK lines to the PDB file and write to file
+    pdb_content = structure.make_pdb_string()
+    os.makedirs(os.path.dirname(output_pdb_path) or ".", exist_ok=True)
     with open(output_pdb_path, "w") as f:
         f.write("\n".join(remarks) + "\n")
         f.write(pdb_content)

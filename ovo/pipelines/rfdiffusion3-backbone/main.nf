@@ -28,18 +28,17 @@ process RFdiffusion3 {
     script:
     """
     set -euxo pipefail
-    export HYDRA_FULL_ERROR=1
     mkdir -p output
 
     # Resolve checkpoint path: if it's a directory, find the .ckpt file inside
     CKPT_PATH="${rfdiffusion3_models_path}"
     if [[ -d "\$CKPT_PATH" ]]; then
-        CKPT_FILE=\$(find "\$CKPT_PATH/" -name "*.ckpt" | head -1)
-        if [[ -z "\$CKPT_FILE" ]]; then
-            echo "ERROR: No .ckpt file found in \$CKPT_PATH" >&2
+        CKPT_PATH="\$CKPT_PATH/rfd3_latest.ckpt"
+    fi
+
+    if [[ ! -e "\$CKPT_PATH" ]]; then
+        echo "RFDiffusion3 model checkpoint file does not exist. Download RFD3 weights by running 'ovo init rfdiffusion'"
             exit 1
-        fi
-        CKPT_PATH="\$CKPT_FILE"
     fi
 
     # Write spec overrides to a file to avoid bash quoting issues with JSON strings

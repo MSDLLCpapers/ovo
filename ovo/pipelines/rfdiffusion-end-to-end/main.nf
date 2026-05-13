@@ -62,7 +62,7 @@ workflow {
       batches = file_list.merge(indexes, { _, idx -> ["contig1_batch${idx}", pdb_inputs[0]] })
       backbones_dir = CreateBackboneFolders.out.pdb_dir
     } else {
-      def contigs = params.rfdiffusion_contig.split(',')
+      def contigs = "${params.rfdiffusion_contig}".split(",")
       if (pdb_inputs.size() != contigs.size()) {
           if (pdb_inputs.size() == 1) {
               // use same pdb for all contigs
