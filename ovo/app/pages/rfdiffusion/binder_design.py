@@ -378,14 +378,23 @@ def settings_step():
                 re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in workflow.rfdiffusion_params.hotspots.split(",")
             ):
                 st.error("Invalid hotspots format, expected 'A123,A124,A131'")
+                
+        def _on_backbone_generator_change():
+            new_gen = st.session_state["backbone_generator"]
+            # Clear previous preview (only compatible with RFdiffusion v1)
+            workflow.preview_job_id = None
+            default_timesteps = 200 if new_gen == "rfdiffusion3" else 50
+            workflow.rfdiffusion_params.timesteps = default_timesteps
+            st.session_state["timesteps"] = default_timesteps
 
         generator_options = ["rfdiffusion", "rfdiffusion3"]
         workflow.rfdiffusion_params.backbone_generator = st.selectbox(
             "Backbone generator",
             options=generator_options,
-            format_func=lambda x: "RFdiffusion v1" if x == "rfdiffusion" else "RFdiffusion3 (beta)",
+            format_func=lambda x: "RFdiffusion (RFD1)" if x == "rfdiffusion" else "RFdiffusion3 (RFD3)",
             index=generator_options.index(workflow.rfdiffusion_params.backbone_generator),
             key="backbone_generator",
+            on_change=_on_backbone_generator_change,
         )
 
         is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
@@ -393,13 +402,14 @@ def settings_step():
         if not is_rfd3:
             workflow.rfdiffusion_params.model_weights = st.selectbox(
                 "Model weights",
-                help="Use 'active site' model weights to hold better selected residues specified in the contig.",
+                help="Use 'beta' model weights to generate a greater diversity of topologies.",
                 index=MODEL_WEIGHTS_BINDER.index(workflow.rfdiffusion_params.model_weights)
                 if workflow.rfdiffusion_params.model_weights
                 else 0,
                 key="active_site",
                 options=MODEL_WEIGHTS_BINDER,
             )
+            st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion#binder-design")
         else:
             show_rfdiffusion3_params(workflow)
 

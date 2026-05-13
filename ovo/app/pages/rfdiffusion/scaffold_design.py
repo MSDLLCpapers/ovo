@@ -361,18 +361,24 @@ def settings_step():
             key="num_sequences",
         )
 
+        def _on_backbone_generator_change():
+            new_gen = st.session_state["backbone_generator"]
+            # Clear previous preview (only compatible with RFdiffusion v1)
+            workflow.preview_job_id = None
+            default_timesteps = 200 if new_gen == "rfdiffusion3" else 50
+            workflow.rfdiffusion_params.timesteps = default_timesteps
+            st.session_state["timesteps"] = default_timesteps
+
         generator_options = ["rfdiffusion", "rfdiffusion3"]
-        prev_generator = workflow.rfdiffusion_params.backbone_generator
         workflow.rfdiffusion_params.backbone_generator = st.selectbox(
             "Backbone generator",
             options=generator_options,
-            format_func=lambda x: "RFdiffusion (v1)" if x == "rfdiffusion" else "RFdiffusion3",
+            # RFdiffusion (RFD1) and RFdiffusion3 (RFD3)
+            format_func=lambda x: "RFdiffusion (RFD1)" if x == "rfdiffusion" else "RFdiffusion3 (RFD3)",
             index=generator_options.index(workflow.rfdiffusion_params.backbone_generator),
             key="backbone_generator",
+            on_change=_on_backbone_generator_change,
         )
-        if workflow.rfdiffusion_params.backbone_generator != prev_generator:
-            # Clear previous preview (only compatible with RFdiffusion v1)
-            workflow.preview_job_id = None
 
         is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
 

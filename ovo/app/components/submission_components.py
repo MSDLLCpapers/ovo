@@ -389,16 +389,8 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
 
         is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
 
-        # Reset timesteps to default when backbone generator changes
-        prev_generator = st.session_state.get("_prev_backbone_generator")
-        if prev_generator is not None and prev_generator != workflow.rfdiffusion_params.backbone_generator:
-            default_timesteps = 200 if is_rfd3 else 50
-            workflow.rfdiffusion_params.timesteps = default_timesteps
-            st.session_state["timesteps"] = default_timesteps
-        st.session_state["_prev_backbone_generator"] = workflow.rfdiffusion_params.backbone_generator
-
         if is_rfd3:
-            timestep_label = "Num timesteps (inference_sampler.num_timesteps)"
+            timestep_label = "Number of timesteps (inference_sampler.num_timesteps)"
             timestep_help = "Number of diffusion steps. RFdiffusion3 default is 200; use 10–50 for fast testing."
         else:
             timestep_label = "Num RFdiffusion timesteps (T)"
@@ -406,30 +398,32 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 "Number of denoising diffusion steps determines the granularity of the diffusion process. "
                 "Higher values lead to better quality structures but also longer runtime."
             )
+
+        if "timesteps" not in st.session_state:
+            st.session_state["timesteps"] = workflow.rfdiffusion_params.timesteps
+
         workflow.rfdiffusion_params.timesteps = st.number_input(
             timestep_label,
             min_value=1,
-            value=workflow.rfdiffusion_params.timesteps,
-            # max_value=200 if is_rfd3 else 50,
             key="timesteps",
             help=timestep_help,
         )
 
-        if not is_rfd3 and workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
-            workflow.rfdiffusion_params.contigmap_length = (
-                st.text_input(
-                    "Sequence length limit (contigmap.length)",
-                    placeholder="For example 123 or 123-456",
-                    value=workflow.rfdiffusion_params.contigmap_length,
-                    key="contigmap_length",
-                )
-                or None
+        workflow.rfdiffusion_params.contigmap_length = (
+            st.text_input(
+                "Sequence length limit" + (" (contigmap.length)" if not is_rfd3 else ""),
+                placeholder="For example 123 or 123-456",
+                value=workflow.rfdiffusion_params.contigmap_length,
+                key="contigmap_length",
             )
-            st.caption(
-                ":material/info: When using multiple generated segments with random length range (for example 10-100), "
-                "make sure that randomly sampling those lengths will produce contigs within the total length range."
-            )
+            or None
+        )
+        st.caption(
+            ":material/info: When using multiple generated segments with random length range (for example 10-100), "
+            "make sure that randomly sampling those lengths will produce contigs within the total length range."
+        )
 
+        if not is_rfd3 and workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
             workflow.rfdiffusion_params.inpaint_seq = (
                 st.text_input(
                     "Sequence inpainting regions (contigmap.inpaint_seq)",
@@ -471,7 +465,7 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
         )
         if is_rfd3:
             st.caption(
-                ":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5)."
+                ":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5). Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
             )
         else:
             st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
@@ -506,16 +500,16 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                     or None
                 )
 
-            workflow.rfdiffusion_params.rfd3_length = (
-                st.text_input(
-                    "Total length constraint (length)",
-                    value=workflow.rfdiffusion_params.rfd3_length,
-                    placeholder="e.g. 100-150 or 120",
-                    key="rfd3_length",
-                    help="Constrain the total design length. Useful when contig alone does not fix the total length.",
-                )
-                or None
-            )
+            # workflow.rfdiffusion_params.rfd3_length = (
+            #     st.text_input(
+            #         "Total length constraint (length)",
+            #         value=workflow.rfdiffusion_params.rfd3_length,
+            #         placeholder="e.g. 100-150 or 120",
+            #         key="rfd3_length",
+            #         help="Constrain the total design length. Useful when contig alone does not fix the total length.",
+            #     )
+            #     or None
+            # )
 
             workflow.rfdiffusion_params.rfd3_spec_overrides = (
                 st.text_area(
@@ -527,6 +521,9 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                     height=80,
                 )
                 or None
+            )
+            st.caption(
+                ":material/info: JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict. Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
             )
             if workflow.rfdiffusion_params.rfd3_spec_overrides:
                 try:
