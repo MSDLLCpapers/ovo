@@ -973,6 +973,13 @@ class TopologyFileDescriptor(StructureFileDescriptor):
     pass
 
 
+@dataclass
+class PSSMFileDescriptor(FileDescriptor):
+    """Descriptor storing file path to PSSM results and info about the PSSM calculation."""
+
+    loss_type: str = None
+
+
 # include all models
 __all__ = [
     "Base",
@@ -1011,6 +1018,7 @@ __all__ = [
     "StructureFileDescriptor",
     "TopologyFileDescriptor",
     "TrajectoryFileDescriptor",
+    "PSSMFileDescriptor",
     "DataclassType",
     "Artifact",
     "UnknownArtifact",
