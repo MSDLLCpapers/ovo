@@ -141,19 +141,27 @@ and by comparing the binder pose from RFdiffusion backbone to the AlphaFold2 pre
 |             | Purpose     |  Input | Output |
 |-------------|-------------|-------------|-------------|
 | RFdiffusion | Backbone generation       | Trimmed target protein, hotspots (optional), binder length | Complex backbone structure |
+| RFdiffusion3 | All-atom structure generation | Trimmed target protein, hotspots (optional), binder length, atom-level constraints | All-atom complex structure |
 | FastRelax–ProteinMPNN  | Sequence generation and side-chain rotamer prediction | Complex backbone structure with target sequence | Binder sequence and complex structure with side-chains |
 | LigandMPNN  | Sequence generation and side-chain rotamer prediction | Backbone structure | Binder sequence and complex structure with side-chains |
 | AlphaFold2  | Refolding evaluation (via structure prediction)      | Designed sequence & structure | Predicted structure |
 | PyRosetta   | Additional descriptors used for filtering  |  Designed sequence & structure  | Complex binding energy, Contact molecular surface, and other descriptors  |
 
-**Details** 
-               
-RFdiffusion generation
-- RFdiffusion does not explicitly predict sequences for the binder; however it uses an implicit notion of sequence 
-  while generating backbones. The authors note it could have been trained to co-design sequence and backbone, but they 
+**Details**
+
+RFdiffusion generation<sup>[1]</sup>
+- RFdiffusion is a backbone-only diffusion model that generates protein backbone structures (Cα, N, C, O atoms).
+- Does not explicitly predict sequences for the binder; however it uses an implicit notion of sequence
+  while generating backbones. The authors note it could have been trained to co-design sequence and backbone, but they
   found the RFdiffusion + ProteinMPNN workflow works well. Using ProteinMPNN also enables generating multiple sequences
   for the same backbone.
 - Note that RFdiffusion discards all side-chain atoms of the target in the output PDB. These are reconstructed by LigandMPNN and by the AlphaFold2 prediction.
+
+RFdiffusion3 generation<sup>[7]</sup>
+- RFdiffusion3 is an all-atom diffusion model that co-diffuses backbone and side-chain atoms in a single pass.
+- Natively supports complex conditioning: atom-level hotspot control and spatial constraints on which atoms are fixed in 3D space.
+- Designed for protein–protein interaction tasks, producing higher-quality binder interfaces with fewer required designs compared to RFdiffusion.
+- Sequences are still refined by LigandMPNN in this workflow for consistency with the downstream refolding evaluation.
 
 ProteinMPNN FastRelax protocol
 - Successive rounds of ProteinMPNN sequence design and PyRosetta FastRelax aims to converge to a low-energy sequence–structure pair.
@@ -173,6 +181,7 @@ AlphaFold2 protocol
 4. [BioPython ProteinAnalysis](https://biopython.org/docs/latest/api/Bio.SeqUtils.ProtParam.html#Bio.SeqUtils.ProtParam.ProteinAnalysis)
 5. [ColabDesign](https://github.com/sokrypton/ColabDesign)
 6. [Predicted Aligned Error (PAE)](https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/pae-a-measure-of-global-confidence-in-alphafold-predictions/)
+7. [RFdiffusion3](https://www.biorxiv.org/content/10.1101/2025.09.18.676967)
 """,
             unsafe_allow_html=True,
         )

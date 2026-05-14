@@ -131,16 +131,25 @@ from the designed sequence comparing them to the RFdiffusion backbone (refolding
 |             | Purpose     |  Input | Output |
 |-------------|-------------|-------------|-------------|
 | RFdiffusion | Backbone generation       | Residue stretches to fix (structure and, by default, sequence) and stretches to design | Backbone structure |
+| RFdiffusion3 | All-atom structure generation | Residue stretches to fix, stretches to design, optional ligands and atom-level constraints | All-atom structure |
 | LigandMPNN  | Sequence generation and side-chain rotamer prediction | Backbone structure | Sequence and structure with side-chains |
 | AlphaFold2  | Refolding evaluation (via structure prediction)      | Designed sequence, structure (from LigandMPNN, see below) | Structure |
 | ESMFold     | Refolding evaluation (via structure prediction)      | Designed sequence only | Structure |
 
 **Details**
-                
-RFdiffusion generation
-- RFdiffusion does not explicitly predict sequences for designed regions; however it uses an implicit notion of sequence while generating backbones. The authors note it could have been trained to co-design sequence and backbone, but they found the RFdiffusion + ProteinMPNN workflow works well. Using ProteinMPNN also enables generating multiple sequences for the same backbone.
+
+RFdiffusion generation<sup>[1]</sup>
+- RFdiffusion is a backbone-only diffusion model that generates protein backbone structures (Cα, N, C, O atoms).
+- Does not explicitly predict sequences for designed regions; however it uses an implicit notion of sequence while generating backbones. The authors note it could have been trained to co-design sequence and backbone, but they found the RFdiffusion + ProteinMPNN workflow works well. Using ProteinMPNN also enables generating multiple sequences for the same backbone.
 - With `inpaint_seq` parameter, RFdiffusion holds only the backbone coordinates fixed while allowing the sequence to change by masking it out for the specified stretches (e.g. you can keep the backbone of a whole beta sheet and redesign the residues on one side).
 - Note that RFdiffusion discards all side-chain atoms in the output PDB - including regions of fixed segments and chains. These are reconstructed by LigandMPNN and by the AlphaFold2 prediction.
+
+RFdiffusion3 generation<sup>[11]</sup>
+- RFdiffusion3 is an all-atom diffusion model that co-diffuses backbone and side-chain atoms in a single pass.
+- Natively supports complex conditioning: ligands, nucleic acids, and atom-level spatial constraints.
+- Enables design tasks beyond backbone scaffolding, such as enzyme active-site design with ligand context and fine-grained control over which atoms are fixed in 3D space.
+- Supports *unindexing* — marking motif residues whose relative position in the sequence is unknown to the model. This is important for scaffolding discontinuous active sites where the connectivity between fixed residues should be freely designed.
+- Sequences are still refined by LigandMPNN in this workflow for consistency with the downstream refolding evaluation.
 
 LigandMPNN (vs. ProteinMPNN<sup>[10]</sup>)
 - Incorporates explicit atomic context for small molecules and metal ions, improving sequence prediction when ligands are present. (However ligands are not currently supported.)
@@ -164,6 +173,7 @@ AlphaFold2 protocol
 8. [ColabDesign](https://github.com/sokrypton/ColabDesign)
 9. [Predicted Aligned Error (PAE)](https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/pae-a-measure-of-global-confidence-in-alphafold-predictions/)
 10. [ProteinMPNN](https://www.science.org/doi/10.1126/science.add2187)
+11. [RFdiffusion3](https://www.biorxiv.org/content/10.1101/2025.09.18.676967)
 """,
             unsafe_allow_html=True,
         )
