@@ -162,7 +162,7 @@ def standardize(
     else:
         remarks.append("REMARK   1 Input hotspots: ")
         remarks.append("REMARK   1 Standardized hotspots: ")
-        
+
     # Prepend REMARK lines to the PDB file and write to file
     pdb_content = structure.make_pdb_string()
     os.makedirs(os.path.dirname(output_pdb_path) or ".", exist_ok=True)

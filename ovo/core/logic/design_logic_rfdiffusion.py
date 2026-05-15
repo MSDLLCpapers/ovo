@@ -278,7 +278,9 @@ def process_rfdiffusion_design(
             )
         else:
             # Store compressed cif file, all-atom generated structure from RFD3
-            source_all_atom_cif_path = source_backbone_path.replace("_standardized_pdb/", "_cif/").replace("_standardized.pdb", ".cif.gz")
+            source_all_atom_cif_path = source_backbone_path.replace("_standardized_pdb/", "_cif/").replace(
+                "_standardized.pdb", ".cif.gz"
+            )
             rfd3_all_atom_cif_path = storage.store_file_path(
                 source_abs_path=f"{source_dir}/{source_all_atom_cif_path}",
                 storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_all_atom.cif.gz",
@@ -371,7 +373,7 @@ def process_rfdiffusion_design(
                     **shared_args,
                 )
             )
-        
+
         if rfd3_all_atom_cif_path:
             descriptor_values.append(
                 DescriptorValue(

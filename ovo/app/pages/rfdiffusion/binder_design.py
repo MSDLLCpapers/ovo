@@ -387,7 +387,7 @@ def settings_step():
                 re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in workflow.rfdiffusion_params.hotspots.split(",")
             ):
                 st.error("Invalid hotspots format, expected 'A123,A124,A131'")
-                
+
         def _on_backbone_generator_change():
             new_gen = st.session_state["backbone_generator"]
             # Clear previous preview (only compatible with RFdiffusion v1)
