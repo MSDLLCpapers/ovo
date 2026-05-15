@@ -19,11 +19,13 @@ def test_scaffold_end_to_end_logic(project_data):
     workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
             input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
-            contigs=["A111-114/10/A117-119"],
+            contigs=["5-10/A118/5-10"],
+            contigmap_length="10-15",
             num_designs=1,
             backbone_generator="rfdiffusion3",
             timesteps=10,  # reduced from 200 for faster testing
-            rfd3_select_fixed_atoms='{"A111": "CA,C,N", "A119": "CA,C,N"}',
+            rfd3_select_fixed_atoms='{"A111": "CA,C,N", "A118": "BKBN", "A119": "CA,C,N"}',
+            rfd3_unindex="A111,A119",
             rfd3_ori_token="0.0,0.0,0.0",
         ),
         protein_mpnn_params=ProteinMPNNParams(
