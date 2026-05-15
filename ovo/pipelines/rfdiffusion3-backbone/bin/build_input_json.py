@@ -21,11 +21,11 @@ def convert_contig_v1_to_v3(contig_v1: str) -> str:
     return ",/0,".join(",".join(segments) for segments in subcontigs)
 
 
-def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None) -> dict:
+def build_spec(input_structure_path: str, contig_v3: str, hotspot: str, spec_overrides: dict | None = None) -> dict:
     """Build a single RFD3 InputSpecification dict."""
     spec = {
         "dialect": 2,
-        "input": os.path.abspath(input_pdb),
+        "input": os.path.abspath(input_structure_path),
         "contig": contig_v3,
     }
     if "/0" in contig_v3:
@@ -42,7 +42,7 @@ def build_spec(input_pdb: str, contig_v3: str, hotspot: str, spec_overrides: dic
 
 def main():
     parser = argparse.ArgumentParser(description="Build RFdiffusion3 input JSON from params")
-    parser.add_argument("--input_pdb", type=str, required=True, help="Input PDB/CIF file path")
+    parser.add_argument("--input_structure_path", type=str, required=True, help="Input PDB/CIF file path")
     parser.add_argument("--contig", type=str, required=True, help="Contig string in v1 format (e.g. 'A30-50/0 10-10')")
     parser.add_argument("--hotspot", type=str, default="", help="Hotspot residues e.g. A78,A79")
     parser.add_argument("--output_json", type=str, required=True, help="Output JSON path")
@@ -64,7 +64,7 @@ def main():
             spec_overrides = json.load(f)
     if spec_overrides:
         print(f"Applying spec overrides: {spec_overrides}")
-    spec = build_spec(args.input_pdb, contig_v3, hotspot, spec_overrides)
+    spec = build_spec(args.input_structure_path, contig_v3, hotspot, spec_overrides)
     output = {"design": spec}
 
     with open(args.output_json, "w") as f:

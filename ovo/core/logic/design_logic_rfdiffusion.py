@@ -266,14 +266,24 @@ def process_rfdiffusion_design(
     backbone_filename = os.path.basename(source_backbone_path).removesuffix(".pdb")
 
     rfdiffusion_backbone_trb_path = None
-    if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key and "rfdiffusion3" not in source_backbone_path:
-        source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
-        source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
-        rfdiffusion_backbone_trb_path = storage.store_file_path(
-            source_abs_path=f"{source_dir}/{source_trb_path}",
-            storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
-            overwrite=False,
-        )
+    rfd3_all_atom_cif_path = None
+    if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key:
+        if "rfdiffusion3" not in source_backbone_path:
+            source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
+            source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
+            rfdiffusion_backbone_trb_path = storage.store_file_path(
+                source_abs_path=f"{source_dir}/{source_trb_path}",
+                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
+                overwrite=False,
+            )
+        else:
+            # Store compressed cif file, all-atom generated structure from RFD3
+            source_all_atom_cif_path = source_backbone_path.replace("_standardized_pdb/", "_cif/").replace("_standardized.pdb", ".cif.gz")
+            rfd3_all_atom_cif_path = storage.store_file_path(
+                source_abs_path=f"{source_dir}/{source_all_atom_cif_path}",
+                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_all_atom.cif.gz",
+                overwrite=False,
+            )
 
     backbone_pdb_path = storage.store_file_path(
         source_abs_path=f"{source_dir}/{source_backbone_path}",
@@ -361,6 +371,15 @@ def process_rfdiffusion_design(
                     **shared_args,
                 )
             )
+        
+        if rfd3_all_atom_cif_path:
+            descriptor_values.append(
+                DescriptorValue(
+                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key,
+                    value=rfd3_all_atom_cif_path,
+                    **shared_args,
+                )
+            )
 
         descriptor_values += RefoldingWorkflow.store_output(
             test=refolding_primary_test,
@@ -389,9 +408,6 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
     params = {
         "batch_size": workflow.rfdiffusion_params.batch_size,
         "rfdiffusion_input_pdb": workflow_input_path,
-        "rfdiffusion_num_designs": workflow.rfdiffusion_params.num_designs,
-        "rfdiffusion_contig": ",".join(workflow.rfdiffusion_params.contigs),
-        "rfdiffusion_run_parameters": get_rfdiffusion_run_parameters(workflow),
         "backbone_generator": workflow.rfdiffusion_params.backbone_generator,
         "refolding_tests": workflow.refolding_params.primary_test,
         "refolding_chains": ",".join(workflow.get_refolding_designed_chains()),

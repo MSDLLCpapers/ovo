@@ -5,7 +5,7 @@
   "description": "RFdiffusion3 backbone generation pipeline",
   "type": "object",
   "properties": {
-    "input_pdb": {
+    "input_structure_path": {
       "type": "string",
       "description": "Input PDB or CIF file for RFdiffusion3."
     },

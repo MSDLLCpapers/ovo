@@ -14,14 +14,14 @@ process RFdiffusion3 {
     publishDir { params.publish_dir }
 
     input:
-        tuple val(batch_name), path(input_pdb), val(contig), val(num_designs)
+        tuple val(batch_name), path(input_structure_path), val(contig), val(num_designs)
         path rfdiffusion3_models_path
         val hotspot
         val dump_trajectories
         val run_parameters
         val spec_overrides
     output:
-        tuple val(batch_name), path("${batch_name}/rfdiffusion3_pdb/"), emit: pdb_dir
+        tuple val(batch_name), path("${batch_name}/rfdiffusion3_cif/"), emit: cif_dir
         tuple val(batch_name), path("${batch_name}/rfdiffusion3_standardized_pdb/"), emit: standardized_pdb_dir
         path "${batch_name}/rfdiffusion3_json/", emit: json_dir
         path "${batch_name}/rfdiffusion3_traj/", emit: traj_dir
@@ -38,7 +38,7 @@ process RFdiffusion3 {
 
     if [[ ! -e "\$CKPT_PATH" ]]; then
         echo "RFDiffusion3 model checkpoint file does not exist. Download RFD3 weights by running 'ovo init rfdiffusion'"
-            exit 1
+        exit 1
     fi
 
     # Write spec overrides to a file to avoid bash quoting issues with JSON strings
@@ -48,7 +48,7 @@ process RFdiffusion3 {
         SPEC_OVERRIDES_ARG="--spec_overrides_file spec_overrides.json"
     fi
     python3 ${moduleDir}/bin/build_input_json.py \
-        --input_pdb "${input_pdb}" \
+        --input_structure_path "${input_structure_path}" \
         --contig "${contig}" \
         --hotspot "${hotspot}" \
         --output_json input_spec.json \
@@ -69,10 +69,10 @@ process RFdiffusion3 {
     ls -al output/
 
     # Organize outputs
-    mkdir -p ${batch_name}/rfdiffusion3_pdb
+    mkdir -p ${batch_name}/rfdiffusion3_cif
     mkdir -p ${batch_name}/rfdiffusion3_json
 
-    mv output/*.cif.gz ${batch_name}/rfdiffusion3_pdb/ 2>/dev/null || true
+    mv output/*.cif.gz ${batch_name}/rfdiffusion3_cif/ 2>/dev/null || true
     mv output/*.json ${batch_name}/rfdiffusion3_json/ 2>/dev/null || true
 
     if [[ "${dump_trajectories}" == "true" ]]; then
@@ -86,7 +86,7 @@ process RFdiffusion3 {
     # Standardize: CIF.gz -> standardized PDB
     mkdir -p ${batch_name}/rfdiffusion3_standardized_pdb
     python3 ${moduleDir}/bin/standardize_cif.py \
-        --cif_dir ${batch_name}/rfdiffusion3_pdb/ \
+        --cif_dir ${batch_name}/rfdiffusion3_cif/ \
         --json_dir ${batch_name}/rfdiffusion3_json/ \
         --output_dir ${batch_name}/rfdiffusion3_standardized_pdb/ \
         --input_contig "${contig}" \
@@ -97,14 +97,14 @@ process RFdiffusion3 {
 
 workflow {
 
-    ["input_pdb", "contig"].each { param ->
+    ["input_structure_path", "contig"].each { param ->
         if (!params[param]) {
             throw new IllegalArgumentException("Argument --${param} is required!")
         }
     }
 
     RFdiffusion3(
-        ["rfdiffusion3", params.input_pdb, params.contig, params.num_designs],
+        ["rfdiffusion3", params.input_structure_path, params.contig, params.num_designs],
         params.rfdiffusion3_models_path,
         params.hotspot,
         params.dump_trajectories,
