@@ -30,6 +30,10 @@
       "type": "string",
       "description": "Additional CLI arguments for RFdiffusion3 (e.g. 'inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2')"
     },
+    "spec_overrides": {
+      "type": "string",
+      "description": "JSON-encoded InputSpec overrides to merge into the generated RFdiffusion3 specification."
+    },
     "publish_dir": {
       "type": "string"
     },
