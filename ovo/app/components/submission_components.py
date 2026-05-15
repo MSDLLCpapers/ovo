@@ -391,13 +391,10 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
 
         if is_rfd3:
             timestep_label = "Number of timesteps (inference_sampler.num_timesteps)"
-            timestep_help = "Number of diffusion steps. RFdiffusion3 default is 200; use 10–50 for fast testing."
+            timestep_help = "Number of diffusion steps. Default is 200; use 10–50 for fast testing."
         else:
             timestep_label = "Num RFdiffusion timesteps (T)"
-            timestep_help = (
-                "Number of denoising diffusion steps determines the granularity of the diffusion process. "
-                "Higher values lead to better quality structures but also longer runtime."
-            )
+            timestep_help = "Number of diffusion steps. Default is 50; use 10–20 for fast testing."
 
         if "timesteps" not in st.session_state:
             st.session_state["timesteps"] = workflow.rfdiffusion_params.timesteps
@@ -407,6 +404,10 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
             min_value=1,
             key="timesteps",
             help=timestep_help,
+        )
+        st.caption(
+            ":material/info: Number of denoising diffusion steps determines the granularity of the diffusion process. "
+            "Higher values lead to better quality structures but also longer runtime."
         )
 
         workflow.rfdiffusion_params.contigmap_length = (
