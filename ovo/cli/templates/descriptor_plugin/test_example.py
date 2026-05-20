@@ -1,6 +1,6 @@
 import pytest
 
-from ovo import db
+from ovo import db, storage
 from ovo.core.database import Design
 from ovo.core.logic import descriptor_logic
 from ovo.core.utils.tests import TEST_SCHEDULER_KEY
@@ -27,5 +27,11 @@ def test_full___MODULE_SUFFIX__(project_data):
     print(values.to_dict(orient="records"))
 
     first_value = values.iloc[0]
+
+    #
+    # TODO Modify this based on your workflow
+    #
     assert first_value["Polar SASA"] == pytest.approx(2998.54, rel=0.1)
     assert first_value["Non-polar SASA"] == pytest.approx(3583.39, rel=0.1)
+    assert first_value["FreeSASA stats file"].endswith("___MODULE_SUFFIX__.csv")
+    assert storage.read_file_str(first_value["FreeSASA stats file"]) is not None

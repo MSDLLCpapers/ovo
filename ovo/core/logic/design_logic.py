@@ -1,21 +1,35 @@
+import os
 import sys
 import traceback
+import warnings
+import zipfile
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable
 
 import pandas as pd
 from humanize import naturaltime
 from sqlalchemy.orm.attributes import flag_modified
 
-from ovo import db, config
+from ovo import db, config, storage
 from ovo import get_scheduler
 from ovo.core.auth import get_username
-from ovo.core.database.models import Design, Threshold, DescriptorValue, Round, DesignJob, Base, DesignWorkflow
+from ovo.core.database.models import (
+    Design,
+    Threshold,
+    DescriptorValue,
+    Round,
+    DesignJob,
+    Base,
+    DesignWorkflow,
+    DesignSpec,
+    DesignChain,
+)
 from ovo.core.database.models import Pool, Workflow
 from ovo.core.logic.filtering_logic import filter_designs_by_thresholds
 from ovo.core.logic.job_logic import update_job_status, format_job_duration
+from ovo.core.utils.pdb import mmcif_to_pdb
 
 
 def get_design_jobs_table(
@@ -57,7 +71,9 @@ def get_design_jobs_table(
                 ("Pool", "description"): pool.description,
                 ("Job", "status"): format_pool_status(job, pool.processed, update_status=update),
                 ("Job", "duration"): format_job_duration(job),
-                ("Job", "created"): naturaltime(job.created_date_utc, when=datetime.utcnow()),
+                ("Job", "created"): naturaltime(
+                    job.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)
+                ),
                 ("Designs", "accepted"): accepted_by_pool.get(pool.id, 0) if pool.processed else None,
                 ("Designs", "total"): total_by_pool.get(pool.id, 0) if pool.processed else None,
             }
@@ -97,24 +113,25 @@ def get_pools_table(project_id: str = None, round_ids: list[str] = None):
         DesignJob, "id", job_result=False, id__in=[p.design_job_id for p in pools if p.design_job_id]
     )
 
+    filtered_pools = [pool for pool in pools if not pool.design_job_id or pool.design_job_id not in failed_job_ids]
+
     df = pd.DataFrame(
         [
             {
                 "ID": pool.id,
                 "Name": pool.name,
                 "Description": pool.description,
-                "Created": naturaltime(pool.created_date_utc, when=datetime.utcnow()),
+                "Created": naturaltime(pool.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)),
                 "Accepted Designs": accepted_by_pool.get(pool.id, 0) if pool.processed else "Not processed yet",
                 "Total Designs": total_by_pool.get(pool.id, 0) if pool.processed else None,
                 "Job ID": pool.design_job_id,
             }
-            for pool in pools
-            if (not pool.design_job_id or pool.design_job_id not in failed_job_ids)
+            for pool in filtered_pools
         ]
     )
     if len(round_ids) > 1:
         round_names = db.select_dict(Round, "id", "name", id__in=round_ids)
-        df.insert(0, "Round", [round_names.get(pool.round_id) for pool in pools])
+        df.insert(0, "Round", [round_names.get(pool.round_id) for pool in filtered_pools])
 
     return df
 
@@ -155,6 +172,8 @@ def submit_design_workflow(
     pool_description: str,
     return_existing: bool = True,
     pipeline_name: str = None,
+    resume_failed: bool = False,
+    submission_args: dict = None,
 ) -> tuple[DesignJob, Pool]:
     """Submit a design workflow to the scheduler and create a Pool and DesignJob in the DB.
 
@@ -165,6 +184,8 @@ def submit_design_workflow(
     :param pool_description: Description of the Pool to create
     :param return_existing: If a Pool with the same name and parameters already exists in this round, return it instead of raising an error
     :param pipeline_name: Override the pipeline name to submit, e.g. ovo.rfdiffusion-end-to-end or a github url with @version
+    :param resume_failed: If a Pool with the same name already exists in this round but its job has failed, submit the job again.
+    :param submission_args: Extra submission arguments to override in the scheduler, e.g. {"profile": "conda"} or {"stub": True}
     :return: Tuple of (DesignJob, Pool)
     """
     scheduler = get_scheduler(scheduler_key)
@@ -195,7 +216,19 @@ def submit_design_workflow(
             raise ValueError(
                 f"Please choose a different pool name. Pool with name '{pool_name}' was already submitted in this round with different parameters."
             )
-        print("Pool with same name and params already exists in this round, returning existing pool")
+        if design_job.job_result is False:
+            print(f"Pool with name '{pool_name}' already exists in this round but its job has FAILED")
+            if resume_failed:
+                # Resume and update job ID (might be the same or a new one depending on the scheduler)
+                print("Resuming job...")
+                design_job.job_result = None
+                design_job.job_finished_date_utc = None
+                design_job.job_id = scheduler.resume(design_job.job_id)
+                db.save(design_job)
+            else:
+                print("Use resume_failed=True to resubmit the job, or choose a different pool name to submit a new job")
+        else:
+            print("Pool with same name and params already exists in this round, returning existing pool")
         return design_job, pool
 
     if config.props.read_only:
@@ -212,27 +245,38 @@ def submit_design_workflow(
     job_id = scheduler.submit(
         pipeline_name=pipeline_name or workflow.get_pipeline_name(),
         params=workflow.prepare_params(workdir=scheduler.workdir),
+        submission_args=submission_args,
     )
 
-    design_job = DesignJob(
-        workflow=workflow,
-        job_id=job_id,
-        scheduler_key=scheduler_key,
-        author=username,
-    )
+    try:
+        design_job = DesignJob(
+            workflow=workflow,
+            job_id=job_id,
+            scheduler_key=scheduler_key,
+            author=username,
+        )
 
-    pool = Pool(
-        id=Pool.generate_id(),
-        author=username,
-        round_id=round_id,
-        name=pool_name,
-        description=pool_description,
-        design_job_id=design_job.id,
-        processed=False,
-    )
+        pool = Pool(
+            id=Pool.generate_id(),
+            author=username,
+            round_id=round_id,
+            name=pool_name,
+            description=pool_description,
+            design_job_id=design_job.id,
+            processed=False,
+        )
 
-    # TODO cancel job if this fails
-    db.save_all([design_job, pool])
+        db.save_all([design_job, pool])
+
+    except Exception:
+        traceback.print_exc()
+        # If there was an error saving to the DB, try to cancel the job in the scheduler to avoid orphaned jobs
+        try:
+            scheduler.cancel(job_id)
+        except Exception as cancel_exception:
+            traceback.print_exc()
+            print(f"Error cancelling job {job_id} after DB save failure: {cancel_exception}")
+        raise
 
     return design_job, pool
 
@@ -242,7 +286,7 @@ def get_log(design_job: DesignJob, task_id: str = None, preview: bool = False, t
     assert isinstance(design_job, DesignJob), f"Expected DesignJob, got {type(design_job).__name__}"
     scheduler = get_scheduler(design_job.scheduler_key)
     log = scheduler.get_log(design_job.job_id, task_id=task_id, preview=preview)
-    if tail is not None:
+    if tail is not None and log is not None:
         log_lines = log.splitlines()
         log = "\n".join(log_lines[-tail:])
     return log
@@ -339,9 +383,50 @@ def update_accepted_design_ids(pool_ids: list[str], accepted_design_ids: list[st
 
 
 def set_designs_accepted(
-    designs: list[Design], descriptor_values: list[DescriptorValue], thresholds: dict[str, Threshold]
+    designs: list[Design],
+    descriptor_values: list[DescriptorValue],
+    job: DesignJob,
+    no_warning_for_missing_prefix: str | tuple = None,
 ):
-    """Update the accepted field of designs based on the given thresholds (does not save to DB)"""
+    """Update the accepted field of designs based on the given thresholds (does not save to DB)
+
+    Makes the following modifications IN PLACE:
+    - If a threshold is enabled but its descriptor values are missing:
+      - set threshold.enabled to False
+      - add a warning in the DesignJob job.warnings
+    - Update the accepted field of each design based on whether it passes the thresholds or not.
+
+    :param designs: List of Design objects to update
+    :param descriptor_values: List of DescriptorValue objects to use for checking thresholds
+    :param job: DesignJob object
+    :param no_warning_for_missing_prefix: Do not add a warning for missing descriptor keys that start with this prefix/prefixes
+    """
+
+    if isinstance(job, dict):
+        warnings.warn(
+            "set_designs_accepted should be called with the DesignJob instead of acceptance thresholds",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        thresholds = job
+        job = None
+    else:
+        assert isinstance(job, DesignJob), f"Expected DesignJob, got {type(job).__name__}"
+        thresholds = job.workflow.acceptance_thresholds
+
+    available_descriptor_keys = set(dv.descriptor_key for dv in descriptor_values)
+    missing_descriptor_keys = []
+    for descriptor_key, threshold in thresholds.items():
+        if descriptor_key not in available_descriptor_keys and threshold.enabled:
+            threshold.enabled = False
+            if not no_warning_for_missing_prefix or not descriptor_key.startswith(no_warning_for_missing_prefix):
+                missing_descriptor_keys.append(descriptor_key)
+
+    if missing_descriptor_keys and job is not None:
+        job.warnings.append(
+            f"Some descriptors were not computed, their acceptance threshold was not applied: {', '.join(missing_descriptor_keys)}"
+        )
+
     # initialize dict of dicts (descriptor_key -> design_id -> value)
     values = {}
     for descriptor_value in descriptor_values:
@@ -411,3 +496,131 @@ def collect_storage_paths(download_fields: dict[str, tuple[Base, str]], design_i
                     f"Unexpected field type {type(path)} for {field_name}.{subfield_name}, expected str or list"
                 )
     return storage_paths
+
+
+def create_designs_from_dataframe(
+    df: pd.DataFrame,
+    id_column: str,
+    column_chains: dict[str, str],
+    pool_id: str,
+) -> list[Design]:
+    """
+    Create Design objects from a DataFrame.
+
+    Args:
+        df: pandas DataFrame with design data
+        id_column: column name to use as design ID
+        column_chains: mapping of column names to chain IDs (e.g., {"seq_A": "A", "seq_B": "B"})
+        pool_id: pool ID for the designs
+
+    Returns:
+        list of Design objects
+    """
+    designs = []
+    for idx, row in df.iterrows():
+        # Ensure design_id starts with "ovo_" prefix and contains pool_id
+        design_id = f"ovo_{pool_id}_{row[id_column]}"
+
+        # Create design chains from selected sequence columns
+        chains = []
+        for seq_col, chain_ids_str in column_chains.items():
+            if pd.isna(row[seq_col]):
+                continue
+            # Split chain IDs by comma or space, then clean up
+            chain_ids = [cid.strip() for cid in chain_ids_str.replace(",", " ").split() if cid.strip()]
+            chains.append(
+                DesignChain(
+                    type="protein",
+                    chain_ids=chain_ids,
+                    sequence=str(row[seq_col]),
+                )
+            )
+
+        if not chains:
+            # No sequence columns with valid data for this design, skip it
+            continue
+
+        designs.append(
+            Design(
+                id=design_id,
+                pool_id=pool_id,
+                spec=DesignSpec(chains=chains),
+                structure_path=None,  # No structure file for sequence-only designs
+            )
+        )
+
+    return designs
+
+
+def create_designs_from_structure_files(
+    structure_files: list, chains: list[str], pool: Pool, project_id: str
+) -> tuple[list[Design], list[str]]:
+    shared_args = dict(
+        storage=storage,
+        chains=chains,
+        project_id=project_id,
+        pool_id=pool.id,
+    )
+    designs = []
+    conversion_warnings = []
+    for file in structure_files:
+        if file.name.lower().endswith(".pdb"):
+            designs.append(Design.from_pdb_file(filename=file.name, pdb_str=file.read().decode(), **shared_args))
+        elif file.name.lower().endswith((".cif", ".mmcif")):
+            pdb_filename = os.path.splitext(file.name)[0] + ".pdb"
+            result = mmcif_to_pdb(file.read().decode())
+            conversion_warnings.extend(result.warnings)
+            designs.append(Design.from_pdb_file(filename=pdb_filename, pdb_str=result.pdb_string, **shared_args))
+        elif file.name.lower().endswith(".zip"):
+            found = False
+            with zipfile.ZipFile(file) as z:
+                for zip_info in z.infolist():
+                    if zip_info.filename.startswith("__MACOSX/"):
+                        continue
+                    filename = os.path.basename(zip_info.filename)
+                    if filename.startswith("."):
+                        continue
+                    if filename.lower().endswith(".pdb"):
+                        found = True
+                        print("Reading", zip_info.filename)
+                        pdb_str = z.read(zip_info.filename).decode()
+                        designs.append(
+                            Design.from_pdb_file(
+                                filename=filename,
+                                pdb_str=pdb_str,
+                                **shared_args,
+                            )
+                        )
+                    elif filename.lower().endswith((".cif", ".mmcif")):
+                        found = True
+                        print("Reading and converting", zip_info.filename)
+                        pdb_filename = os.path.splitext(filename)[0] + ".pdb"
+                        result = mmcif_to_pdb(z.read(zip_info.filename).decode())
+                        conversion_warnings.extend(result.warnings)
+                        designs.append(
+                            Design.from_pdb_file(
+                                filename=pdb_filename,
+                                pdb_str=result.pdb_string,
+                                **shared_args,
+                            )
+                        )
+            if not found:
+                raise ValueError(f"No PDB or CIF files found in zip archive '{file.name}'")
+    return designs, conversion_warnings
+
+
+def get_common_chain_ids(design_ids: list[str]) -> tuple[list[str], list[str]]:
+    """Get chain IDs that exist across all provided designs' specs"""
+    specs = db.select_values(Design, "spec", id__in=design_ids)
+    chain_id_counts = {}
+    for spec in specs:
+        if not spec:
+            continue
+        for chain in spec.chains:
+            for chain_id in chain.chain_ids:
+                if chain_id not in chain_id_counts:
+                    chain_id_counts[chain_id] = 0
+                chain_id_counts[chain_id] += 1
+    common_chain_ids = sorted([chain_id for chain_id, count in chain_id_counts.items() if count == len(specs)])
+    available_chain_ids = sorted(chain_id_counts.keys())
+    return common_chain_ids, available_chain_ids

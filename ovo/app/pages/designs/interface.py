@@ -18,6 +18,7 @@ from ovo.app.utils.cached_db import (
     get_cached_available_descriptors,
     get_cached_pool,
 )
+from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.core.database import Design, DesignWorkflow, NumericDescriptor, Descriptor
 from ovo.core.database.descriptors_refolding import AF2_PRIMARY_IPAE, AF2_PRIMARY_IPTM
 from ovo.core.database.descriptors_rfdiffusion import (
@@ -385,6 +386,6 @@ def interface_design_visualization_fragment(
         selected_design_ids, key="interface_selected_design", fmt=labels_by_design_id
     )
 
-    st.subheader(design_id)
+    design_labeling_fragment(design_id=design_id, key_suffix=f"interface_{design_id}")
 
     design_interface_detail(design_id, descriptors_df, interface_descriptors_by_key)

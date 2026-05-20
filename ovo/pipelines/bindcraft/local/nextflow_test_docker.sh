@@ -35,4 +35,4 @@ nextflow run ../../main.nf \
   --reference_files_dir "$MODELS_DIR" \
   "$@"
 
-ls -l batch1/*/
+ls -l contig1_batch1/*/

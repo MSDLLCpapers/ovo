@@ -103,3 +103,34 @@ def refresh_button(key: str, text="Refresh"):
                    </style>""".replace("KEY", iframe_key)
             )
             time_ago(datetime.now(), prefix="Refreshed", key=iframe_key, flash=just_refreshed)
+    return just_refreshed
+
+
+def simple_tabs(names: list[str], key: str) -> str:
+    """Simplified tabs that return the selected tab label, and persist the selected tab in the URL query params under the given key
+
+    The tab container is actually unused in this case - we show the content below the tabs,
+    since it seems to be smoother when switching tabs.
+
+    :param names: list of tab names/labels
+    :param key: query param key to persist selected tab
+    :return name of selected tab
+    """
+    tabs = st.tabs(
+        names,
+        on_change="rerun",
+        # note that in streamlit 1.56,
+        # changing the default will cause the component to be recreated even if it has the same key
+        # this is why we include this logic that first checks if the key is already in session state before falling back to query params
+        # this might not be needed if tabs adopt the logic of other input components and only use the default value on first creation
+        default=st.session_state[key] if key in st.session_state else st.query_params.get(key),
+        key=key,
+    )
+    assert len(tabs) == len(names)
+    if selected_tabs := [(tab, name) for tab, name in zip(tabs, names) if tab.open]:
+        tab, name = selected_tabs[0]
+        st.query_params[key] = name
+        return name
+    else:
+        # Should never happen, but to be safe, stop if no tab is selected
+        st.stop()

@@ -157,7 +157,16 @@ class Storage:
             return content
         return None
 
-    def _cache_store(self, file_path, content: str | bytes):
+    def _cache_store(self, file_path, content: str | bytes | None):
+        if content is None:
+            if file_path in self._cache_memory:
+                self.memory_cache_size -= len(self._cache_memory[file_path])
+                del self._cache_memory[file_path]
+            if file_path in self._cache_disk:
+                self.disk_cache_size -= os.path.getsize(self._cache_disk[file_path])
+                os.remove(self._cache_disk[file_path])
+                del self._cache_disk[file_path]
+            return
         if len(content) <= self.memory_cache_limit_per_file_bytes:
             # Cache recent files in memory (unless they are too big)
             self._cache_memory[file_path] = content
@@ -182,6 +191,11 @@ class Storage:
             old_file, old_disk_path = self._cache_disk.popitem(last=False)
             self.disk_cache_size -= os.path.getsize(old_disk_path)
             os.remove(old_disk_path)
+
+    def clear_cache(self, storage_path: str):
+        """Clear the cache for a specific file path"""
+        abs_path = self.resolve_path(storage_path)
+        self._cache_store(abs_path, None)
 
     @staticmethod
     def parse_path(path: str) -> tuple[str, str, str]:
@@ -379,6 +393,16 @@ class Storage:
             return os.path.join(self.storage_root, storage_path)
         return storage_path
 
+    def _basename(self, path: str) -> str:
+        """Get the base name (filename) from a path, supporting both regular paths and zip paths"""
+        path = self.resolve_path(path)
+        scheme, _, _ = self.parse_path(path)
+        if scheme == "zip":
+            _, arcpath = self._parse_zip_path(path)
+            return os.path.basename(arcpath)
+        else:
+            return os.path.basename(path)
+
     def store_file_path(self, source_abs_path: str, storage_rel_path: str, overwrite: bool = True) -> str:
         """Store the file in the local filesystem or in the S3 bucket
         :param source_abs_path: abs path (or s3 URI) to the source file
@@ -544,7 +568,7 @@ class Storage:
                     "storage_paths_by_dir must be a dictionary of lists, found value of type " + str(type(paths))
                 )
                 # Avoid overwriting files by mistake
-                filenames = [os.path.basename(p) for p in paths]
+                filenames = [self._basename(p) for p in paths]
                 assert len(filenames) == len(set(filenames)), (
                     "Storing duplicate file paths in the same zip directory are not allowed: " + ", ".join(filenames)
                 )
@@ -563,7 +587,7 @@ class Storage:
 
                 # Process each future to write to ZIP file
                 for future, subdir, file_path in futures:
-                    filename = os.path.basename(file_path)
+                    filename = self._basename(file_path)
                     file_data = future.result()  # this will raise exception if any
                     # Write the file to the zip with the desired structure
                     if file_data and filename:
@@ -660,7 +684,7 @@ class Storage:
                 executor.submit(
                     self.sync_file,
                     file_path,
-                    os.path.join(local_destination_dir, file_path if preserve_subdirs else os.path.basename(file_path)),
+                    os.path.join(local_destination_dir, file_path if preserve_subdirs else self._basename(file_path)),
                 )
                 for file_path in filtered_storage_paths
             ]
@@ -729,7 +753,7 @@ class Storage:
         workdir_scheme, workdir_bucket, workdir_prefix = self.parse_path(workdir)
 
         if name is None:
-            filename = os.path.basename(storage_path)
+            filename = self._basename(storage_path)
         else:
             filename = name + os.path.splitext(storage_path)[-1]
 
@@ -790,7 +814,7 @@ class Storage:
             if names is not None:
                 assert len(set(names)) == len(names), f"Names must be unique when single_directory=True, got: {names}"
             else:
-                basenames = [os.path.basename(p) for p in storage_paths]
+                basenames = [self._basename(p) for p in storage_paths]
                 assert len(set(basenames)) == len(basenames), (
                     f"Filenames must be unique when single_directory=True, got: {basenames}"
                 )
@@ -825,6 +849,24 @@ class Storage:
             return self.prepare_workflow_input(
                 storage_path="input_pdb_paths.txt", workdir=workdir, input_bytes="\n".join(paths).encode("utf-8")
             )
+
+    def remove(self, storage_path: str):
+        """Remove the file from storage"""
+        self.clear_cache(storage_path)
+        abs_path = self.resolve_path(storage_path)
+        scheme, bucket, key = self.parse_path(abs_path)
+        if scheme == "s3":
+            try:
+                self.aws.s3.delete_object(Bucket=bucket, Key=key)
+            except ClientError as e:
+                print("S3 ERROR", e, e.response)
+                if e.response["Error"]["Code"] in ("NoSuchKey", "404", 404):
+                    raise FileNotFoundError(f"File not found: {abs_path}") from e
+                raise
+        elif scheme == "zip":
+            raise NotImplementedError("Removing files from zip archives is not supported yet")
+        else:
+            os.remove(abs_path)
 
 
 class ZipWriteContext:

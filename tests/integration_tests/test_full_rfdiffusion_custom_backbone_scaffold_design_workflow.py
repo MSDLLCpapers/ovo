@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from ovo import db, design_logic, storage, schedulers
+from ovo import db, design_logic, storage
 from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
@@ -33,7 +33,8 @@ def test_scaffold_end_to_end_logic(project_data, input_method: str):
 
     workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"], custom_backbones=custom_backbones
+            input_pdb_paths=[storage.store_input(project.id, RESOURCES_DIR / "examples/inputs/5ELI_A.pdb")],
+            custom_backbones=custom_backbones,
         ),
         protein_mpnn_params=ProteinMPNNParams(
             num_sequences=2,
@@ -88,17 +89,23 @@ def test_scaffold_end_to_end_logic(project_data, input_method: str):
     test = "af2_model_1_ptm_nt_3rec"
     empty = db.select_descriptor_values(f"refolding|{test}|plddt", design_ids)
     assert len(empty.dropna()) == 0, "Refolding descriptors should be empty before refolding is run"
-    refolding: RefoldingWorkflow = RefoldingWorkflow(
-        chains=["A"],
+    refolding_workflows: list[RefoldingWorkflow] = RefoldingWorkflow.from_designs(
+        pool_ids=[pool.id],
         design_ids=[design.id for design in designs],
         tests=[test],
         design_type="scaffold",
     )
-    refolding.validate()
-    descriptor_job = descriptor_logic.submit_descriptor_workflow(
-        workflow=refolding, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
-    )
-    descriptor_logic.process_results(descriptor_job)
+    # Submit all workflows in parallel
+    descriptor_jobs = []
+    for workflow in refolding_workflows:
+        descriptor_jobs.append(
+            descriptor_logic.submit_descriptor_workflow(
+                workflow=workflow, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
+            )
+        )
+    # Wait for all workflows to complete and process results
+    for descriptor_job in descriptor_jobs:
+        descriptor_logic.process_results(descriptor_job)
 
     af2_plddt = db.select_descriptor_values(f"refolding|{test}|plddt", design_ids)
     assert len(af2_plddt.dropna()) == 2

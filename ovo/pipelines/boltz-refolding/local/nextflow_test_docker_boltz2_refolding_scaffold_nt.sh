@@ -13,7 +13,7 @@ DEFAULT_CONFIG=$(pwd)/../../nextflow_default.config
 OVO_MODULE_PATH=$(realpath "$PWD/../../../")
 INPUT_DIR_PREFIX=$(pwd)/test-input
 INPUT_DIR=${INPUT_DIR_PREFIX}/scaffold
-TEMPLATE_PDB_NO_FILE="${INPUT_DIR_PREFIX}/references/NO_FILE"
+TEMPLATE_PDB_FILE="${INPUT_DIR_PREFIX}/references/1A4I_trimmed.pdb"
 OUTPUT_DIR=$(pwd)/test-results-scaffold
 
 # change to work dir
@@ -34,8 +34,11 @@ nextflow run ../../main.nf \
   --max-memory 16GB \
   --boltz_version boltz2_scaffold_nt \
   --design_type scaffold \
-  --native_pdb "${TEMPLATE_PDB_NO_FILE}" \
+  --native_pdb "${TEMPLATE_PDB_FILE}" \
   --run_parameters " --no-template --designed_chains A " \
   $@
 
-head batch1/boltz2_scaffold_nt/*/*.cif
+ls -lR batch1
+head batch1/boltz2_scaffold_nt/*.pdb
+head batch1/boltz2_scaffold_nt.jsonl
+echo "Output saved to: $OUTPUT_DIR"

@@ -1,19 +1,20 @@
 import streamlit as st
 
-from ovo import db
+from ovo import db, Design, config
 from ovo.app.components.custom_elements import confirm_download_button
 from ovo.app.components.descriptor_explorer import descriptor_explorer
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.descriptor_tiles import descriptor_overview_tiles
 from ovo.app.components.navigation import design_navigation_selector
+from ovo.app.components.submission_components import chain_ids_input
 from ovo.app.utils.cached_db import (
-    get_cached_pools,
     get_cached_design_ids,
     get_cached_available_descriptors,
+    get_cached_common_chain_ids,
 )
 from ovo.app.utils.protein_qc_plots import source_selectbox
-from ovo.core.database import Pool, Design, NumericGlobalDescriptor
+from ovo.core.database import NumericGlobalDescriptor
 from ovo.core.database.descriptors_proteinqc import PROTEINQC_MAIN_DESCRIPTORS
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow, PROTEINQC_TOOLS
 from ovo.core.logic.descriptor_logic import (
@@ -50,7 +51,7 @@ def proteinqc_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
         key="submit_full_proteinqc_btn",
         help="Submit full ProteinQC for all designs",
     ):
-        submit_proteinqc_dialog(pool_ids, design_ids)
+        submit_proteinqc_dialog(design_ids)
 
     refresh_descriptors(
         design_ids=design_ids,
@@ -100,23 +101,27 @@ def proteinqc_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
 
 @st.fragment
 @st.dialog("ProteinQC submission", width="large")
-def submit_proteinqc_dialog(pool_ids: list[str], design_ids: list[str]):
+def submit_proteinqc_dialog(design_ids: list[str]):
     num_designs = len(design_ids)
     st.write(f"""Submit ProteinQC for {num_designs:,} {"design" if num_designs == 1 else "designs"}""")
+    has_structures = db.count(Design, id__in=design_ids, structure_path__ne=None) > 0
+    available_tools = PROTEINQC_TOOLS if has_structures else [t for t in PROTEINQC_TOOLS if t.supports_sequence_input]
     tools = st.multiselect(
         "Select ProteinQC tools",
-        options=PROTEINQC_TOOLS,
-        default=PROTEINQC_TOOLS,
+        options=available_tools,
+        default=available_tools,
         format_func=lambda x: x.name,
         key="proteinqc_tools_selectbox",
     )
     tool_keys = [tool.tool_key for tool in tools]
-    chains = st.text_input(
-        "Chain(s) to analyze",
-        value="A",
-        key="proteinqc_chains_input",
-    )
-    chains = chains.replace(" ", "").replace(",", "")
+    if not has_structures:
+        st.warning(
+            "No structures found for the selected designs. Only tools that support sequence-only input can be selected."
+        )
+
+    chains = chain_ids_input(design_ids)
+    if not chains:
+        return
 
     schedulers = get_available_schedulers(tools)
 
@@ -124,10 +129,19 @@ def submit_proteinqc_dialog(pool_ids: list[str], design_ids: list[str]):
         st.warning("No schedulers available for the selected tools.")
         return
 
+    scheduler_index = 0
+    if list(schedulers.keys())[0] != config.default_scheduler:
+        st.warning(
+            f"Default scheduler **{config.default_scheduler}** does not support all the selected tools. "
+            f"Please select a compatible scheduler from the dropdown below."
+        )
+        scheduler_index = None
+
     scheduler_key = st.selectbox(
         "Scheduler",
         options=list(schedulers.keys()),
         format_func=lambda x: schedulers[x].name,
+        index=scheduler_index,
         key="proteinqc_scheduler_selectbox",
     )
 

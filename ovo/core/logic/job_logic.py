@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ovo.core.auth import is_running_in_streamlit
 from ovo import get_scheduler, db
@@ -25,7 +25,9 @@ def update_job_status(job: JobMixin, save_on_success: bool = False) -> bool | No
         if job_result is not None:
             # Finished state - Successful or Failed
             job.job_result = job_result
-            job.job_finished_date_utc = scheduler.get_job_stop_time(job.job_id) or datetime.utcnow()
+            job.job_finished_date_utc = scheduler.get_job_stop_time(job.job_id) or datetime.now(timezone.utc).replace(
+                tzinfo=None
+            )
             if job.job_result == False or save_on_success:
                 # Save the job if failed or if we want to save successful jobs
                 # (job status is not saved in case we want to process the results and save them atomically)
@@ -52,7 +54,7 @@ def format_job_duration(job: JobMixin):
     elif job.job_finished_date_utc:
         delta = job.job_finished_date_utc - job.job_started_date_utc
     else:
-        delta = datetime.utcnow() - job.job_started_date_utc
+        delta = datetime.now(timezone.utc).replace(tzinfo=None) - job.job_started_date_utc
     # format 00d:00h:00m
     days, remainder = divmod(delta.total_seconds(), 86400)
     hours, remainder = divmod(remainder, 3600)

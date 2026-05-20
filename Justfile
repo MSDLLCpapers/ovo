@@ -38,19 +38,33 @@ build:
     uv build
     ls -lh dist
 
-test: unit-test
+test: unit-tests plugin-tests
+
+tests: test
 
 # Run unit tests including Streamlit unit tests
-unit-test tests="tests/unit_tests":
+unit-tests tests="tests/unit_tests":
     {{RUN}} pytest {{tests}}
 
+unit-test: unit-tests
+
 # Run workflow tests (using full OVO logic including DB entries and processing logic)
-integration-test +tests="tests/integration_tests":
+integration-tests +tests="tests/integration_tests":
     {{RUN}} pytest -s {{tests}}
 
+integration-test: integration-tests
+
+# Run plugin tests (test plugin creation)
+plugin-tests +tests="tests/plugin_tests":
+    {{RUN}} pytest -s -v {{tests}}
+
+plugin-test: plugin-tests
+
 # Run pipeline tests (submit scheduler jobs and check results)
-pipeline-test +tests="ovo/pipelines":
+pipeline-tests +tests="ovo/pipelines":
     {{RUN}} pytest -s {{tests}}
+
+pipeline-test: pipeline-tests
 
 # Run web application to inspect unit test results (after executing just test)
 test-app:

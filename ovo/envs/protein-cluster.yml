@@ -5,9 +5,8 @@ dependencies:
   - pip
   - llvmlite
   - numba
+  - pandas
   - pip:
-      - pandas
-      - numpy
       - scipy
       - scikit-learn
       - umap-learn

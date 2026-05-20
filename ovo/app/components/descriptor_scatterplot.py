@@ -12,7 +12,7 @@ from ovo.app.utils.cached_db import (
 )
 from ovo.core.database import Threshold, NumericGlobalDescriptor, Descriptor
 from ovo.core.database.descriptors import PRESETS
-from ovo.core.database.descriptors_clustering import PROTEIN_CLUSTERING_DESCRIPTORS
+from ovo.core.utils.formatting import get_hash_of_bytes
 
 
 @dataclass
@@ -60,6 +60,16 @@ class PlotSettings:
             else:
                 st.query_params.pop(field, None)
 
+    def get_preset_index(self, available_presets: dict):
+        if not available_presets:
+            return None
+        if not self.x or not self.y:
+            return 0
+        for key, preset in available_presets.items():
+            if preset["x"].key == self.x.key and preset["y"].key == self.y.key:
+                return list(available_presets.keys()).index(key)
+        return None
+
 
 def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSettings | None:
     descriptors_by_key = get_cached_available_descriptors(design_ids)
@@ -81,82 +91,76 @@ def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSetting
         if value["x"].key in descriptors_by_key and value["y"].key in descriptors_by_key
     }
 
-    if st.session_state.get("scatterplot_update"):
-        # update triggered from another component
-        update, value = st.session_state["scatterplot_update"]
-        if update == "x":
-            st.session_state["scatterplot_x"] = value
-        elif update == "y":
-            st.session_state["scatterplot_y"] = value
-        else:
-            print("Ignoring unknown update", update, value)
-
     # Update settings if user just selected something in one of the dropdowns
-    if st.session_state.get("scatterplot_preset") or (not settings.x and not settings.y and available_presets):
-        if st.session_state.get("scatterplot_preset"):
-            # user has just selected a preset
-            new_preset = st.session_state.get("scatterplot_preset")
-            st.session_state["flash_preset"] = new_preset
-        else:
-            # No x or y axis selected, choose first preset
-            new_preset = list(available_presets.keys())[0]
-        settings.x = available_presets[new_preset]["x"]
-        settings.y = available_presets[new_preset]["y"]
-        st.session_state["scatterplot_x"] = settings.x.key
-        st.session_state["scatterplot_y"] = settings.y.key
-        st.session_state["scatterplot_preset"] = None  # clear preset dropdown
-        settings.update_query_params()
-        st.rerun()
-    elif st.session_state.get("scatterplot_x") and settings.get_x_key() != st.session_state.get("scatterplot_x"):
-        # user has just changed the X axis
-        # note that the session state is already updated here if user has just changed the value of the dropdown below
-        settings.x = descriptors_by_key[st.session_state.get("scatterplot_x")]
-        settings.update_query_params()
-    elif st.session_state.get("scatterplot_y") and settings.get_y_key() != st.session_state.get("scatterplot_y"):
-        # user has just changed the Y axis
-        # note that the session state is already updated here if user has just changed the value of the dropdown below
-        settings.y = descriptors_by_key[st.session_state.get("scatterplot_y")]
-        settings.update_query_params()
-
     left, right = st.columns([1.1, 2], gap="medium", vertical_alignment="bottom")
     with left:
-        st.selectbox(
+        preset_index = settings.get_preset_index(available_presets)
+        preset_options_hash = get_hash_of_bytes(" ".join(map(str, available_presets.keys())).encode())
+        new_preset = st.selectbox(
             "Preset",
             placeholder="One preset available"
             if len(available_presets) == 1
             else f"{len(available_presets)} presets available",
             format_func=lambda key: PRESETS[key]["label"],
             options=list(available_presets.keys()),
-            key="scatterplot_preset",
-            index=None,
+            key=f"scatterplot_preset_{preset_options_hash}_{preset_index}",
+            index=preset_index,
         )
-    with right:
-        if st.session_state.get("flash_preset"):
-            st.success(f"Preset selected: {st.session_state['flash_preset']}")
-            del st.session_state["flash_preset"]
+
+    if new_preset:
+        if (
+            settings.get_x_key() != available_presets[new_preset]["x"].key
+            or settings.get_y_key() != available_presets[new_preset]["y"].key
+        ):
+            settings.x = available_presets[new_preset]["x"]
+            settings.y = available_presets[new_preset]["y"]
+            settings.update_query_params()
+            st.rerun()
 
     x_col, y_col, _ = st.columns([1, 1, 0.5], gap="medium")
+    descriptor_options_hash = get_hash_of_bytes(" ".join(map(str, descriptor_options)).encode())
     with x_col:
-        st.selectbox(
+        x_index = (
+            descriptor_options.index(settings.get_x_key())
+            if settings.get_x_key() and settings.get_x_key() in descriptor_options
+            else None
+        )
+        new_x_key = st.selectbox(
             "X axis",
             format_func=lambda descriptor_key: format_descriptor_name(descriptors_by_key[descriptor_key]),
             options=descriptor_options,
-            key="scatterplot_x",
-            index=None,
+            key=f"scatterplot_x_{descriptor_options_hash}_{x_index}",
+            index=x_index,
         )
         if settings.x and settings.x.description:
             st.caption(settings.x.description)
 
     with y_col:
-        st.selectbox(
+        y_index = (
+            descriptor_options.index(settings.get_y_key())
+            if settings.get_y_key() and settings.get_y_key() in descriptor_options
+            else None
+        )
+        new_y_key = st.selectbox(
             "Y axis",
             format_func=lambda descriptor_key: format_descriptor_name(descriptors_by_key[descriptor_key]),
             options=descriptor_options,
-            key="scatterplot_y",
-            index=None,
+            key=f"scatterplot_y_{descriptor_options_hash}_{y_index}",
+            index=y_index,
         )
         if settings.y and settings.y.description:
             st.caption(settings.y.description)
+
+    if new_x_key and settings.get_x_key() != new_x_key:
+        # user has just changed the X axis
+        settings.x = descriptors_by_key[new_x_key]
+        settings.update_query_params()
+        st.rerun()  # rerun needed to register the new key change
+    if new_y_key and settings.get_y_key() != new_y_key:
+        # user has just changed the Y axis
+        settings.y = descriptors_by_key[new_y_key]
+        settings.update_query_params()
+        st.rerun()  # rerun needed to register the new key change
 
     # with color_col:
     #     key = 'scatterplot_color'
@@ -179,85 +183,16 @@ def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSetting
     return settings
 
 
-def descriptor_scatterplot_design_explorer_component(settings: PlotSettings, design_ids: list[str]) -> list[str]:
-    if not settings.x or not settings.y:
-        st.caption("Please select the X and Y axes to see the scatterplot.")
-        return design_ids
-
-    x_values = get_cached_descriptor_values(settings.x.key, design_ids=design_ids)
-    y_values = get_cached_descriptor_values(settings.y.key, design_ids=design_ids)
-    # FIXME
-    color_values = pd.Series([design_id.split("_")[1] for design_id in design_ids], index=design_ids)
-
-    values_by_name = {
-        settings.x.name: x_values,
-        settings.y.name: y_values,
-    }
-    print_missing(values_by_name)
-
-    st.markdown(
-        """
-        <style>
-        /* center the plot */
-        .js-plotly-plot .plotly .svg-container { margin: 0 auto; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    scatterplot_df = pd.DataFrame({"x": x_values, "y": y_values, "color": color_values, "design_id": design_ids})
-    fig = px.scatter(
-        scatterplot_df,
-        x="x",
-        y="y",
-        labels={"x": settings.x.name, "y": settings.y.name},
-        range_x=settings.x.get_plot_range(x_values),
-        range_y=settings.y.get_plot_range(y_values),
-        width=800,
-        height=600,
-        color="color",
-        custom_data=["design_id"],
-        marginal_x="histogram",
-        marginal_y="histogram",
-    )
-
-    fig.update_layout(dragmode="select")
-    event = st.plotly_chart(fig, on_select="rerun", width="content", key="scatterplot")
-
-    # descriptor to create a subpool from lasso/box selected designs
-    if not event["selection"]["box"] and not event["selection"]["lasso"]:
-        # No selection yet
-        st.info(
-            "Click and drag to select a region in the plot.",
-            icon=":material/info:",
-        )
-        return design_ids
-    else:
-        selected_design_ids = [point["customdata"][0] for point in event["selection"]["points"]]
-        if box := event["selection"]["box"]:
-            x_min, x_max = get_trimmed_min_max(box[0]["x"], settings.x)
-            y_min, y_max = get_trimmed_min_max(box[0]["y"], settings.y)
-            selection_label = (
-                f"with **{format_range(x_min, x_max, settings.x)}** and **{format_range(y_min, y_max, settings.y)}**"
-            )
-        else:
-            selection_label = "using lasso selection"
-        st.info(
-            f"Selected {len(selected_design_ids):,} designs {selection_label}. "
-            f"Double-click on the plot to clear the selection.",
-            icon=":material/info:",
-        )
-        return selected_design_ids
-
-
-def descriptor_scatterplot_pool_details_component(
+def descriptor_scatterplot_component(
     settings: PlotSettings,
     design_ids: list[str],
     selected_thresholds: dict[str, Threshold] = None,
     highlight_accepted: bool = False,
     key: str = "scatterplot",
-) -> tuple[list[str], str | None]:
+) -> list[str]:
     if not settings.x or not settings.y:
-        return design_ids, None
+        st.caption("Please select the X and Y axes to see the scatterplot.")
+        return design_ids
 
     x_values = get_cached_descriptor_values(settings.x.key, design_ids=design_ids)
     y_values = get_cached_descriptor_values(settings.y.key, design_ids=design_ids)
@@ -274,15 +209,6 @@ def descriptor_scatterplot_pool_details_component(
     }
     print_missing(values_by_name)
 
-    st.markdown(
-        """
-        <style>
-        /* center the plot */
-        .js-plotly-plot .plotly .svg-container { margin: 0 auto; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
     scatterplot_df = pd.DataFrame({"x": x_values, "y": y_values, "color": color_values, "design_id": design_ids})
     if highlight_accepted:
         accepted_values = get_cached_designs_accept_field(design_ids)
@@ -375,6 +301,8 @@ def descriptor_scatterplot_pool_details_component(
             height=600,
             color="color",
             custom_data=["design_id"],
+            marginal_x="histogram",
+            marginal_y="histogram",
         )
 
     # Add a rectangle for reference based on the selected thresholds
@@ -422,18 +350,27 @@ def descriptor_scatterplot_pool_details_component(
     event = st.plotly_chart(fig, on_select="rerun", width="content", key=key)
 
     if not event["selection"]["box"] and not event["selection"]["lasso"]:
-        return design_ids, None
+        st.info(
+            "Click and drag to select a region in the plot.",
+            icon=":material/info:",
+        )
+        return design_ids
     else:
         selected_design_ids = [point["customdata"][0] for point in event["selection"]["points"]]
         if box := event["selection"]["box"]:
             x_min, x_max = get_trimmed_min_max(box[0]["x"], settings.x)
             y_min, y_max = get_trimmed_min_max(box[0]["y"], settings.y)
             selection_label = (
-                f"**{format_range(x_min, x_max, settings.x)}** and **{format_range(y_min, y_max, settings.y)}**"
+                f"with **{format_range(x_min, x_max, settings.x)}** and **{format_range(y_min, y_max, settings.y)}**"
             )
         else:
-            selection_label = "Using lasso selection"
-        return selected_design_ids, selection_label
+            selection_label = "using lasso selection"
+        st.info(
+            f"Selected {len(selected_design_ids):,} designs {selection_label}. "
+            f"Double-click on the plot to clear the selection.",
+            icon=":material/info:",
+        )
+        return selected_design_ids
 
 
 def format_descriptor_name(descriptor: Descriptor) -> str:

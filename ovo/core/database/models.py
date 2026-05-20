@@ -18,7 +18,7 @@ from sqlalchemy.orm import mapped_column
 from ovo.core.database.encoder import DataclassType
 from ovo.core.database.db_proxy import DBProxy
 from ovo.core.scheduler.base_scheduler import Scheduler
-from ovo.core.utils.formatting import generate_id
+from ovo.core.utils.formatting import generate_id, generate_unique_id
 from ovo.core.utils.pdb import (
     get_sequences_from_pdb_str,
     ChainNotFoundError,
@@ -180,6 +180,17 @@ class Threshold:
             max_allowed += 0.5
 
         return min_allowed, max_allowed
+
+    def passes(self, value: Any) -> bool:
+        if pd.isna(value):
+            # missing value does not pass
+            return False
+        passes = True
+        if self.max_value is not None:
+            passes &= value <= self.max_value
+        if self.min_value is not None:
+            passes &= value >= self.min_value
+        return passes
 
 
 class WorkflowTypes:
@@ -414,7 +425,10 @@ class DesignWorkflow(Workflow):
                 row,
                 pd.Series(
                     {
-                        ("Thresholds", ALL_DESCRIPTORS_BY_KEY[key].name): t.format()
+                        (
+                            "Thresholds",
+                            ALL_DESCRIPTORS_BY_KEY[key].name if key in ALL_DESCRIPTORS_BY_KEY else key,
+                        ): t.format()
                         for key, t in self.acceptance_thresholds.items()
                         if t.enabled
                     },
@@ -665,14 +679,7 @@ class DescriptorJob(Base, MetadataMixin, JobMixin):
     @classmethod
     def generate_id(cls, tries=100):
         """Generate unique UID shortened for memory efficiency in descriptor_value table"""
-        for length in range(6, 10):
-            for i in range(tries):
-                new_id = str(uuid.uuid4()).replace("-", "")[:length]
-                try:
-                    DescriptorJob.get(id=new_id)
-                except NoResultFound:
-                    return new_id
-        raise ValueError(f"Failed to generate unique id of length {length} after {tries} tries")
+        return generate_unique_id(cls, tries=tries)
 
 
 class DescriptorValue(Base):
@@ -685,6 +692,30 @@ class DescriptorValue(Base):
     # Can be same or a subset of descriptor_job.workflow.chains
     chains: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(String, nullable=True)
+
+
+class Labeling(Base, MetadataMixin):
+    """User-defined labels for organizing and categorizing designs"""
+
+    __tablename__ = "labeling"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=None, index=True)
+    label: Mapped[str] = mapped_column(String, default=None, nullable=False, index=True)
+    explanation: Mapped[str] = mapped_column(String, default=None, nullable=True)
+
+    @classmethod
+    def generate_id(cls, tries=100):
+        """Generate unique UID shortened for memory efficiency in descriptor_value table"""
+        return generate_unique_id(cls, tries=tries)
+
+
+class DesignLabeling(Base):
+    """Many-to-many relationship between designs and labelings"""
+
+    __tablename__ = "design_labeling"
+
+    design_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    labeling_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
 
 
 class ArtifactTypes:
@@ -765,7 +796,20 @@ class UnknownArtifact(Artifact):
         return []
 
 
-class ProjectArtifact(Base):
+@ArtifactTypes.register()
+@dataclass
+class AttachmentArtifact(Artifact):
+    """Artifact for user-uploaded attachments"""
+
+    file_path: str
+    original_filename: str
+    size_bytes: int
+
+    def get_storage_paths(self) -> list[str]:
+        return [self.file_path] if self.file_path else []
+
+
+class ProjectArtifact(Base, MetadataMixin):
     __tablename__ = "project_artifact"
     id: Mapped[str] = mapped_column(String, primary_key=True, default_factory=lambda: str(uuid.uuid4()))
     project_id: Mapped[str] = mapped_column(String, nullable=False, default=None, index=True)
@@ -909,8 +953,31 @@ class FileDescriptor(Descriptor):
 class StructureFileDescriptor(FileDescriptor):
     """Descriptor storing a structure file path as a value (PDB, mmCIF)"""
 
-    structure_type: Literal["backbone_design", "sequence_design", "prediction", "experimentally_resolved"] = None
+    structure_type: Literal[
+        "backbone_design", "sequence_design", "prediction", "experimentally_resolved", "topology"
+    ] = None
     b_factor_value: Literal["plddt", "fractional_plddt"] = None
+
+
+@dataclass
+class TrajectoryFileDescriptor(FileDescriptor):
+    """Descriptor storing an MD trajectory file path as a value (.trr)"""
+
+    pass
+
+
+@dataclass
+class TopologyFileDescriptor(StructureFileDescriptor):
+    """Descriptor storing an MD topology file path as a value (.gro)"""
+
+    pass
+
+
+@dataclass
+class PSSMFileDescriptor(FileDescriptor):
+    """Descriptor storing file path to PSSM results and info about the PSSM calculation."""
+
+    loss_type: str = None
 
 
 # include all models
@@ -937,6 +1004,8 @@ __all__ = [
     "Design",
     "DescriptorJob",
     "DescriptorValue",
+    "Labeling",
+    "DesignLabeling",
     "Descriptor",
     "NumericDescriptor",
     "NumericGlobalDescriptor",
@@ -947,9 +1016,13 @@ __all__ = [
     "ResidueNumberDescriptor",
     "FileDescriptor",
     "StructureFileDescriptor",
+    "TopologyFileDescriptor",
+    "TrajectoryFileDescriptor",
+    "PSSMFileDescriptor",
     "DataclassType",
     "Artifact",
     "UnknownArtifact",
     "ArtifactTypes",
     "ProjectArtifact",
+    "AttachmentArtifact",
 ]

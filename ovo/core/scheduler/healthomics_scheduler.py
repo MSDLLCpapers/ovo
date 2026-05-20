@@ -210,6 +210,7 @@ class HealthOmicsScheduler(Scheduler):
 
     def cancel(self, job_id):
         """Cancel job execution"""
+        # TODO implement cancelling HealthOmics job
         raise NotImplementedError()
 
     def get_output_dir(self, job_id: str) -> str:

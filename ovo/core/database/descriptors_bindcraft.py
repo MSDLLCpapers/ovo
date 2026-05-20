@@ -6,6 +6,13 @@ from ovo.core.database.models import (
 
 DESCRIPTORS = [
     NumericGlobalDescriptor(
+        name="Binder sequence length",
+        description="Number of amino acids in the designed binder sequence",
+        tool="BindCraft",
+        key="bindcraft|sequence|Length",
+        comparison="does_not_apply",
+    ),
+    NumericGlobalDescriptor(
         name="MPNN score",
         description="MPNN sequence score, generally not recommended for filtering as it depends on protein",
         tool="BindCraft",
@@ -183,14 +190,17 @@ DESCRIPTORS = [
         description="Number of unsatisfied buried hydrogen bonds at the interface (average across AF2 models)",
         tool="BindCraft",
         key="bindcraft|interface|Average_n_InterfaceUnsatHbonds",
-        comparison="does_not_apply",
+        comparison="lower_is_better",
+        min_value=0,
     ),
     NumericGlobalDescriptor(
         name="Interface Unsat Hbonds %",
         description="Number of unsatisfied buried hydrogen bonds compared to interface size (average across AF2 models)",
         tool="BindCraft",
         key="bindcraft|interface|Average_InterfaceUnsatHbondsPercentage",
-        comparison="does_not_apply",
+        comparison="lower_is_better",
+        min_value=0,
+        max_value=100,
     ),
     NumericGlobalDescriptor(
         name="Interface Helix %",

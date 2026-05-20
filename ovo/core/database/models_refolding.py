@@ -1,5 +1,6 @@
 from abc import ABC
 import os
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Callable, Optional
 
@@ -10,6 +11,9 @@ from ovo.core.database.models import (
     WorkflowTypes,
     Base,
     DescriptorValue,
+    Pool,
+    Design,
+    DesignJob,
 )
 from dataclasses import dataclass, field
 
@@ -85,7 +89,7 @@ class RefoldingWorkflow(DescriptorWorkflow):
                 any_files_in_batch = False
 
                 for design_id in self.design_ids:
-                    pool_id = design_id.split("_")[1]
+                    pool_id = Design.design_id_to_pool_id(design_id)
                     for test in self.tests:
                         source_structure_path = f"{batch_output_path}/{test}/{design_id}_{test}.pdb"
                         if storage.file_exists(source_structure_path):
@@ -119,7 +123,7 @@ class RefoldingWorkflow(DescriptorWorkflow):
                         design_id,
                         test,
                         batch_output_path,
-                        os.path.join("project", job.project_id, "pools", pool_id, "designs"),
+                        storage.get_project_path(job.project_id, pool_id),
                         job.id,
                         self.chains,
                     )
@@ -187,14 +191,15 @@ class RefoldingWorkflow(DescriptorWorkflow):
 
     @classmethod
     def get_descriptor_key_prefix(cls, test: str, primary: bool = False) -> str:
-        if not primary:
-            return f"refolding|{test}"
-
-        if test.startswith("af2_"):
-            # Historical reasons - store AF2 metrics under "af2_primary" prefix to simplify downstream analysis
-            return "refolding|af2_primary"
-        else:
-            return f"refolding|{test}"
+        if primary:
+            # In the design workflow, store refolding metrics in a "primary" version of the descriptor key
+            # for example "af2_primary" or "boltz_primary" to simplify setting thresholds and downstream analysis
+            if test.startswith("af2_"):
+                return "refolding|af2_primary"
+            if test.startswith("boltz"):
+                return "refolding|boltz_primary"
+            # other test types will fall back to logic below
+        return f"refolding|{test}"
 
     def validate(self):
         super().validate()
@@ -207,3 +212,51 @@ class RefoldingWorkflow(DescriptorWorkflow):
             assert test in REFOLDING_TESTS_BY_TYPE[self.design_type], (
                 f"Invalid test for design type {self.design_type}: {test}"
             )
+
+    @classmethod
+    def from_designs(
+        cls, pool_ids: list[str], design_ids: list[str], tests: list[str], design_type: str, **kwargs
+    ) -> list["RefoldingWorkflow"]:
+        """Create one or more RefoldingWorkflow objects based on the pools and designs selected for refolding evaluation."""
+        from ovo import db
+
+        pools = db.select(Pool, id__in=pool_ids)
+        pools_by_id = {p.id: p for p in pools}
+        design_workflows_by_pool_id = {
+            p.id: db.get(DesignJob, id=p.design_job_id).workflow for p in pools if p.design_job_id
+        }
+        for pool_id in pool_ids:
+            assert pool_id in pools_by_id, f"Pool {pool_id} not found in database"
+            assert pool_id in design_workflows_by_pool_id, (
+                f"Pool {pool_id} does not have an associated design workflow, please create {cls.__name__} manually"
+            )
+        groups = defaultdict(list)
+        for pool in pools:
+            index_by_id = db.select_dict(Design, "id", "contig_index", id__in=design_ids, pool_id=pool.id)
+            if not pool.design_job_id:
+                # Assume chain A is designed if no design workflow associated with the pool, and no native structure (e.g. for custom PDB uploads)
+                default_designed_chains = ["A"]
+                groups[(None, tuple(default_designed_chains))] += list(index_by_id.keys())
+                continue
+            design_workflow = design_workflows_by_pool_id[pool.id]
+            ids_by_index = defaultdict(list)
+            for design_id, contig_index in index_by_id.items():
+                ids_by_index[contig_index].append(design_id)
+            for contig_index, ids in ids_by_index.items():
+                native_pdb_path = design_workflow.get_refolding_native_pdb_path(contig_index)
+                designed_chains = design_workflow.get_refolding_designed_chains()
+                groups[(native_pdb_path, tuple(designed_chains))] += ids
+
+        workflows = []
+        for (native_pdb_path, designed_chains), group_design_ids in groups.items():
+            workflow = RefoldingWorkflow(
+                design_type=design_type,
+                tests=tests,
+                design_ids=group_design_ids,
+                native_pdb_path=native_pdb_path,
+                chains=list(designed_chains),
+                **kwargs,
+            )
+            workflow.validate()
+            workflows.append(workflow)
+        return workflows

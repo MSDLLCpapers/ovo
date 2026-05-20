@@ -7,6 +7,8 @@ from collections import deque
 from typing import Collection, Any
 from datetime import datetime
 import time
+import uuid
+from sqlalchemy.exc import NoResultFound
 
 import numpy as np
 import pandas as pd
@@ -54,6 +56,33 @@ def generate_id(previous_ids: Collection[str]) -> str:
     return new_id
 
 
+def generate_unique_id(model_class, tries=100, min_length=6, max_length=10):
+    """Generate unique UID shortened for memory efficiency using UUID prefix.
+
+    This function generates shortened UUIDs and checks uniqueness by querying the database.
+
+    Args:
+        model_class: The SQLAlchemy model class that has a get(id=...) class method
+        tries: Maximum number of attempts per length (default: 100)
+        min_length: Minimum ID length to try (default: 6)
+        max_length: Maximum ID length to try (default: 10)
+
+    Returns:
+        str: A unique identifier
+
+    Raises:
+        ValueError: If no unique ID could be generated within the specified constraints
+    """
+    for length in range(min_length, max_length):
+        for i in range(tries):
+            new_id = str(uuid.uuid4()).replace("-", "")[:length]
+            try:
+                model_class.get(id=new_id)
+            except NoResultFound:
+                return new_id
+    raise ValueError(f"Failed to generate unique id of length {max_length - 1} after {tries} tries")
+
+
 def get_hash_of_bytes(value: bytes) -> str:
     """Get SHA1 hash string of the given bytes, for example '2aae6c35c94fcfb415dbe95f408b9ce91ee846ed'"""
     return hashlib.sha1(value).hexdigest()
@@ -71,7 +100,7 @@ def get_hashed_path_for_bytes(value: bytes) -> str:
 
 def safe_filename(filename):
     # Allow only the specified characters
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", filename).strip(".")
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", filename).strip(".") or "unnamed"
 
 
 def parse_args(argv: list[str]) -> dict:
@@ -132,10 +161,12 @@ def truncated_list(items: Collection[Any], max_items: int, sep: str = ", ") -> s
         return sep.join(str(item) for item in list(items)[:max_items]) + sep + "..."
 
 
-def truncate_middle(text: str, max_length: int) -> str:
+def truncate_middle(text: str, max_length: int) -> str | None:
     """Truncate a string in the middle if it exceeds the maximum length, adding ellipsis.
     :return: The truncated string if it exceeds max_length, otherwise the original string.
     """
+    if text is None:
+        return text
     if len(text) <= max_length:
         return text
     else:
@@ -170,12 +201,14 @@ def parse_duration(duration: str) -> int | None:
         "h": 3600,
         "m": 60,
         "s": 1,
+        "ms": 0.001,
     }
 
     total_seconds = 0
 
     for word in duration.split():
-        number, token = word[:-1], word[-1]
+        # get all letters after number
+        number, token = re.match(r"(\d*\.?\d*)(.*)", word).groups()
         if token not in units:
             raise ValueError(f"Invalid duration token {token} in duration: {duration}")
 

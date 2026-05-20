@@ -157,6 +157,8 @@ def detail_design(
             #  and maybe compare to percentile in PDB ({descriptor.name} = 123, higher than 95% of PDB)
             st.markdown(f":{flag}-background[{icon} {flag.title()} flag]")
 
+    # TODO: Allow labeling designs - nested dialogs are currently not supported
+    # design_labeling_fragment(design_id)
     visualize_design_sequence(design_id)
 
     design = get_cached_design(design_id)

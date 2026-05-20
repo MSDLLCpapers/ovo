@@ -70,11 +70,31 @@ class AuthConfig:
 
 @dataclass
 class ConfigProps:
+    check_new_version: bool = True
     pyrosetta_license: bool = False
     read_only: bool = False
     rfdiffusion_backbones_limit: int = 1000
     rfdiffusion_backbones_limit_admin: int = 5000
     mpnn_sequences_limit: int = 100
+    allowed_attachment_types: list[str] = field(
+        default_factory=lambda: [
+            "image",
+            "text",
+            "docx",
+            "csv",
+            "xlsx",
+            "json",
+            "pdb",
+            "cif",
+            "zip",
+            "gz",
+            "tar",
+            "fa",
+            "fasta",
+            "tsv",
+            "html",
+        ]
+    )
 
 
 @dataclass

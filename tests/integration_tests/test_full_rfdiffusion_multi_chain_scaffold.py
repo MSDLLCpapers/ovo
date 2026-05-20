@@ -22,7 +22,7 @@ def test_scaffold_multichain_end_to_end_logic(project_data):
 
     workflow = RFdiffusionScaffoldDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
+            input_pdb_paths=[storage.store_input(project.id, RESOURCES_DIR / "examples/inputs/5ELI_A.pdb")],
             contigs=["A111-114/10/A117-119/0 A110-113/5/A118-120"],
             num_designs=1,
             timesteps=10,

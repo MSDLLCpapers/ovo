@@ -60,6 +60,11 @@ process BindCraft {
     mkdir -p ${batch_name}
     mv ./output/ ${batch_name}/bindcraft/
     """
+
+    stub:
+    """
+    unzip "${moduleDir}/local/mock-output.zip"
+    """
 }
 
 // static data files are in nextflow.config

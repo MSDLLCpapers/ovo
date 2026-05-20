@@ -1,5 +1,7 @@
 import os
 import json
+import warnings
+
 import numpy as np
 import glob
 import argparse
@@ -113,9 +115,6 @@ def align_multiple_proteins_pdb(
     else:
         aligned_seqs_indices = [list(range(len(seqs[0])))] * len(seqs)
 
-    if aligned_seqs_indices:
-        print(f"Found {len(aligned_seqs_indices[1])} overlapping residues between the first and second chains.")
-
     super_imposer = PDB.Superimposer()
 
     for i in range(1, len(structures)):
@@ -193,6 +192,132 @@ def cif_to_pdb_str(cif_path: str) -> str:
     io.set_structure(structure)
     io.save(pdb_buffer)
     return pdb_buffer.getvalue()
+
+
+def parse_remark_lines(stripped_remark_lines: list[str]) -> dict[str, str]:
+    """Parse REMARK lines from PDB header.
+
+    :param stripped_remark_lines: lines from the PDB file header, stripped of the "REMARK   1" prefix
+    :return: dict with keys like "Input contig", "Standardized contig", "Chains"
+    """
+    REMARK_KEYS = ["Input contig", "Standardized contig", "Chains", "Input hotspots", "Standardized hotspots"]
+    parsed_remark = {}
+
+    for key in REMARK_KEYS:
+        # Get lines that begin with this key
+        remark_lines = [line.removeprefix(f"{key}:").strip() for line in stripped_remark_lines if line.startswith(key)]
+        if not remark_lines and key not in ["Input hotspots", "Standardized hotspots"]:
+            raise ValueError(f"Missing REMARK line for key: {key}")
+
+        values = []
+        for line in remark_lines:
+            if not line and key not in ["Input hotspots", "Standardized hotspots"]:
+                raise ValueError("Empty JSON value after key")
+            if not line and key in ["Input hotspots", "Standardized hotspots"]:
+                continue
+            values.append(json.loads(line))
+
+        parsed_remark[key] = "".join(values)
+
+    return parsed_remark
+
+
+def get_remark_header(pdb_str: str) -> list[str]:
+    """Extract REMARK lines from PDB string.
+
+    :param pdb_str: PDB string content
+    :return: list of stripped REMARK lines (without "REMARK   1" prefix)
+    """
+    lines = pdb_str.split("\n")
+    all_remark_lines = []
+    for line in lines:
+        if line.startswith("REMARK   1"):
+            all_remark_lines.append(line.strip().removeprefix("REMARK   1 "))
+    return all_remark_lines
+
+
+def get_motif_residues(remark_dict: dict[str, str]) -> tuple[list[tuple[str, list[int]]], list[tuple[str, list[int]]]]:
+    """Extract motif (fixed) residue mappings from REMARK header.
+
+    :param remark_dict: parsed REMARK dictionary
+    :return: (input_motif_residues, output_motif_residues)
+        input_motif_residues: residue numbers in the native/input PDB
+        output_motif_residues: residue numbers in the designed/output PDB
+    """
+    contigs_str = remark_dict.get("Standardized contig", None)
+    chains_str = remark_dict.get("Chains", None)
+    assert contigs_str, "No Standardized contig found."
+    assert chains_str, "No Chains found."
+
+    contig_chains = contigs_str.split(" ")
+    chains = chains_str.split(" ")
+
+    assert len(contig_chains) == len(chains), (
+        f"Number of contigs and chains do not match: {len(contig_chains)} != {len(chains)}"
+    )
+
+    input_motif_residues = []
+    output_motif_residues = []
+    for output_chain_id, contig_chain in zip(chains, contig_chains):
+        segments = contig_chain.removesuffix("/0").split("/")
+        standard_res = 1
+        first_input_res = None
+        for segment in segments:
+            if not segment[0].isalpha():
+                # designed segment
+                start_len, end_len = map(int, segment.split("-"))
+                assert start_len == end_len, (
+                    f"Start len and end len of design segment should coincide: {start_len} != {end_len} in {contig_chain}"
+                )
+                standard_res += start_len
+            else:
+                # fixed segment (motif)
+                input_chain_id = segment[0]
+                start, end = map(int, segment[1:].split("-"))
+                if first_input_res is None:
+                    first_input_res = start
+                length = end - start + 1
+                input_numbering = list(range(start, end + 1))
+                standard_numbering = list(range(standard_res, standard_res + length))
+                input_motif_residues.append((input_chain_id, input_numbering))
+
+                # Use standard consecutive numbering for output
+                output_motif_residues.append((output_chain_id, standard_numbering))
+
+                standard_res += length
+
+    return input_motif_residues, output_motif_residues
+
+
+def get_chain_plddt(cif_path: str, chain_id: str) -> float:
+    """Extract mean pLDDT for a specific chain from a CIF file.
+
+    pLDDT values are stored in the B-factor column of the CIF file.
+    Returns the mean pLDDT across all residues in the chain (0-100).
+    """
+    parser = PDB.MMCIFParser(QUIET=True)
+    structure = parser.get_structure("struct", cif_path)
+
+    # Collect pLDDT values per residue (average across atoms in each residue)
+    residue_plddts = []
+
+    for model in structure:
+        if chain_id in model:
+            chain = model[chain_id]
+            for residue in chain:
+                if PDB.is_aa(residue, standard=True):
+                    # Get B-factors (pLDDT values) for all atoms in the residue
+                    atom_plddts = [atom.get_bfactor() for atom in residue]
+                    if atom_plddts:
+                        # Average pLDDT across atoms in the residue
+                        residue_plddts.append(np.mean(atom_plddts))
+        break  # Only use first model
+
+    if not residue_plddts:
+        raise ValueError(f"No residues found in chain {chain_id} in {cif_path}")
+
+    # Return mean pLDDT across all residues
+    return float(np.mean(residue_plddts))
 
 
 def get_ca_coords(pdb_str: str, chain_id: str) -> np.ndarray:
@@ -311,7 +436,10 @@ def compute_rmsd_binder(
         mpnn_coords = get_ca_coords(mpnn_binder_str, binder_chain)
         aligned_coords = get_ca_coords(aligned_binder_str, binder_chain)
         diff = mpnn_coords - aligned_coords
-        binder_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1))).item()
+        target_aligned_binder_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1))).item()
+
+        # Extract binder pLDDT from the Boltz prediction CIF file
+        binder_plddt = get_chain_plddt(boltz_cif_path, binder_chain)
 
         with open(
             os.path.join(boltz_pubdir, name, "confidence_" + name + "_model_0.json"),
@@ -322,8 +450,9 @@ def compute_rmsd_binder(
         results.append(
             {
                 "id": name,
-                "target_rmsd": full_rmsd,
-                "binder_rmsd": binder_rmsd,
+                "complex_rmsd": full_rmsd,
+                "target_aligned_binder_rmsd": target_aligned_binder_rmsd,
+                "binder_plddt": binder_plddt / 100,  # convert to 0-1 range for consistency with Boltz JSON
                 **metrics,
             }
         )
@@ -334,8 +463,18 @@ def compute_rmsd_binder(
             f.write("\n")
 
 
-def compute_rmsd_scaffold(input_dir: str, boltz_pubdir: str, chain: str, output_metrics_path: str) -> None:
+def compute_rmsd_scaffold(
+    input_dir: str, boltz_pubdir: str, chain: str, output_metrics_path: str, native_pdb_path: str | None = None
+) -> None:
     assert len(chain) == 1, f'Expected a single chain ID for scaffold design, got "{chain}", {len(chain)=}.'
+
+    # Load native PDB if provided
+    native_pdb_str = None
+    if native_pdb_path:
+        with open(native_pdb_path, "r") as f:
+            native_pdb_str = f.read()
+        print(f"Loaded native PDB from: {native_pdb_path}")
+
     results = []
     for pdb_input_file_path in glob.glob(os.path.join(input_dir, "*.pdb")):
         name = os.path.basename(pdb_input_file_path).removesuffix(".pdb")
@@ -360,13 +499,28 @@ def compute_rmsd_scaffold(input_dir: str, boltz_pubdir: str, chain: str, output_
         ) as f:
             metrics = json.load(f)
 
-        results.append(
-            {
-                "id": name,
-                "target_rmsd": full_rmsd,
-                **metrics,
-            }
-        )
+        result = {
+            "id": name,
+            "design_rmsd": full_rmsd,
+            **metrics,
+        }
+
+        # Calculate native motif RMSD if native PDB is provided
+        if native_pdb_str:
+            remark_lines = get_remark_header(input_pdb_str)
+            if remark_lines:
+                remark_dict = parse_remark_lines(remark_lines)
+                input_motif_residues, output_motif_residues = get_motif_residues(remark_dict)
+                _, native_motif_rmsd = align_multiple_proteins_pdb(
+                    [native_pdb_str, boltz_str],
+                    chain_residue_mappings=[input_motif_residues, output_motif_residues],
+                    all_atom=True,
+                )
+                result["native_motif_rmsd"] = native_motif_rmsd
+            else:
+                warnings.warn("No REMARK header found in design PDB, skipping native motif RMSD calculation")
+
+        results.append(result)
 
     with open(output_metrics_path, "w") as f:
         for result in results:
@@ -432,6 +586,12 @@ if __name__ == "__main__":
         required=True,
         help="Path to the output directory for PDB files.",
     )
+    parser.add_argument(
+        "--native_pdb",
+        type=str,
+        required=False,
+        help="Path to native PDB structure for computing native motif RMSD (scaffold design only).",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.output_pdb_dir, exist_ok=True)
@@ -441,6 +601,7 @@ if __name__ == "__main__":
             boltz_pubdir=args.boltz_pubdir,
             chain=args.chains,
             output_metrics_path=args.output_metrics_path,
+            native_pdb_path=args.native_pdb,
         )
     elif args.design_type == "binder":
         compute_rmsd_binder(

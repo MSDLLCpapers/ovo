@@ -13,6 +13,7 @@ bundle
 test/test.log
 node_modules
 test-results
+test-results-*
 workdir
 ovo/pipelines/*/local/*results
 dist

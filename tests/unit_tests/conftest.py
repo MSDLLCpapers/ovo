@@ -16,7 +16,6 @@ subprocess.run(["ovo", "init", "home", TEST_HOME_DIR, "-y", "--no-env"])
 assert os.path.exists(os.path.join(TEST_HOME_DIR, "config.yml")), "OVO init home failed"
 os.environ["OVO_HOME"] = TEST_HOME_DIR
 os.environ["NO_VERIFY_SSL"] = "1"
-os.environ["OVO_UNIT_TEST"] = "1"  # tell OVO we're in unit test mode
 
 import pytest
 from pytest_mock import MockerFixture

@@ -746,6 +746,10 @@ class ChainNotFoundError(Exception):
     pass
 
 
+class NoStructuresFound(Exception):
+    pass
+
+
 def get_sequences_from_pdb_str(
     pdb_str: str,
     chains: list[str] = None,
@@ -894,7 +898,7 @@ def trim_pdb_str(pdb_input_string: str, target_chain: str, start_res: int, end_r
     return filter_pdb_str(pdb_input_string, [f"{target_chain}{start_res}-{end_res}"])
 
 
-def filter_pdb_str(pdb_input_string: str, segments: list[str], add_ter=False) -> str:
+def filter_pdb_str(pdb_input_string: str, segments: str | list[str], add_ter=False) -> str:
     """Filter a PDB string to only include specified segments.
 
     :param pdb_input_string: str, input PDB string
@@ -902,6 +906,8 @@ def filter_pdb_str(pdb_input_string: str, segments: list[str], add_ter=False) ->
     :param add_ter: Order ATOMs in PDB based on order in selected_segments, add TER and END in between
     :return: str, filtered PDB string
     """
+    if isinstance(segments, str):
+        segments = segments.replace(",", "/").split("/")
     # Generate trimmed pdb
     parser = PDB.PDBParser(QUIET=True)
     structure = parser.get_structure("filtered_structure", StringIO(pdb_input_string))

@@ -263,8 +263,21 @@ if __name__ == "__main__":
         }
     elif options.input_path.endswith((".fasta", ".fa")):
         sequences_by_id = {record.id: str(record.seq) for record in SeqIO.parse(options.input_path, "fasta")}
+    elif options.input_path.endswith(".csv"):
+        csv_df = pd.read_csv(options.input_path, index_col=0)
+        # Verify all chain columns exist
+        for chain in chains:
+            if chain not in csv_df.columns:
+                raise ValueError(f"Column '{chain}' not found in CSV file. Available columns: {list(csv_df.columns)}")
+        # Extract and concatenate sequences from specified chain columns
+        id_col = csv_df.columns[0]  # First column is assumed to be the ID
+        sequences_by_id = {}
+        for seq_id, row in csv_df.iterrows():
+            concatenated_seq = "".join([str(row[chain]) if pd.notna(row[chain]) else "" for chain in chains])
+            sequences_by_id[seq_id] = concatenated_seq
+        print(f"Reading sequences from CSV with chains: {chains}")
     else:
-        raise ValueError("Input must be a directory with PDB files, a PDB file, or a FASTA file")
+        raise ValueError("Input must be a directory with PDB files, a PDB file, a FASTA file, or a CSV file")
     print(f"Calculating sequence composition on {len(sequences_by_id):,} sequences")
     df = get_protein_analysis_df(sequences_by_id)
     print(df)

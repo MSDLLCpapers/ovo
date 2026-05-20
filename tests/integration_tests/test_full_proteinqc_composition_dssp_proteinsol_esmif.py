@@ -16,7 +16,14 @@ def test_full_proteinqc(project_data):
     design_ids = [d.id for d in designs]
 
     proteinqc: ProteinQCWorkflow = ProteinQCWorkflow(
-        chains=["A"], design_ids=[design.id for design in designs], tools=["dssp", "proteinsol", "esm_if"]
+        chains=["A"],
+        design_ids=[design.id for design in designs],
+        tools=[
+            "seq_composition",
+            "dssp",
+            "proteinsol",
+            "esm_if",
+        ],
     )
     proteinqc.validate()
     descriptor_job = descriptor_logic.submit_descriptor_workflow(
@@ -29,3 +36,4 @@ def test_full_proteinqc(project_data):
     assert first_value["ESM-IF likelihood"] == pytest.approx(0.3369, rel=0.01)
     assert first_value["Sequence solubility (scaled)"] == pytest.approx(0.457, rel=0.01)
     assert first_value["DSSP Beta Sheet %"] > 40
+    assert first_value["Sequence length"] > 0

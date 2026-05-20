@@ -1,4 +1,4 @@
-from ovo import db, design_logic
+from ovo import db, design_logic, storage
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
@@ -18,7 +18,7 @@ def test_binder_default_end_to_end_logic(project_data):
 
     workflow = RFdiffusionBinderDesignWorkflow(
         rfdiffusion_params=RFdiffusionParams(
-            input_pdb_paths=[RESOURCES_DIR / "examples/inputs/5ELI_A.pdb"],
+            input_pdb_paths=[storage.store_input(project.id, RESOURCES_DIR / "examples/inputs/5ELI_A.pdb")],
             contigs=["A74-97/0 20"],
             num_designs=1,
             timesteps=15,  # use 15 diffusion timesteps for faster testing
@@ -54,6 +54,12 @@ def test_binder_default_end_to_end_logic(project_data):
     # wait for job to complete and process results
     pool = design_logic.process_results(design_job)
 
+    # reload design_job to make sure it's up to date with the DB
+    design_job = db.DesignJob.get(id=design_job.id)
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ_PRIMARY_IPDE.key].enabled
+    assert design_job.workflow.acceptance_thresholds[descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key].enabled
+    assert not design_job.warnings
+
     num_designs = db.Design.count(pool_id=pool.id)
     assert num_designs == 2
 
@@ -66,13 +72,22 @@ def test_binder_default_end_to_end_logic(project_data):
     assert len(rag.dropna()) == 2
     assert (rag > 0).all()
 
-    boltz2_ipde = db.select_descriptor_values("refolding|boltz2_binder_tt|complex_ipde", design_ids)
+    boltz2_ipde = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_IPDE.key, design_ids)
     assert len(boltz2_ipde.dropna()) == 2
     assert (boltz2_ipde < 30).all()
 
-    boltz2_pdb_paths = db.select_descriptor_values(
-        "refolding|boltz2_binder_tt|boltz_predicted_structure_path", design_ids
+    boltz2_binder_rmsd = db.select_descriptor_values(
+        descriptors_refolding.BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD.key, design_ids
     )
+    assert len(boltz2_binder_rmsd.dropna()) == 2
+    assert (boltz2_binder_rmsd < 30).all()
+
+    boltz2_binder_plddt = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key, design_ids)
+    assert len(boltz2_binder_plddt.dropna()) == 2
+    assert (boltz2_binder_plddt > 0.05).all()
+    assert (boltz2_binder_plddt <= 1).all()
+
+    boltz2_pdb_paths = db.select_descriptor_values(descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH.key, design_ids)
     assert len(boltz2_pdb_paths.dropna()) == 2
 
     rosetta_ddg = db.select_descriptor_values(descriptors_rfdiffusion.PYROSETTA_DDG.key, design_ids)

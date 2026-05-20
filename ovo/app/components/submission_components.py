@@ -8,7 +8,7 @@ from ovo.core.database.models_rfdiffusion import RFdiffusionWorkflow, ProteinMPN
 from ovo.app.components.acceptance_thresholds_components import thresholds_input_component
 from ovo.app.components.navigation import open_first_section
 from ovo.app.utils.bindcraft_utils import load_json_from_file, get_dict_diff, merge_dictionaries
-from ovo.app.utils.cached_db import get_cached_round
+from ovo.app.utils.cached_db import get_cached_round, get_cached_common_chain_ids
 from ovo.app.utils.testing import is_test_dialog_shown
 from ovo.core.auth import get_username
 from ovo.core.database import (
@@ -749,3 +749,25 @@ def show_bindcraft_advanced_settings(workflow: "BindCraftBinderDesignWorkflow"):
             workflow.acceptance_thresholds = new_thresholds
             st.rerun()
             return
+
+
+def chain_ids_input(design_ids: list[str]) -> list[str]:
+    """Get user input for chain IDs to analyze, with pre-filled common chain IDs across the provided designs."""
+    common_chain_ids, available_chain_ids = get_cached_common_chain_ids(design_ids)
+
+    if not common_chain_ids:
+        st.error("Designs have different chain IDs of the designed chains. Please submit these designs separately.")
+        return []
+
+    if common_chain_ids != available_chain_ids:
+        st.warning(
+            "Designs do not share the same set of chain IDs. "
+            f"Using the common chain IDs for analysis: {', '.join(common_chain_ids)}. "
+        )
+
+    chains = st.multiselect(
+        "Chain(s) to analyze", options=common_chain_ids, default=common_chain_ids, key="select_chain_ids"
+    )
+    if not chains:
+        st.warning("Please specify at least one chain to analyze.")
+    return chains

@@ -2,8 +2,9 @@ import os
 
 import pandas as pd
 import streamlit as st
+from streamlit.elements.metric import DeltaColor
 
-from ovo import db, storage
+from ovo import db, storage, Threshold
 from ovo.app.components.custom_elements import wrapped_columns
 from ovo.core.database import (
     Design,
@@ -47,15 +48,45 @@ from ovo.core.utils.residue_selection import (
 )
 
 
-def show_design_metrics(design_id: str, descriptor_keys: list[str]) -> pd.Series:
-    descriptor_values = get_cached_design_descriptors(design_id, descriptor_keys=descriptor_keys)
+def show_design_metrics(
+    design_id: str, descriptor_keys: list[str] = None, thresholds: dict[str, Threshold] = None
+) -> pd.Series:
+    required_descriptor_keys = descriptor_keys or []
+    all_descriptor_keys = list(required_descriptor_keys)
+    thresholds = thresholds or {}
+    for descriptor_key, threshold in thresholds.items():
+        if threshold.enabled and descriptor_key not in required_descriptor_keys:
+            all_descriptor_keys.append(descriptor_key)
+    descriptor_values = get_cached_design_descriptors(design_id, descriptor_keys=all_descriptor_keys)
     columns = wrapped_columns(len(descriptor_values), wrap=4)
     for column, (descriptor_key, value) in zip(columns, descriptor_values.items()):
+        if pd.isna(value) and descriptor_key not in required_descriptor_keys:
+            # do not show metric at all when value is missing and descriptor wasn't explicitly requested
+            continue
         descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
+        delta = None
+        delta_description = None
+        delta_color: DeltaColor = "normal"
+        if descriptor_key in thresholds and thresholds[descriptor_key].enabled:
+            # show threshold value in green or red
+            threshold = thresholds[descriptor_key]
+            if formatted_threshold := threshold.format():
+                if threshold.passes(value):
+                    delta = f":material/check: {formatted_threshold}"
+                    delta_color = "green"
+                else:
+                    delta = f":material/close: {formatted_threshold}"
+                    delta_color = "red"
+                    delta_description = "Rejected"
+
         column.metric(
             label=descriptor.name,
             help=descriptor.description,
             value=descriptor.format(value),
+            delta=delta,
+            delta_color=delta_color,
+            delta_arrow="off",
+            delta_description=delta_description,
         )
     return descriptor_values
 
@@ -86,6 +117,10 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     chain_contigs = [c.contig for c in design.spec.chains]
     st.write(f"Contig: **{' '.join(chain_contigs)}**")
 
+    pool = get_cached_pool(design.pool_id)
+    design_job = get_cached_design_job(pool.design_job_id)
+    workflow: RFdiffusionScaffoldDesignWorkflow = design_job.workflow
+
     show_design_metrics(
         design_id,
         descriptor_keys=[
@@ -93,16 +128,9 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
             descriptors_rfdiffusion.RADIUS_OF_GYRATION.key,
             descriptors_rfdiffusion.PYDSSP_HELIX_PERCENT.key,
             descriptors_rfdiffusion.PYDSSP_SHEET_PERCENT.key,
-            descriptors_refolding.AF2_PRIMARY_PAE.key,
-            descriptors_refolding.AF2_PRIMARY_DESIGN_RMSD.key,
-            descriptors_refolding.AF2_PRIMARY_NATIVE_MOTIF_RMSD.key,
-            descriptors_refolding.AF2_PRIMARY_PLDDT.key,
         ],
+        thresholds=workflow.acceptance_thresholds,
     )
-
-    pool = get_cached_pool(design.pool_id)
-    design_job = get_cached_design_job(pool.design_job_id)
-    workflow: RFdiffusionScaffoldDesignWorkflow = design_job.workflow
 
     paths = (
         get_cached_design_descriptors(
@@ -392,10 +420,8 @@ def rfdiffusion_binder_design_visualization(design_id: str):
             descriptors_rfdiffusion.PYROSETTA_DDG.key,
             descriptors_rfdiffusion.PYROSETTA_CMS.key,
             descriptors_rfdiffusion.PYROSETTA_SAP_SCORE.key,
-            descriptors_refolding.AF2_PRIMARY_IPAE.key,
-            descriptors_refolding.AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD.key,
-            descriptors_refolding.AF2_PRIMARY_PLDDT.key,
         ],
+        thresholds=workflow.acceptance_thresholds,
     )
 
     # TODO use target spec for this
@@ -564,8 +590,7 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     with middle:
         st.write("##### Design aligned to prediction")
 
-        # here, we do not need manual alignment, but we still do it
-        structures, rmsd = align_multiple_proteins_pdb(
+        structures, _ = align_multiple_proteins_pdb(
             pdb_strs=[
                 storage.read_file_str(paths[sequence_design_descriptor.key]),
                 storage.read_file_str(paths[prediction_descriptor.key]),
@@ -612,11 +637,18 @@ def rfdiffusion_binder_design_visualization(design_id: str):
 
         st.write(
             f"""
-            {prediction_descriptor.name} vs design backbone RMSD: **{rmsd:.2f} Å**
-            
             Agreement between {sequence_design_descriptor.name} and {prediction_descriptor.name}
             """
         )
+        # TODO can we generalize this
+        if prediction_descriptor == descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH:
+            rmsd_descriptor = descriptors_refolding.BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD
+        elif prediction_descriptor == descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH:
+            rmsd_descriptor = descriptors_refolding.AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD
+
+        rmsd_value = get_cached_design_descriptors(design_id, [rmsd_descriptor.key])[rmsd_descriptor.key]
+        if not pd.isna(rmsd_value):
+            st.write(f"{rmsd_descriptor.name}: **{rmsd_value:.2f} Å**")
 
     with right:
         st.write("##### Predicted binding pose")
@@ -661,14 +693,18 @@ def bindcraft_binder_design_visualization(design_id: str):
     show_design_metrics(
         design_id,
         descriptor_keys=[
+            "bindcraft|sequence|Length",
+            "bindcraft|dssp|Average_Binder_Helix%",
+            "bindcraft|dssp|Average_Binder_BetaSheet%",
+            "bindcraft|dssp|Average_Binder_Loop%",
             "bindcraft|af2|Average_pLDDT",
             "bindcraft|af2|Average_i_pAE",
             "bindcraft|af2|Average_Hotspot_RMSD",
+            "bindcraft|interface|Average_InterfaceUnsatHbondsPercentage",
             "bindcraft|interface|Average_dG",
             "bindcraft|interface|Average_Relaxed_Clashes",
             "bindcraft|interface|Average_n_InterfaceResidues",
-            "bindcraft|dssp|Average_Binder_Helix%",
-            "bindcraft|dssp|Average_Binder_BetaSheet%",
+            "bindcraft|interface|Average_n_InterfaceHbonds",
         ],
     )
 
@@ -676,7 +712,7 @@ def bindcraft_binder_design_visualization(design_id: str):
         structures=[
             StructureVisualization(
                 pdb=storage.read_file_str(design.structure_path),
-                color="chain-id",
+                color="plddt",
             )
         ],
         key="bindcraft_1",
@@ -685,6 +721,9 @@ def bindcraft_binder_design_visualization(design_id: str):
 
 def visualize_design_structure(design_id: str, height="500px"):
     design = get_cached_design(design_id)
+    if not design.structure_path:
+        st.write("No structure available for this design.")
+        return
 
     molstar_custom_component(
         structures=[
@@ -858,7 +897,8 @@ def visualize_align_structure_selection(
         st.warning(
             f"Showing only first {max_examples} out of {len(design_ids):,} selected designs for performance reasons."
         )
-    st.text(
-        f"The RMSD for the aligned structures is {round(rmsd, 3)}",
-        help="The root mean square deviation (RMSD) of Cα atom positions after optimal rotational and translational superposition relative to a reference structure for all members of the cluster.",
-    )
+    if rmsd is not None:
+        st.text(
+            f"The RMSD for the aligned structures is {round(rmsd, 3)}",
+            help="The root mean square deviation (RMSD) of Cα atom positions after optimal rotational and translational superposition relative to a reference structure for all members of the cluster.",
+        )

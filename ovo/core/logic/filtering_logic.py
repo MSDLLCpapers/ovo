@@ -34,11 +34,7 @@ def filter_designs_by_thresholds(
                 num_missing_by_descriptor[descriptor_key] = num_missing_by_descriptor.get(descriptor_key, 0) + 1
                 passes_all = False
                 continue
-            passes = True
-            if threshold.max_value is not None:
-                passes &= values[descriptor_key][design_id] <= threshold.max_value
-            if threshold.min_value is not None:
-                passes &= values[descriptor_key][design_id] >= threshold.min_value
+            passes = threshold.passes(values[descriptor_key][design_id])
             passes_all &= passes
             if descriptor_key not in num_accepted_by_descriptor:
                 num_accepted_by_descriptor[descriptor_key] = 0

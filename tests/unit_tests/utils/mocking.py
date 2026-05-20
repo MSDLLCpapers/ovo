@@ -4,7 +4,7 @@ import os
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 from ovo.core.scheduler import NextflowScheduler
@@ -134,7 +134,7 @@ class MockScheduler(NextflowScheduler):
         job = self.jobs[job_id]
         if job.result is None:
             if created_date_utc:
-                duration = format_duration(datetime.utcnow() - created_date_utc)
+                duration = format_duration(datetime.now(timezone.utc).replace(tzinfo=None) - created_date_utc)
                 return f"Running ({duration})"
             return "Running"
         return "Success" if job.result else "Failed"

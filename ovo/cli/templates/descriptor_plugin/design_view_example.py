@@ -4,6 +4,7 @@ from ovo import schedulers
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.download_component import download_descriptor_table
+from ovo.app.components.submission_components import chain_ids_input
 from ovo.app.utils.cached_db import get_cached_design_ids, get_cached_available_descriptors
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow, get_wide_descriptor_table
 from __MODULE_NAME__.models___MODULE_SUFFIX__ import __WORKFLOW_CLASS_NAME__
@@ -70,14 +71,14 @@ def __MODULE_NAME___fragment(pool_ids: list[str], design_ids: list[str] | None =
 def __MODULE_NAME___submit_dialog(design_ids: list[str]):
     content = st.empty()
     with content.container():
-        chains = st.text_input(
-            "Chain(s) to analyze",
-            value="A",
-            key="chains_input",
-        )
-        chains = chains.replace(" ", "").replace(",", "")
+        chains = chain_ids_input(design_ids)
+        if not chains:
+            return
 
         params = {}
+
+        # TODO add any inputs for additional parameters for your workflow here
+        # params["my_param"] = st.number_input("My parameter", value=1.0)
 
         scheduler_key = st.selectbox(
             "Scheduler",

@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 
 from ovo.app.components.descriptor_job_components import refresh_descriptors
+from ovo.app.components.submission_components import chain_ids_input
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors_per_job,
@@ -62,12 +63,9 @@ def submit_clustering_dialog(design_ids: list[str]):
             st.info("Add at least one tool to continue")
             return
 
-        chains = st.text_input(
-            "Chain(s) to analyze",
-            value="A",
-            key="protein_clustering_chains_input_multi",
-        )
-        chains = chains.replace(" ", "").replace(",", "")
+        chains = chain_ids_input(design_ids)
+        if not chains:
+            return
 
         workflows = []
         tools_to_remove = []
@@ -214,11 +212,18 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     jobs_by_id = {job.id: job for job in jobs_for_design_ids}
 
     # Use job IDs as options instead of job objects
+    job_labels = {
+        job_id: f"**{job.workflow.name}** ({datetime_from_utc_to_local(job.created_date_utc).strftime('%Y-%m-%d %H:%M')})"
+        for job_id, job in jobs_by_id.items()
+    }
+    if len(set(job_labels.values())) != len(job_labels.values()):
+        # If there are duplicate labels, append job ID to differentiate
+        job_labels = {job_id: f"{label} {job_id}" for job_id, label in job_labels.items()}
     job_id = st.segmented_control(
         "Select clustering result",
         options=list(jobs_by_id.keys()),
         default=jobs_for_design_ids[0].id if len(jobs_for_design_ids) == 1 else None,
-        format_func=lambda job_id: f"**{jobs_by_id[job_id].workflow.name}** ({datetime_from_utc_to_local(jobs_by_id[job_id].created_date_utc).strftime('%Y-%m-%d %H:%M')})",
+        format_func=job_labels.get,
     )
     if job_id is None:
         st.info("Please select a clustering result above")

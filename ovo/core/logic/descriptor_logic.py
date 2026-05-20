@@ -1,5 +1,6 @@
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from io import StringIO, BytesIO
 from typing import List, Collection, Callable
 
@@ -29,6 +30,7 @@ from ovo.core.logic.proteinqc_logic import get_descriptor_cmap, get_descriptor_c
 from ovo.core.utils.export import write_sheet
 from ovo.core.database.models_clustering import ProteinClusteringTool
 from ovo.core.scheduler.base_scheduler import Scheduler
+from ovo.core.utils.pdb import NoStructuresFound
 
 
 def get_available_descriptors(design_ids: list[str]) -> dict[str, Descriptor]:
@@ -123,10 +125,42 @@ def get_wide_descriptor_table(
             seq_column = f"sequence_{chain_ids}"
         df.insert(0, seq_column, pd.Series(sequences_by_design_id))
 
+    # Add design labels (comma separated) as a column
+    design_labels_dict = {}
+    for design_id in design_ids:
+        labelings = db.get_labelings_for_design(design_id)
+        labels = [labeling.label for labeling in labelings]
+        design_labels_dict[design_id] = ",".join(labels) if labels else None
+    design_labels_series = pd.Series(design_labels_dict)
+
+    if not design_labels_series.isna().all():
+        if human_readable:
+            labels_column = ("Labels", "") if nested else "Labels"
+        else:
+            assert not nested, "nested=True is not supported when human_readable=False"
+            labels_column = "labels"
+        df.insert(0, labels_column, design_labels_series)
+
     return df
 
 
-def submit_descriptor_workflow(workflow: DescriptorWorkflow, scheduler_key: str, project_id: str):
+def submit_descriptor_workflow(
+    workflow: DescriptorWorkflow,
+    scheduler_key: str,
+    project_id: str,
+    pipeline_name: str = None,
+    submission_args: dict = None,
+):
+    """Submit a descriptor workflow to the scheduler and create a DescriptorJob in the DB.
+
+    :param workflow: DescriptorWorkflow object to submit
+    :param scheduler_key: Key of the scheduler to use
+    :param project_id: ID of the Project to associate the DescriptorJob with
+    :param pipeline_name: Override the pipeline name to submit, e.g. ovo.proteinqc or a github url with @version
+    :param submission_args: Extra submission arguments to override in the scheduler, e.g. {"profile": "conda"} or {"stub": True}
+    :return: DescriptorJob
+    """
+
     if config.props.read_only:
         raise RuntimeError("Cannot submit design workflow: OVO server is in read-only mode")
 
@@ -138,8 +172,9 @@ def submit_descriptor_workflow(workflow: DescriptorWorkflow, scheduler_key: str,
 
     # Submit the workflow
     job_id = scheduler.submit(
-        pipeline_name=workflow.get_pipeline_name(),
+        pipeline_name=pipeline_name or workflow.get_pipeline_name(),
         params=workflow.prepare_params(workdir=scheduler.workdir),
+        submission_args=submission_args,
     )
 
     # Create descriptor job
@@ -157,25 +192,41 @@ def submit_descriptor_workflow(workflow: DescriptorWorkflow, scheduler_key: str,
     return descriptor_job
 
 
-def prepare_proteinqc_params(workflow: ProteinQCWorkflow, workdir: str) -> dict:
+def prepare_design_structures(designs: list[Design], workdir: str):
+    """Prepare a txt file (or single pdb file if single design) with PDB file paths, all stored in a provided workdir"""
     storage_paths = []
     design_ids = []
-    for design in db.select(Design, id__in=workflow.design_ids):
+    for design in designs:
         if not design.structure_path:
             print(f"Design {design.id} has no pdb path. Skipping...")
             continue
         storage_paths.append(design.structure_path)
         design_ids.append(design.id)
 
-    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
-    input_path = storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
+    if not storage_paths:
+        raise NoStructuresFound("No structures found for the selected designs.")
 
-    return {
-        "input_pdb": input_path,
-        "tools": ",".join(workflow.tools),
-        "chains": ",".join(list(workflow.chains)),
-        "batch_size": 50,
-    }
+    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
+    return storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
+
+
+def prepare_design_sequences(designs: list[Design], workdir: str):
+    """Prepare a csv file with a design_id column and a sequence column for each chain and store it in a provided workdir"""
+    sequences = []
+    design_ids = []
+    for design in designs:
+        if not design.spec or not design.spec.chains:
+            print(f"Design {design.id} has no spec chains. Skipping...")
+            continue
+        sequences.append({chain_id: chain.sequence for chain in design.spec.chains for chain_id in chain.chain_ids})
+        design_ids.append(design.id)
+
+    if not sequences:
+        raise ValueError("No sequences found for the selected designs.")
+
+    df = pd.DataFrame(sequences, index=design_ids)
+
+    return storage.prepare_workflow_input(storage_path="designs.csv", input_bytes=df.to_csv().encode(), workdir=workdir)
 
 
 def prepare_refolding_params(workflow: RefoldingWorkflow, workdir: str) -> dict:
@@ -320,12 +371,14 @@ def read_descriptor_file_values(
     filenames: dict[str, str] = None,
     descriptor_tables: dict[str, pd.DataFrame] = None,
 ) -> list[DescriptorValue]:
-    """Process descriptor job, return list of DescriptorValues to be inserted into DB.
+    """Process CSV/JSONL files containing descriptor values (one file per batch, one row per design), return list of DescriptorValues to be inserted into DB.
 
     :param descriptor_job: DescriptorJob object
     :param design_id_mapping: Mapping from design.id to table_id (basename of PDB file = id column in descriptor output file)
     :param filenames: Dict of "pipeline_name|tool_key" -> filename in output directory (with or without file extension - will look for .csv or .jsonl)
     :param descriptor_tables: Optional dictionary of pre-loaded descriptor tables (tool_key -> pd.DataFrame).
+
+    :return: List of DescriptorValue objects to be saved to DB
     """
     assert len(design_id_mapping) == len(set(design_id_mapping.values())), (
         f"Duplicate ids in design_id_mapping: {design_id_mapping}"
@@ -333,6 +386,10 @@ def read_descriptor_file_values(
 
     if descriptor_tables is None:
         descriptor_tables = {}
+
+    # source path -> (design_id, storage subdir, storage suffix, descriptor_key),
+    # e.g. path/to/contig1_batch1/pssm/first.csv -> (descriptors, ovo_xyz_01, _pssm.csv, some|descriptor|key)
+    design_file_paths = {}
 
     if filenames:
         scheduler = get_scheduler(descriptor_job.scheduler_key)
@@ -401,6 +458,144 @@ def read_descriptor_file_values(
         )
 
     return descriptor_values
+
+
+def read_per_design_files(
+    descriptor_job: DescriptorJob,
+    design_id_mapping: dict[str, str | tuple],
+    design_files: dict[str, tuple[str, str, str]],
+    callback: Callable = None,
+) -> list[DescriptorValue]:
+    """Process per-design output files such as predicted PDB structures, return DescriptorValues (containing the stored file path as DescriptorValue.value) to be inserted into DB.
+
+    :param descriptor_job: DescriptorJob object
+    :param design_id_mapping: Mapping from design.id to table_id (basename of PDB file = id column in descriptor output file)
+    :param design_files: Optional dict of filename produced by pipeline -> (subdir in storage, file suffix in storage, descriptor_key), for individual design files
+                         (e.g. per-design PDB output files or CSV files with more detailed descriptors, to be stored as storage path descriptors).
+                         For example pssm/{}.csv (with {} replaced by value of design_id_mapping) -> (descriptors, _pssm.csv, some|descriptor|key)
+                         Will store the descriptor files under pool/{pool_id}/descriptors/{descriptor_job_id}/{design_id}{file_suffix}.
+    :param callback: Optional callback function for reporting progress, will be called with value between 0 and 1 and text description of the current step
+
+    :return: List of DescriptorValue objects to be saved to DB
+    """
+    assert len(design_id_mapping) == len(set(design_id_mapping.values())), (
+        f"Duplicate ids in design_id_mapping: {design_id_mapping}"
+    )
+
+    # source path -> (design_id, storage subdir, storage suffix, descriptor_key),
+    # e.g. path/to/contig1_batch1/pssm/first.csv -> (descriptors, ovo_xyz_01, _pssm.csv, some|descriptor|key)
+    design_file_paths = {}
+
+    scheduler = get_scheduler(descriptor_job.scheduler_key)
+    source_output_path = scheduler.get_output_dir(descriptor_job.job_id)
+
+    contig_number = 1
+    # Iterate over contigs until no more files are found
+    while True:
+        any_files_in_contig = False
+        batch_number = 1
+        # Iterate over batches until no more files are found
+        while True:
+            batch_name = f"contig{contig_number}_batch{batch_number}"
+            any_files_in_batch = False
+            for design_file_template, (storage_subdir, storage_suffix, descriptor_key) in design_files.items():
+                assert (
+                    isinstance(storage_subdir, str)
+                    and isinstance(storage_suffix, str)
+                    and isinstance(descriptor_key, str)
+                ), (
+                    "Expected (storage_subdir string, storage_suffix string, descriptor_key string) tuple, "
+                    f"got: {(storage_subdir, storage_suffix, descriptor_key)}"
+                )
+                for design_id, table_ids in design_id_mapping.items():
+                    if isinstance(table_ids, str):
+                        table_ids = (table_ids,)
+                    for table_id in table_ids:
+                        design_file_path = os.path.join(
+                            source_output_path, batch_name, design_file_template.format(table_id)
+                        )
+                        if storage.file_exists(design_file_path):
+                            any_files_in_batch = True
+                            any_files_in_contig = True
+                            design_file_paths[design_file_path] = (
+                                design_id,
+                                storage_subdir,
+                                storage_suffix,
+                                descriptor_key,
+                            )
+            if not any_files_in_batch:
+                break
+            batch_number += 1
+
+        if not any_files_in_contig:
+            break
+
+        contig_number += 1
+
+    if contig_number == 1 and batch_number == 1:
+        raise ValueError(
+            f"No suitable design files found in {source_output_path}, "
+            f"expected at least one file matching template: {', '.join(design_files.keys())}."
+        )
+
+    descriptor_values = []
+    with storage.archive_context(delete_if_exists=True):
+        with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
+            futures = [
+                executor.submit(
+                    _store_design_file_descriptor,
+                    source_path,
+                    # Storage path:
+                    # project/[project_id]/pool/[pool_id]/descriptors/[descriptor_job_id]/[design_id]_suffix.ext
+                    os.path.join(
+                        storage.get_project_path(descriptor_job.project_id, Design.design_id_to_pool_id(design_id)),
+                        storage_subdir,
+                        descriptor_job.id,
+                        f"{design_id}{storage_suffix}",
+                    ),
+                    descriptor_key,
+                    descriptor_job.id,
+                    design_id,
+                    descriptor_job.workflow.chains,
+                )
+                for source_path, (
+                    design_id,
+                    storage_subdir,
+                    storage_suffix,
+                    descriptor_key,
+                ) in design_file_paths.items()
+            ]
+
+            for i, future in enumerate(futures):
+                descriptor_values.append(future.result())
+                if callback:
+                    callback(
+                        value=(i + 1) / len(futures),
+                        text=f"Storing file ({i + 1}/{len(futures)})",
+                    )
+
+    return descriptor_values
+
+
+def _store_design_file_descriptor(
+    source_path: str,
+    storage_path: str,
+    descriptor_key: str,
+    descriptor_job_id: str,
+    design_id: str,
+    chains: list[str],
+) -> DescriptorValue:
+    return DescriptorValue(
+        descriptor_key=descriptor_key,
+        value=storage.store_file_path(
+            source_abs_path=source_path,
+            storage_rel_path=storage_path,
+            overwrite=False,
+        ),
+        design_id=design_id,
+        descriptor_job_id=descriptor_job_id,
+        chains=",".join(chains),
+    )
 
 
 def save_descriptor_job_for_design_job(
@@ -575,6 +770,32 @@ def export_design_descriptors_excel(df: pd.DataFrame, output_path=None) -> Bytes
 
     # Add filters
     sheet.autofilter(1, 0, n_rows - 1, n_cols - 1)
+
+    # Add cell comments for labels column showing explanation for each label
+    labels_level_index = None
+    for i, level_name in enumerate(df.index.names):
+        if level_name in ["Labels", "labels"] or (isinstance(level_name, tuple) and level_name[0] == "Labels"):
+            labels_level_index = i
+            break
+
+    if labels_level_index is not None:
+        labels_excel_col = labels_level_index
+        design_ids = df.index.get_level_values(0).tolist()
+
+        for row_idx, design_id in enumerate(design_ids, start=row_offset):
+            labelings = db.get_labelings_for_design(design_id)
+            if labelings:
+                # Create comment text with label: explanation pairs
+                comment_parts = []
+                for labeling in labelings:
+                    if labeling.explanation:
+                        comment_parts.append(f"{labeling.label}: {labeling.explanation}")
+                    else:
+                        comment_parts.append(f"{labeling.label}: No explanation provided")
+
+                if comment_parts:
+                    comment_text = "\n".join(comment_parts)
+                    sheet.write_comment(row_idx, labels_excel_col, comment_text, {"x_scale": 2, "y_scale": 1.5})
 
     # Apply background colors
     for i, (descriptor, col) in enumerate(zip(descriptors, df.columns), start=column_offset):
