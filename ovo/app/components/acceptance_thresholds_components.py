@@ -66,7 +66,7 @@ def thresholds_and_histograms_component(
 def thresholds_input_component(
     selected_thresholds: dict[str, Threshold],
     max_items_row: int = 3,
-    skip_prefixes: str | tuple[str] | None = None,
+    skip_prefixes: str | tuple[str, ...] | None = None,
 ) -> dict[str, Threshold]:
     """Adjust thresholds using sliders, return new thresholds."""
     if not selected_thresholds:
