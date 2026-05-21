@@ -420,17 +420,20 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 key="esmfold_fp16",
             )
 
-        refolding_descriptor_key_prefix = RefoldingWorkflow.get_descriptor_key_prefix(
-            workflow.refolding_params.primary_test, primary=True
-        )
-        prefixes_to_skip = [
-            key
-            for key in workflow.acceptance_thresholds.keys()
-            if key.startswith("refolding|") and not key.startswith(refolding_descriptor_key_prefix)
-        ]
+        if workflow.refolding_params.primary_test:
+            refolding_descriptor_key_prefix = RefoldingWorkflow.get_descriptor_key_prefix(
+                workflow.refolding_params.primary_test, primary=True
+            )
+            prefixes_to_skip = tuple(
+                key
+                for key in workflow.acceptance_thresholds.keys()
+                if key.startswith("refolding|") and not key.startswith(refolding_descriptor_key_prefix)
+            )
+        else:
+            prefixes_to_skip = None
 
         new_thresholds = thresholds_input_component(
-            selected_thresholds=workflow.acceptance_thresholds, skip_prefixes=tuple(prefixes_to_skip)
+            selected_thresholds=workflow.acceptance_thresholds, skip_prefixes=prefixes_to_skip
         )
 
         if new_thresholds != workflow.acceptance_thresholds:
