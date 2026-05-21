@@ -16,6 +16,7 @@ from ovo.core.database import (
 )
 from ovo.core.database.descriptors_refolding import REFOLDING_TESTS_BY_TYPE
 from ovo.core.database.models_rfdiffusion import RFdiffusionBinderDesignWorkflow, RFdiffusionScaffoldDesignWorkflow
+from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models import Pool, Round, Workflow
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
@@ -419,7 +420,19 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 key="esmfold_fp16",
             )
 
-        new_thresholds = thresholds_input_component(selected_thresholds=workflow.acceptance_thresholds)
+        refolding_descriptor_key_prefix = RefoldingWorkflow.get_descriptor_key_prefix(
+            workflow.refolding_params.primary_test, primary=True
+        )
+        prefixes_to_skip = [
+            key
+            for key in workflow.acceptance_thresholds.keys()
+            if key.startswith("refolding|") and not key.startswith(refolding_descriptor_key_prefix)
+        ]
+
+        new_thresholds = thresholds_input_component(
+            selected_thresholds=workflow.acceptance_thresholds, skip_prefixes=tuple(prefixes_to_skip)
+        )
+
         if new_thresholds != workflow.acceptance_thresholds:
             workflow.acceptance_thresholds = new_thresholds
             st.rerun()

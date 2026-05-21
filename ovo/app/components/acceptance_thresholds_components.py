@@ -66,6 +66,7 @@ def thresholds_and_histograms_component(
 def thresholds_input_component(
     selected_thresholds: dict[str, Threshold],
     max_items_row: int = 3,
+    skip_prefixes: str | tuple[str] | None = None,
 ) -> dict[str, Threshold]:
     """Adjust thresholds using sliders, return new thresholds."""
     if not selected_thresholds:
@@ -81,9 +82,14 @@ def thresholds_input_component(
         "You can change these thresholds later."
     )
 
-    descriptor_keys = list(selected_thresholds.keys())
-    columns = wrapped_columns(len(descriptor_keys), wrap=max_items_row, divider=True, gap="large")
-    for descriptor_key, column in zip(descriptor_keys, columns):
+    active_descriptor_keys = []
+    for descriptor_key, threshold in selected_thresholds.items():
+        if skip_prefixes and descriptor_key.startswith(skip_prefixes):
+            new_thresholds[descriptor_key] = threshold
+            continue
+        active_descriptor_keys.append(descriptor_key)
+    columns = wrapped_columns(len(active_descriptor_keys), wrap=max_items_row, divider=True, gap="large")
+    for descriptor_key, column in zip(active_descriptor_keys, columns):
         with column:
             descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
             new_thresholds[descriptor.key] = single_threshold_input_component(
