@@ -15,7 +15,7 @@ process RFdiffusion3 {
 
     input:
         tuple val(batch_name), path(input_structure_path), val(contig), val(num_designs)
-        path rfdiffusion3_models_path
+        path foundry_models_path
         val hotspot
         val dump_trajectories
         val run_parameters
@@ -31,7 +31,7 @@ process RFdiffusion3 {
     mkdir -p output
 
     # Resolve checkpoint path: if it's a directory, find the .ckpt file inside
-    CKPT_PATH="${rfdiffusion3_models_path}"
+    CKPT_PATH="${foundry_models_path}"
     if [[ -d "\$CKPT_PATH" ]]; then
         CKPT_PATH="\$CKPT_PATH/rfd3_latest.ckpt"
     fi
@@ -105,7 +105,7 @@ workflow {
 
     RFdiffusion3(
         ["rfdiffusion3", params.input_structure_path, params.contig, params.num_designs],
-        params.rfdiffusion3_models_path,
+        params.foundry_models_path,
         params.hotspot,
         params.dump_trajectories,
         params.run_parameters,

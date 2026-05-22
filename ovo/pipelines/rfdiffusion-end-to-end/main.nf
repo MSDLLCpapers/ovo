@@ -97,7 +97,7 @@ workflow {
       } else if (params.backbone_generator == "rfdiffusion3") {
         RFdiffusion3(
             Channel.fromList(rfd_input_batches),
-            params.rfdiffusion3_models_path,
+            params.foundry_models_path,
             params.hotspot,
             false,
             params.rfdiffusion_run_parameters,

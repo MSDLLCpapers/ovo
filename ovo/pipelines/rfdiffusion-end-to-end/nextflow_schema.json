@@ -45,7 +45,7 @@
       "description": "Backbone design model to use",
       "default": "rfdiffusion"
     },
-    "rfdiffusion3_models_path": {
+    "foundry_models_path": {
       "type": "string",
       "description": "Path to RFdiffusion3 checkpoint file or a directory containing the file 'rfd3_latest.ckpt'"
     },
