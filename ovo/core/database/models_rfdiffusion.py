@@ -8,6 +8,7 @@ from ovo.core.database import descriptors_refolding, descriptors_rfdiffusion
 from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, Design, Threshold, Base, DesignJob
 from ovo.core.database.models_refolding import (
     RefoldingSupportedDesignWorkflow,
+    RefoldingWorkflow,
 )
 from ovo.core.scheduler.base_scheduler import Scheduler
 from ovo.core.utils.residue_selection import (
@@ -343,6 +344,28 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
 
     def get_refolding_native_pdb_path(self, contig_index: int) -> str:
         return self.get_input_pdb_path(contig_index=contig_index)
+
+    def get_skipped_threshold_keys(self) -> list[str]:
+        """Get descriptor keys from acceptance_thresholds that will (most likely) not be available
+        and will be skipped during processing.
+
+        Used to skip showing these thresholds in the UI (acceptance threshold settings and summary table).
+        """
+        skipped_keys = []
+
+        # Skip all refolding descriptors that are not provided by the selected refolding test
+        refolding_descriptor_key_prefix = (
+            RefoldingWorkflow.get_descriptor_key_prefix(self.refolding_params.primary_test, primary=True)
+            if self.refolding_params.primary_test
+            else "none|"
+        )
+        skipped_keys += [
+            key
+            for key in self.acceptance_thresholds.keys()
+            if key.startswith("refolding|") and not key.startswith(refolding_descriptor_key_prefix)
+        ]
+
+        return skipped_keys
 
 
 @WorkflowTypes.register("RFdiffusion scaffold design")

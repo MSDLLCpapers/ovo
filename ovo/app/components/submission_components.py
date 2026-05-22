@@ -1,6 +1,7 @@
 import json
 import os
 
+import pandas as pd
 import streamlit as st
 
 from ovo import config, db, schedulers
@@ -85,12 +86,36 @@ def get_pool_inputs(page_key: str) -> tuple[str, str, str]:
     return round_id, pool_name, pool_description
 
 
-def format_param_table(df):
+def format_param_table(
+    project_name: str,
+    round_name: str,
+    pool_name: str,
+    pool_description: str | None,
+    values: pd.Series,
+):
     # concatenate list values into comma-separated strings
-    df = df.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
+    values = values.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
     # shorten long file paths to just .../filename.ext
-    df = df.apply(lambda v: ".../" + v.split("/")[-1] if isinstance(v, str) and "/" in v and len(v) > 50 else v)
-    return df
+    values = values.apply(lambda v: ".../" + v.split("/")[-1] if isinstance(v, str) and "/" in v and len(v) > 50 else v)
+    # remove empty values
+    values = values[~values.isnull() & (values != "")]
+    # add index names
+    values.index.names = ("Category", "Parameter")
+
+    return pd.concat(
+        [
+            pd.Series(
+                {
+                    ("Project", "Name"): project_name,
+                    ("Round", "Name"): round_name,
+                    ("Pool", "Name"): pool_name,
+                    ("Pool", "Description"): pool_description or "",
+                },
+                name="Value",
+            ),
+            values,
+        ]
+    )
 
 
 def review_workflow_submission(page_key: str):
@@ -113,30 +138,20 @@ def review_workflow_submission(page_key: str):
 
     project_round = get_cached_round(round_id)
 
-    # Pool name and description
-    st.write(f"**Project:** {st.session_state.project.name}")
-    st.write(f"**Round:** {project_round.name}")
-    st.write(f"**Pool name:** {pool_name}")
     if db.count(Pool, round_id=round_id, name=pool_name):
         st.error(f"Pool '{pool_name}' already exists in this round, please choose a different name.")
-    if pool_description:
-        st.markdown(f"**Pool description**: {pool_description}")
 
     # Workflow parameters
-    st.markdown(
-        """
-        <style>
-        .stTable table {
-            width: auto !important;
-        }
-        .stTable > div {
-            display: inline-block;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
+    st.table(
+        format_param_table(
+            project_name=st.session_state.project.name,
+            round_name=project_round.name,
+            pool_name=pool_name,
+            pool_description=pool_description,
+            values=workflow.get_table_row(name="Value"),
+        ),
+        width="content",
     )
-    st.table(format_param_table(workflow.get_table_row(name="value")))
 
     if st.button("Continue to submission :material/arrow_forward_ios:", key="continue") or is_test_dialog_shown(
         "submission_dialog"
@@ -420,20 +435,9 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 key="esmfold_fp16",
             )
 
-        if workflow.refolding_params.primary_test:
-            refolding_descriptor_key_prefix = RefoldingWorkflow.get_descriptor_key_prefix(
-                workflow.refolding_params.primary_test, primary=True
-            )
-            prefixes_to_skip = tuple(
-                key
-                for key in workflow.acceptance_thresholds.keys()
-                if key.startswith("refolding|") and not key.startswith(refolding_descriptor_key_prefix)
-            )
-        else:
-            prefixes_to_skip = None
-
         new_thresholds = thresholds_input_component(
-            selected_thresholds=workflow.acceptance_thresholds, skip_prefixes=prefixes_to_skip
+            selected_thresholds=workflow.acceptance_thresholds,
+            skipped_threshold_keys=workflow.get_skipped_threshold_keys(),
         )
 
         if new_thresholds != workflow.acceptance_thresholds:

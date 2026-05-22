@@ -415,6 +415,14 @@ class DesignWorkflow(Workflow):
     # acceptance threshold values (descriptor key -> interval (min, max, enabled))
     acceptance_thresholds: dict[str, Threshold] = field(default_factory=dict)
 
+    def get_skipped_threshold_keys(self) -> list[str]:
+        """Get descriptor keys from acceptance_thresholds that will (most likely) not be available
+        and will be skipped during processing.
+
+        Used to skip showing these thresholds in the UI (acceptance threshold settings and summary table).
+        """
+        return []
+
     def get_table_row(self, **kwargs) -> pd.Series:
         """Get all values of all param fields, skip fields with metadata.show_to_user=False, return pd.Series"""
         row = super().get_table_row(**kwargs)
@@ -430,7 +438,7 @@ class DesignWorkflow(Workflow):
                             ALL_DESCRIPTORS_BY_KEY[key].name if key in ALL_DESCRIPTORS_BY_KEY else key,
                         ): t.format()
                         for key, t in self.acceptance_thresholds.items()
-                        if t.enabled
+                        if t.enabled and key not in self.get_skipped_threshold_keys()
                     },
                     **kwargs,
                 ),

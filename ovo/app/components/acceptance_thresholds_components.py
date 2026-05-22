@@ -1,3 +1,5 @@
+from typing import Collection
+
 import pandas as pd
 import streamlit as st
 from sqlalchemy.orm.attributes import flag_modified
@@ -66,7 +68,7 @@ def thresholds_and_histograms_component(
 def thresholds_input_component(
     selected_thresholds: dict[str, Threshold],
     max_items_row: int = 3,
-    skip_prefixes: str | tuple[str, ...] | None = None,
+    skipped_threshold_keys: Collection[str] | None = None,
 ) -> dict[str, Threshold]:
     """Adjust thresholds using sliders, return new thresholds."""
     if not selected_thresholds:
@@ -84,7 +86,8 @@ def thresholds_input_component(
 
     active_descriptor_keys = []
     for descriptor_key, threshold in selected_thresholds.items():
-        if skip_prefixes and descriptor_key.startswith(skip_prefixes):
+        if skipped_threshold_keys and descriptor_key in skipped_threshold_keys:
+            # For skipped descriptors, keep original threshold but don't show the input component in the UI
             new_thresholds[descriptor_key] = threshold
             continue
         active_descriptor_keys.append(descriptor_key)
