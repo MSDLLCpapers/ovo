@@ -227,14 +227,12 @@ class RefoldingWorkflow(DescriptorWorkflow):
         }
         for pool_id in pool_ids:
             assert pool_id in pools_by_id, f"Pool {pool_id} not found in database"
-            assert pool_id in design_workflows_by_pool_id, (
-                f"Pool {pool_id} does not have an associated design workflow, please create {cls.__name__} manually"
-            )
+
         groups = defaultdict(list)
         for pool in pools:
             index_by_id = db.select_dict(Design, "id", "contig_index", id__in=design_ids, pool_id=pool.id)
             if not pool.design_job_id:
-                # Assume chain A is designed if no design workflow associated with the pool, and no native structure (e.g. for custom PDB uploads)
+                print(f"No design workflow associated with pool {pool.id}. Assuming chain A is designed. No native structure will be provided, native motif RMSD calculation will not be available.")
                 default_designed_chains = ["A"]
                 groups[(None, tuple(default_designed_chains))] += list(index_by_id.keys())
                 continue
