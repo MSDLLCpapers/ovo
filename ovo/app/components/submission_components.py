@@ -19,6 +19,7 @@ from ovo.core.database.models_rfdiffusion import RFdiffusionBinderDesignWorkflow
 from ovo.core.database.models import Pool, Round, Workflow
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
+from ovo.core.utils.formatting import truncate_middle
 
 
 def pool_submission_inputs(page_key: str):
@@ -84,11 +85,17 @@ def get_pool_inputs(page_key: str) -> tuple[str, str, str]:
     return round_id, pool_name, pool_description
 
 
+def shorten_absolute_file_paths(v, max_length=40):
+    if not isinstance(v, str) or not v.startswith("/") or len(v) < max_length:
+        return v
+    return truncate_middle(v, max_length)
+
+
 def format_param_table(df):
     # concatenate list values into comma-separated strings
     df = df.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
     # shorten long file paths to just .../filename.ext
-    df = df.apply(lambda v: ".../" + v.split("/")[-1] if isinstance(v, str) and "/" in v and len(v) > 50 else v)
+    df = df.apply(shorten_absolute_file_paths)
     return df
 
 

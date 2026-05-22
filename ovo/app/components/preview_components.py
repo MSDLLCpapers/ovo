@@ -16,6 +16,7 @@ from ovo.core.database.models_rfdiffusion import (
     RFdiffusionBinderDesignWorkflow,
 )
 from ovo.app.components.trim_components import check_hotspots
+from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.pdb import add_glycan_to_pdb, filter_pdb_str, get_standardized_remarks_from_pdb_str
 from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
@@ -278,6 +279,49 @@ def update_contig_based_on_selected_segments(old_contig: str, selected_segments:
                         New contig: {contig}
                         """)
     return contig
+
+
+def submit_rfdiffusion_preview_component(workflow: RFdiffusionWorkflow, timesteps: int):
+    help_container = st.container()
+    preview_timesteps_key = f"{workflow.name} preview timesteps"
+    with st.columns(3)[0]:
+        if preview_timesteps_key not in st.session_state:
+            st.session_state[preview_timesteps_key] = timesteps
+        new_timesteps = st.slider(
+            "Num RFdiffusion timesteps (T)",
+            min_value=1,
+            max_value=20,
+            value=st.session_state[preview_timesteps_key],
+            key="timesteps_input",
+        )
+        if new_timesteps and new_timesteps != st.session_state[preview_timesteps_key]:
+            st.session_state[preview_timesteps_key] = new_timesteps
+            # Clear previous preview if settings changed
+            workflow.preview_job_id = None
+
+    with help_container:
+        st.write(f"""
+            Generate a quick RFdiffusion preview of the design with reduced number of timesteps
+            ({st.session_state[preview_timesteps_key]}/50) to verify your inputs. This step is optional.
+
+            This should take from 2-10 minutes depending on the length of the protein.
+            """)
+
+    if workflow.rfdiffusion_params.backbone_generator not in ["rfdiffusion"]:
+        st.warning(
+            f"NOTE: Preview generation using {workflow.rfdiffusion_params.backbone_generator} "
+            f"is not supported yet. Preview will be generated with rfdiffusion."
+        )
+        if workflow.rfdiffusion_params.rfd3_unindex:
+            st.warning(
+                f"NOTE: Unindexed RFD3 residues will not be present in the design: {workflow.rfdiffusion_params.rfd3_unindex}"
+            )
+
+    if st.button(":material/wand_stars: Generate preview"):
+        with st.spinner("Submitting RFdiffusion job..."):
+            workflow.preview_job_id = submit_rfdiffusion_preview(
+                workflow, timesteps=st.session_state[preview_timesteps_key]
+            )
 
 
 def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str):
