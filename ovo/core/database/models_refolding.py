@@ -232,7 +232,9 @@ class RefoldingWorkflow(DescriptorWorkflow):
         for pool in pools:
             index_by_id = db.select_dict(Design, "id", "contig_index", id__in=design_ids, pool_id=pool.id)
             if not pool.design_job_id:
-                print(f"No design workflow associated with pool {pool.id}. Assuming chain A is designed. No native structure will be provided, native motif RMSD calculation will not be available.")
+                print(
+                    f"No design workflow associated with pool {pool.id}. Assuming chain A is designed. No native structure will be provided, native motif RMSD calculation will not be available."
+                )
                 default_designed_chains = ["A"]
                 groups[(None, tuple(default_designed_chains))] += list(index_by_id.keys())
                 continue
