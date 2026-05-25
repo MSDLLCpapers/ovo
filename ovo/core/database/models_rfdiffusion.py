@@ -357,7 +357,7 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
         refolding_descriptor_key_prefix = (
             RefoldingWorkflow.get_descriptor_key_prefix(self.refolding_params.primary_test, primary=True)
             if self.refolding_params.primary_test
-            else "none|"
+            else ()
         )
         skipped_keys += [
             key
