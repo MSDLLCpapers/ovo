@@ -8,7 +8,7 @@ from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import residue_number_descriptor_detail_table
 from ovo.app.components.descriptor_tiles import get_residue_presence_df
 from ovo.app.components.download_component import download_job_designs_component
-from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
+from ovo import viz
 from ovo.app.components.navigation import design_navigation_selector
 from ovo.app.utils.cached_db import (
     get_cached_pools,
@@ -67,7 +67,7 @@ def interface_fragment(pool_ids: List[str], design_ids: List[str] | None = None)
             st.write(
                 "No accepted designs in the selected "
                 + ("pools" if len(pool_ids) > 1 else "pool")
-                + ". Please mark some designs as accepted in the **Jobs** page."
+                + ". All generated designs can be explored in the **Jobs** page."
             )
             return
 
@@ -305,15 +305,13 @@ def design_interface_detail(
         label_visibility="collapsed",
         width=500,
     )
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(
-                pdb=storage.read_file_str(design.structure_path),
-                color=color,
-                representation_type="cartoon+ball-and-stick",
-                highlighted_selections=get_molstar_residue_selections(interface_residues),
-            )
-        ],
+    viz.molstar(
+        viz.StructureVisualization(
+            data=storage.read_file_str(design.structure_path),
+            color=color,
+            representation="cartoon+ball-and-stick",
+            selection=get_molstar_residue_selections(interface_residues),
+        ),
         key="interface_highlighted_structure",
     )
 

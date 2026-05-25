@@ -13,6 +13,7 @@ from ovo.core.configuration import (
 from ovo.core.plugins import plugins
 from ovo.cli.common import console, OVONotInitializedError
 from ovo.core.utils import residue_selection
+from ovo.app.components import viz as viz  # re-export so `from ovo import viz` works
 
 # note: ovo.core.logic modules are imported at the bottom to avoid circular dependencies
 from rich.panel import Panel

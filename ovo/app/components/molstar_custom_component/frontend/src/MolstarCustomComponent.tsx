@@ -18,9 +18,8 @@ import { PLDDTConfidenceColorThemeProvider } from "molstar/lib/extensions/model-
 import { getColorListFromName } from 'molstar/lib/mol-util/color/lists';
 
 import "./assets/style.css";
-import { ChainVisualization, ColorParameters, ContigSegment, SequenceSelection, StreamlitComponentValue, StructureVisualization } from "./types";
+import { ColorParameters, ContigSegment, SequenceSelection, StreamlitComponentValue, Representation, StructureVisualization } from "./types";
 import { toBytesFloat64 } from "./utils";
-import { StructureRepresentationRegistry } from "molstar/lib/mol-repr/structure/registry";
 
 interface Props {
   divName: string;
@@ -45,12 +44,22 @@ interface InnerProps {
 // right now it works, we do not want useState as this would infinitely reload
 const innerProps: InnerProps = { plugin: null, structures: [], representations: [], loadingPlugin: false, loadingPdb: false };
 
+const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+// improve performance for gaussian surface representation on mobile by disabling GPU usage, which can cause freezes/crashes due to memory issues
+const typeParamsFor = (repType: string): Record<string, unknown> | undefined => {
+  if (isMobile && repType === "gaussian-surface") return { tryUseGpu: false };
+  return undefined;
+};
+
 function MolstarCustomComponent(props: Props) {
 
   const initPlugin = async () => {
     if (innerProps.loadingPlugin || innerProps.plugin) return; // plugin is already being loaded or loaded
     const wrapper = document.getElementById(props.divName)!;
     innerProps.loadingPlugin = true;
+    // auto-enable animation controls when any structure has a trajectory
+    const hasTrajectory = props.structures?.some(s => s.trajectory && s.trajectory_format) ?? false;
     const plugin = await createPluginUI({
       target: wrapper,
       render: renderReact18,
@@ -83,7 +92,7 @@ function MolstarCustomComponent(props: Props) {
           [PluginConfig.VolumeStreaming.Enabled, true],
           [PluginConfig.Viewport.ShowExpand, false],            // hide the full screen button as we use the fullscreen
           [PluginConfig.Viewport.ShowToggleFullscreen, true],
-          [PluginConfig.Viewport.ShowAnimation, false],         // we do not need animation controls
+          [PluginConfig.Viewport.ShowAnimation, hasTrajectory], // show animation controls only for trajectories
           [PluginConfig.Viewport.ShowXR, false],                // we also do not need AR/VR
           [PluginConfig.Viewport.ShowControls, true],
           [PluginConfig.Viewport.ShowSettings, true],
@@ -190,19 +199,33 @@ function MolstarCustomComponent(props: Props) {
     });
   };
 
+  // parses selection strings like "A" (whole chain), "A123" (single residue), "A123-456" (residue range)
+  // into structured SequenceSelection objects with chain ID and optional residue list
   const parseSelections = (selections: string[]): SequenceSelection[] => {
-    const trimmed = selections.map((sel) => sel.trim()).filter((e) => e !== "");
+    const expanded = selections.flatMap((sel) => sel.split(/[,/]/));
+    const trimmed = expanded.map((sel) => sel.trim()).filter((e) => e !== "");
 
     const parsedSelections = trimmed.map(item => {
-      const regex = /([A-Z]+)(\d+)(-\d+)?/;
+      // group 1: chain letter(s), e.g. "A" or "AB"
+      // group 2: start residue number (optional), e.g. "123"
+      // group 3: end residue number (optional, requires group 2), e.g. "456" in "A123-456"
+      const regex = /^([A-Z]+)(?:(\d+)(?:-(\d+))?)?$/;
 
       const match = item.match(regex);
 
       if (match) {
-        const start = parseInt(match[2]);
+        if (match[2]) {
+          // specific residue(s): "A123" becomes [123], "A123-456" becomes [123, 124, ..., 456]
+          const start = parseInt(match[2]);
+          return {
+            chainId: match[1],
+            residues: getRange([start, match[3] ? parseInt(match[3]) : start])
+          };
+        }
+        // whole chain selection, e.g. "A" — no residue filtering
         return {
           chainId: match[1],
-          residues: getRange([start, match[3] ? parseInt(match[3].slice(1)) : start])
+          residues: null
         };
       } else {
         throw new Error(`Invalid format for selection: ${item}`);
@@ -219,6 +242,7 @@ function MolstarCustomComponent(props: Props) {
     const parsed = parseSelections(selections);
 
     for (const parsedSel of parsed) {
+      if (!parsedSel.residues) continue;
       const sel = getSelectionFromChainAuthId(innerProps.plugin!, parsedSel.chainId, parsedSel.residues, structureIdx);
       const loci = StructureSelection.toLociWithSourceUnits(sel);
       innerProps.plugin.managers.structure.selection.fromLoci("add", loci);
@@ -263,8 +287,11 @@ function MolstarCustomComponent(props: Props) {
         if ("highlighted_selections" in structures[i]) {
           addSelections(structures[i].highlighted_selections, i);
         }
-        if ("chains" in structures[i]) {
-          await addSpecialChainVisualizations(structures[i].chains, i);
+        if (structures[i].representations) {
+          await addStructureRepresentations(structures[i].representations!, i);
+        }
+        if (structures[i].auto_zoom_chains) {
+          await autoZoomToChains(structures[i].auto_zoom_chains!, i);
         }
       }
     } finally {
@@ -332,6 +359,12 @@ function MolstarCustomComponent(props: Props) {
         color: "plddt-confidence"
       } as const;
     }
+    else if (color === "interaction-type") {
+      return {
+        color: "interaction-type",
+        colorParams: {}
+      } as const;
+    }
 
     // default
     return { color, colorParams } as const;
@@ -350,66 +383,140 @@ function MolstarCustomComponent(props: Props) {
       await update.commit();
     }
 
-    let data: StateObjectSelector;
+    let dataSelector: StateObjectSelector;
     let trajectory: StateObjectSelector;
 
-    if (isUrl(structureToLoad.pdb)) {
-      data = await plugin.builders.data.download({
-        url: Asset.Url(structureToLoad.pdb),
-        isBinary: false
+    // detect the structure format: explicit > URL extension > content heuristic
+    const detectFormat = (): string => {
+      if (structureToLoad.data_format) return structureToLoad.data_format;
+      if (isUrl(structureToLoad.data)) {
+        const url = structureToLoad.data.toLowerCase();
+        if (/\.pdb$/.test(url)) return "pdb";
+        if (/\.bcif$/.test(url)) return "bcif";
+        if (/\.gro$/.test(url)) return "gro";
+        if (/\.mol2$/.test(url)) return "mol2";
+        if (/\.mol$/.test(url)) return "mol";
+        if (/\.sdf$/.test(url)) return "sdf";
+        if (/\.xyz$/.test(url)) return "xyz";
+        return "mmcif";
+      }
+      if (/^loop_$/m.test(structureToLoad.data)) return "mmcif";
+      if (/^ATOM /m.test(structureToLoad.data)) return "pdb";
+      throw new Error("Structure format not recognized, please pass data_format explicitly");
+    };
+
+    const format = detectFormat();
+    // bcif is the binary form of mmCIF; molstar's parseTrajectory accepts "mmcif" for both
+    // and switches based on whether the underlying data object is String or Binary.
+    const isBinaryFormat = format === "bcif";
+    // treat bcif as mmcif for the parser
+    const parserFormat = format === "bcif" ? "mmcif" : format;
+
+    if (isUrl(structureToLoad.data)) {
+      dataSelector = await plugin.builders.data.download({
+        url: Asset.Url(structureToLoad.data),
+        isBinary: isBinaryFormat,
       }, { state: { isGhost: true } });
 
-      if (structureToLoad.pdb.includes(".pdb")) {
-        trajectory = await plugin.builders.structure.parseTrajectory(data, "pdb");
-      }
-      else {
-        trajectory = await plugin.builders.structure.parseTrajectory(data, "mmcif");
-      }
+      trajectory = await plugin.builders.structure.parseTrajectory(dataSelector, parserFormat as any);
+    }
+    else if (isBinaryFormat) {
+      // base64-encoded binary payload (e.g. bcif)
+      const binaryData = Uint8Array.from(atob(structureToLoad.data), c => c.charCodeAt(0));
+      dataSelector = await plugin.builders.data.rawData({ data: binaryData });
+      trajectory = await plugin.builders.structure.parseTrajectory(dataSelector, parserFormat as any);
     }
     else {
-      if (structureToLoad.pdb.includes("loop_")) {
-        data = await plugin.builders.data.rawData({
-          data: structureToLoad.pdb
-        });
+      // for PDB format, prepend COMPND records for representations that have a label
+      let structureContent = structureToLoad.data;
+      if (format === "pdb") {
+        const stringsToPrepend: string[] = [];
+        const chainLetterRegex = /^[A-Z]+$/;
 
-        trajectory = await plugin.builders.structure.parseTrajectory(data, "mmcif");
-      }
-      else {
-        // A special case where we add custom labels to the structure.
-        const stringsToPrepend = [];
-
-        if (structureToLoad.chains) {
-          for (let i = 0; i < structureToLoad.chains.length; i++) {
-            const chain = structureToLoad.chains[i];
-            if (chain.label) {
-              const stringToPrepend = `COMPND    MOL_ID: ${i + 1};\nCOMPND   2 MOLECULE: ${chain.label};\nCOMPND   3 CHAIN: ${chain.chain_id};`;
-              stringsToPrepend.push(stringToPrepend);
+        if (structureToLoad.representations) {
+          for (let i = 0; i < structureToLoad.representations.length; i++) {
+            const rep = structureToLoad.representations[i];
+            if (rep.label) {
+              const sel = typeof rep.selection === "string" ? rep.selection : rep.selection[0];
+              if (chainLetterRegex.test(sel)) {
+                const stringToPrepend = `COMPND    MOL_ID: ${i + 1};\nCOMPND   2 MOLECULE: ${rep.label};\nCOMPND   3 CHAIN: ${sel};`;
+                stringsToPrepend.push(stringToPrepend);
+              }
             }
           }
         }
 
-        const dataToPrepend = stringsToPrepend.join("\n") + "\n";
-        const newPdb = dataToPrepend + structureToLoad.pdb;
-
-        data = await plugin.builders.data.rawData({
-          data: newPdb
-        });
-
-        trajectory = await plugin.builders.structure.parseTrajectory(data, "pdb");
+        if (stringsToPrepend.length > 0) {
+          structureContent = stringsToPrepend.join("\n") + "\n" + structureContent;
+        }
       }
+
+      dataSelector = await plugin.builders.data.rawData({
+        data: structureContent
+      });
+
+      trajectory = await plugin.builders.structure.parseTrajectory(dataSelector, parserFormat as any);
+    }
+
+    // if trajectory data is provided (e.g. TRR), combine the topology model with coordinates.
+    // trajectory arrives as a base64 string
+    if (structureToLoad.trajectory && structureToLoad.trajectory_format) {
+      const binaryData = Uint8Array.from(atob(structureToLoad.trajectory), c => c.charCodeAt(0));
+      const coordData = await plugin.builders.data.rawData({
+        data: binaryData
+      });
+
+      // pick the right coordinate parser for the trajectory format
+      const coordTransforms = {
+        trr: StateTransforms.Model.CoordinatesFromTrr,
+        xtc: StateTransforms.Model.CoordinatesFromXtc,
+        dcd: StateTransforms.Model.CoordinatesFromDcd,
+        nctraj: StateTransforms.Model.CoordinatesFromNctraj,
+      } as const;
+      const coordTransform = coordTransforms[structureToLoad.trajectory_format];
+
+      const coords = await plugin.build()
+        .to(coordData)
+        .apply(coordTransform)
+        .commit();
+
+      const topologyModel = await plugin.builders.structure.createModel(trajectory);
+
+      // combine topology model + coordinate frames into a multi-frame trajectory
+      // dependsOn is required so the state tree can resolve the referenced nodes
+      const dependsOn = [topologyModel.ref, coords.ref];
+      trajectory = await plugin.build()
+        .toRoot()
+        .apply(StateTransforms.Model.TrajectoryFromModelAndCoordinates, {
+          modelRef: topologyModel.ref,
+          coordinatesRef: coords.ref,
+        }, { dependsOn })
+        .commit();
     }
 
     const model = await plugin.builders.structure.createModel(trajectory);
     const structure = await plugin.builders.structure.createStructure(model, { name: 'model', params: {} });
 
-    const polymer = await plugin.builders.structure.tryCreateComponentStatic(structure, 'polymer');
+    const hasExplicitReps = !!structureToLoad.representations && structureToLoad.representations.length > 0;
+    const polymer = hasExplicitReps
+      ? await plugin.builders.structure.tryCreateComponentFromExpression(
+        structure,
+        buildPolymerExcludingReps(structureToLoad.representations),
+        'polymer-excl',
+        { label: 'Polymer' }
+      )
+      : await plugin.builders.structure.tryCreateComponentStatic(structure, 'polymer');
 
     if (polymer && structureToLoad.representation_type) {
-      const repTypes: StructureRepresentationRegistry.BuiltIn[] = structureToLoad.representation_type.split("+") as StructureRepresentationRegistry.BuiltIn[];
+      const repTypes = structureToLoad.representation_type.split("+") as string[];
       for (const repType of repTypes) {
+        const isCartoon = repType === "cartoon";
+        const extraTypeParams = typeParamsFor(repType);
         // @ts-ignore - here we are using the getColorParameters which raises an error but is in fact correct
         const representation: StateObjectSelector = await plugin.builders.structure.representation.addRepresentation(polymer, {
-          type: repType,
+          type: repType as any,
+          size: isCartoon ? "uniform" : "physical",
+          ...(extraTypeParams ? { typeParams: extraTypeParams as any } : {}),
           ...getColorParameters(structureToLoad.color, structureToLoad.color_params, plugin),
         });
 
@@ -418,6 +525,10 @@ function MolstarCustomComponent(props: Props) {
     }
 
     innerProps.structures[structureIdx] = structure;
+
+    if (structureToLoad.color_params?.positions) {
+      await applyPositionalOverpaint(structureToLoad.color_params.positions, structureIdx);
+    }
 
     if (structureToLoad.representation_type) {
       const shownGroups = ["ligand", "nucleic", "lipid", "branched", "non-standard", "coarse"] as const;
@@ -456,10 +567,10 @@ function MolstarCustomComponent(props: Props) {
 
     const params: Params[] = [];
 
-    props.contigs[structureIdx].forEach((e, i) => {
-      const range = Array.from(new Array(e.end - e.start + 1), (x, i) => i + e.start);
+    props.contigs[structureIdx].forEach((e) => {
+      const range = Array.from(new Array(e.end - e.start + 1), (_, i) => i + e.start);
       const bundle = Bundle.fromSelection(getSelectionFromChainAuthId(innerProps.plugin!, e.chain, range, structureIdx));
-      params.push({ bundle: bundle, color: Color.fromHexString(e.color.replace("#", "0x")), clear: false });
+      params.push({ bundle: bundle, color: Color.fromHexString(e.color!.replace("#", "0x")), clear: false });
     });
 
     innerProps.representations[structureIdx].map(
@@ -472,7 +583,7 @@ function MolstarCustomComponent(props: Props) {
   const getRange = (arr: number[]) => {
     const start = arr[0];
     const end = arr[arr.length - 1] - start + 1;
-    const range = Array.from(new Array(end), (x, i) => i + start);
+    const range = Array.from(new Array(end), (_, i) => i + start);
 
     return range;
   };
@@ -481,15 +592,16 @@ function MolstarCustomComponent(props: Props) {
     if (!innerProps.plugin) return;
 
     // keep just the first and last elements of the array
-    const segments = props.contigs[structureIdx].filter(e => e.start)
+
+    const segments = props.contigs[structureIdx].filter(e => e.start);
     const arrays: number[] = segments.flatMap((e: ContigSegment) => [e.start, e.end]);
     const labels: string[] = segments.flatMap((e: ContigSegment) => [
       e.start_label || "",
       e.end_label || ""
     ]);
     const chains: string[] = segments.flatMap((e: ContigSegment) => [e.chain, e.chain]);
-    const textColors: Color[] = segments.flatMap((e: ContigSegment) => [Color.fromHexString(e.color.replace("#", "0x")), Color(0xffffff)]);
-    const borderColors: Color[] = segments.flatMap((e: ContigSegment) => [Color(0xffffff), Color.fromHexString(e.color.replace("#", "0x"))]);
+    const textColors: Color[] = segments.flatMap((e: ContigSegment) => [Color.fromHexString(e.color!.replace("#", "0x")), Color(0xffffff)]);
+    const borderColors: Color[] = segments.flatMap((e: ContigSegment) => [Color(0xffffff), Color.fromHexString(e.color!.replace("#", "0x"))]);
 
     arrays.forEach((arr, idx) => {
       if (!labels[idx]) {
@@ -521,12 +633,12 @@ function MolstarCustomComponent(props: Props) {
     if (!innerProps.plugin) return;
 
     // keep just the first and last elements of the array
-    const segments = props.contigs[structureIdx].filter((e) => e.start)
+    const segments = props.contigs[structureIdx].filter((e) => e.start);
     const arrays: number[] = segments.flatMap((e: ContigSegment) => [e.start, e.end]);
     const chains: string[] = segments.flatMap((e: ContigSegment) => [e.chain, e.chain]);
     const colors: Color[] = segments.flatMap((e: ContigSegment) => [
-      Color.fromHexString(e.color.replace("#", "0x")),
-      Color.fromHexString(e.color.replace("#", "0x"))
+      Color.fromHexString(e.color!.replace("#", "0x")),
+      Color.fromHexString(e.color!.replace("#", "0x"))
     ]);
 
     // Add "linkers" between pairs of contigs
@@ -570,7 +682,7 @@ function MolstarCustomComponent(props: Props) {
 
     // we need to connect array 1 with 2, 2 with 3, and so on...
     // so, first, let's transform the original arrays
-    segments.forEach((segment, idx) => {
+    segments.forEach((segment) => {
 
       const middleElement = Math.ceil((segment.start + segment.end) / 2);
 
@@ -579,14 +691,14 @@ function MolstarCustomComponent(props: Props) {
 
       const options = {
         labelParams: {
-          customText: segment.middle_label,
+          customText: segment.middle_label ?? undefined,
         },
         visualParams: {
           scaleByRadius: false,
           sizeFactor: 1,
           textSize: 3,
           textColor: Color(0x0),
-          borderColor: Color.fromHexString(segment.color.replace("#", "0x")),
+          borderColor: Color.fromHexString(segment.color!.replace("#", "0x")),
           offsetZ: 2,
         }
       };
@@ -625,44 +737,182 @@ function MolstarCustomComponent(props: Props) {
     return Script.getStructureSelection(query, plugin.managers.structure.hierarchy.current.structures[structureIdx].cell.obj!.data);
   };
 
-  const addSpecialChainVisualizations = async (chainVisualizations: ChainVisualization[] | null, structureIdx: number) => {
-    if (!innerProps.plugin || !chainVisualizations) return;
+  const applyPositionalOverpaint = async (
+    positions: Record<string, string>,
+    structureIdx: number,
+    repSelectors?: StateObjectSelector[]
+  ) => {
+    if (!innerProps.plugin) return;
 
-    for (const chainVis of chainVisualizations) {
-      const builder = innerProps.plugin.state.data.build();
-      const group = builder.to(innerProps.structures[structureIdx]).apply(StateTransforms.Misc.CreateGroup, { label: `chain_${chainVis.chain_id}_${structureIdx}` }, { ref: `chain_${chainVis.chain_id}_${structureIdx}` });
+    const builder = innerProps.plugin.state.data.build();
 
-      let expr;
+    type Params = {
+      bundle: Bundle;
+      color: Color;
+      clear: boolean;
+    };
 
-      if (chainVis.residues && chainVis.residues.length > 0) {
-        expr = MS.struct.generator.atomGroups({
-          'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), chainVis.chain_id]),
-          'residue-test': MS.core.set.has([MS.set(...chainVis.residues), MS.struct.atomProperty.macromolecular.auth_seq_id()]),
-          'group-by': MS.struct.atomProperty.macromolecular.residueKey()
-        });
-      } else {
-        expr = MS.struct.generator.atomGroups({
-          'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), chainVis.chain_id]),
+    const params: Params[] = [];
+
+    for (const [key, colorStr] of Object.entries(positions)) {
+      const parsed = parseSelections([key]);
+      for (const sel of parsed) {
+        if (!sel.residues) continue;
+        const bundle = Bundle.fromSelection(
+          getSelectionFromChainAuthId(innerProps.plugin!, sel.chainId, sel.residues, structureIdx)
+        );
+        params.push({
+          bundle,
+          color: Color.fromHexString(colorStr.replace("#", "0x")),
+          clear: false,
         });
       }
+    }
 
-      const expr2 = MS.struct.modifier.wholeResidues({ 0: expr });
-      const selection = group.apply(StateTransforms.Model.StructureSelectionFromExpression, { expression: expr2 });
+    const targets = repSelectors || innerProps.representations[structureIdx];
+    targets.map(
+      rep => builder.to(rep).apply(StateTransforms.Representation.OverpaintStructureRepresentation3DFromBundle, { layers: params })
+    );
 
-      const repTypes: StructureRepresentationRegistry.BuiltIn[] = chainVis.representation_type.split("+") as StructureRepresentationRegistry.BuiltIn[];
+    await builder.commit();
+  };
+
+  // used to subtract these atoms from the default polymer component so the default rep
+  // does not render underneath an explicit rep (which would cause z-fighting / wrong colors).
+  const buildExplicitRepsSelectionExpr = (representations: Representation[]) => {
+    // flatten selections across all reps: each selection may be a string or list of strings
+    const items = representations.flatMap(r => Array.isArray(r.selection) ? r.selection : [r.selection]);
+    const parsed = parseSelections(items);
+    if (parsed.length === 0) return null;
+
+    const expressions = parsed.map(sel => {
+      // partial range like "A1-10": filter by chain and by the set of residue numbers
+      if (sel.residues && sel.residues.length > 0) {
+        return MS.struct.generator.atomGroups({
+          'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), sel.chainId]),
+          'residue-test': MS.core.set.has([MS.set(...sel.residues), MS.struct.atomProperty.macromolecular.auth_seq_id()]),
+          'group-by': MS.struct.atomProperty.macromolecular.residueKey(),
+        });
+      }
+      // whole-chain selection like "A": filter by chain only
+      return MS.struct.generator.atomGroups({
+        'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), sel.chainId]),
+      });
+    });
+
+    // combine all per-rep expressions with union, then expand to whole residues
+    return MS.struct.modifier.wholeResidues({
+      0: expressions.length === 1 ? expressions[0] : MS.struct.combinator.merge(expressions),
+    });
+  };
+
+  // build the expression used for the "default" polymer component.
+  // without explicit reps: identical to Mol*'s built-in polymer selection.
+  // with explicit reps: same polymer selection minus all atoms covered by those reps,
+  // so the default representation only renders the parts of the structure not otherwise styled.
+  const buildPolymerExcludingReps = (representations: Representation[] | null | undefined) => {
+    // mirror of Mol*'s built-in "polymer" selection
+    // keep only polymer entities
+    const polymerExpr = MS.struct.modifier.union([
+      MS.struct.generator.atomGroups({
+        'entity-test': MS.core.logic.and([
+          MS.core.rel.eq([MS.ammp('entityType'), 'polymer']),
+          MS.core.str.match([
+            MS.re('(polypeptide|cyclic-pseudo-peptide|peptide-like|nucleotide|peptide nucleic acid)', 'i'),
+            MS.ammp('entitySubtype'),
+          ]),
+        ]),
+      }),
+    ]);
+
+    // no explicit reps, default representation covers the entire polymer
+    if (!representations || representations.length === 0) return polymerExpr;
+    const explicitExpr = buildExplicitRepsSelectionExpr(representations);
+    if (!explicitExpr) return polymerExpr;
+
+    // exceptBy = set difference: polymerExpr minus atoms matched by explicitExpr
+    // (this is what prevents the default representation from drawing under explicit reps)
+    return MS.struct.modifier.exceptBy({ 0: polymerExpr, by: explicitExpr });
+  };
+
+  const addStructureRepresentations = async (representations: Representation[], structureIdx: number) => {
+    if (!innerProps.plugin || !representations) return;
+
+    for (const rep of representations) {
+      const parsed = parseSelections(Array.isArray(rep.selection) ? rep.selection : [rep.selection]);
+      const builder = innerProps.plugin.state.data.build();
+
+      const expressions = parsed.map(sel => {
+        if (sel.residues && sel.residues.length > 0) {
+          return MS.struct.generator.atomGroups({
+            'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), sel.chainId]),
+            'residue-test': MS.core.set.has([MS.set(...sel.residues), MS.struct.atomProperty.macromolecular.auth_seq_id()]),
+            'group-by': MS.struct.atomProperty.macromolecular.residueKey()
+          });
+        }
+        return MS.struct.generator.atomGroups({
+          'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), sel.chainId]),
+        });
+      });
+
+      const mergedExpr = expressions.length === 1
+        ? expressions[0]
+        : MS.struct.combinator.merge(expressions.map(e => MS.struct.modifier.wholeResidues({ 0: e })));
+
+      const finalExpr = expressions.length === 1
+        ? MS.struct.modifier.wholeResidues({ 0: mergedExpr })
+        : mergedExpr;
+
+      const group = builder.to(innerProps.structures[structureIdx]).apply(
+        StateTransforms.Misc.CreateGroup,
+        { label: `rep_${structureIdx}_${representations.indexOf(rep)}` }
+      );
+      const selection = group.apply(
+        StateTransforms.Model.StructureSelectionFromExpression,
+        { expression: finalExpr }
+      );
+
+      const repTypes = rep.representation_type.split("+") as string[];
+      const repSelectors: StateObjectSelector[] = [];
       for (const repType of repTypes) {
+        const isCartoon = repType === "cartoon";
+        const extraTypeParams = typeParamsFor(repType);
         // @ts-ignore - here we are using the getColorParameters which raises an error but is in fact correct
-        selection.apply(StateTransforms.Representation.StructureRepresentation3D, createStructureRepresentationParams(innerProps.plugin, innerProps.structures[structureIdx].data, {
-          type: repType,
-          size: "physical",
-          sizeParams: { scale: 1.05 },
-          ...getColorParameters(chainVis.color, chainVis.color_params, innerProps.plugin),
+        const repSelector = selection.apply(StateTransforms.Representation.StructureRepresentation3D, createStructureRepresentationParams(innerProps.plugin, innerProps.structures[structureIdx].data, {
+          type: repType as any,
+          size: isCartoon ? "uniform" : "physical",
+          ...(extraTypeParams ? { typeParams: extraTypeParams as any } : {}),
+          ...getColorParameters(rep.color, rep.color_params, innerProps.plugin),
         }));
-        // here we can store the chain representations somewhere?
+        repSelectors.push(repSelector as any);
       }
 
       await builder.commit();
+
+      if (rep.color_params?.positions) {
+        await applyPositionalOverpaint(rep.color_params.positions, structureIdx, repSelectors);
+      }
     }
+  };
+
+  const autoZoomToChains = async (chainIds: string[], structureIdx: number) => {
+    if (!innerProps.plugin || !chainIds || chainIds.length === 0) return;
+
+    const expressions = chainIds.map(chainId =>
+      MS.struct.generator.atomGroups({
+        'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), chainId]),
+      })
+    );
+
+    const mergedExpr = expressions.length === 1
+      ? expressions[0]
+      : MS.struct.combinator.merge(expressions);
+
+    const structureData = innerProps.plugin.managers.structure.hierarchy.current.structures[structureIdx].cell.obj!.data;
+    const sel = Script.getStructureSelection(mergedExpr, structureData);
+    const loci = StructureSelection.toLociWithSourceUnits(sel);
+    // also zoom out extra 10 angstroms to improve visibility
+    innerProps.plugin.managers.camera.focusLoci(loci, { extraRadius: 10 });
   };
 
   useEffect(() => {

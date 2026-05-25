@@ -36,7 +36,7 @@ def regression_fragment(pool_ids: list[str], design_ids: list[str] | None = None
             st.write(
                 "No accepted designs in the selected "
                 + ("pools" if len(pool_ids) > 1 else "pool")
-                + ". Please mark some designs as accepted in the **Jobs** page."
+                + ". All generated designs can be explored in the **Jobs** page."
             )
             return
 

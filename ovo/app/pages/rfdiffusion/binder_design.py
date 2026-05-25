@@ -1,20 +1,26 @@
 import re
 
+import streamlit as st
+
 from ovo import config, local_scheduler, storage
 from ovo.app.components.history_components import history_dropdown_component
 from ovo.app.components.input_components import pdb_input_component, sequence_selection_fragment, initialize_workflow
-from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
+from ovo import viz
 from ovo.app.components.navigation import show_prev_next_sections
-from ovo.app.components.preview_components import parameters_binder_preview_component, visualize_rfdiffusion_preview
+from ovo.app.components.preview_components import (
+    parameters_binder_preview_component,
+    visualize_rfdiffusion_preview,
+    submit_rfdiffusion_preview_component,
+)
 from ovo.app.components.scheduler_components import wait_with_statusbar
 from ovo.app.components.submission_components import (
     pool_submission_inputs,
     show_rfdiffusion_advanced_settings,
     review_workflow_submission,
     show_rfdiffusion_binder_seq_design_inputs,
+    show_backbone_generation_settings,
 )
 from ovo.app.components.trim_components import parameters_trim_structure_component, trimmed_structure_visualizer
-
 from ovo.app.pages import jobs_page, designs_page
 from ovo.app.utils.page_init import initialize_page
 from ovo.core.auth import get_username
@@ -22,14 +28,11 @@ from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionBinderDesignWorkflow,
     RFdiffusionWorkflow,
-    MODEL_WEIGHTS_BINDER,
 )
-from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.formatting import get_hashed_path_for_bytes
 from ovo.core.utils.pdb import check_rfdiffusion_input
 from ovo.core.utils.residue_selection import from_contig_to_residues, parse_contig_for_input_structure
 from ovo.core.utils.residue_selection import get_chains_and_contigs
-import streamlit as st
 
 
 @st.fragment
@@ -140,19 +143,27 @@ and by comparing the binder pose from RFdiffusion backbone to the AlphaFold2 pre
 |             | Purpose     |  Input | Output |
 |-------------|-------------|-------------|-------------|
 | RFdiffusion | Backbone generation       | Trimmed target protein, hotspots (optional), binder length | Complex backbone structure |
+| RFdiffusion3 | All-atom structure generation | Trimmed target protein, hotspots (optional), binder length, atom-level constraints | All-atom complex structure |
 | FastRelax–ProteinMPNN  | Sequence generation and side-chain rotamer prediction | Complex backbone structure with target sequence | Binder sequence and complex structure with side-chains |
 | LigandMPNN  | Sequence generation and side-chain rotamer prediction | Backbone structure | Binder sequence and complex structure with side-chains |
 | AlphaFold2  | Refolding evaluation (via structure prediction)      | Designed sequence & structure | Predicted structure |
 | PyRosetta   | Additional descriptors used for filtering  |  Designed sequence & structure  | Complex binding energy, Contact molecular surface, and other descriptors  |
 
-**Details** 
-               
-RFdiffusion generation
-- RFdiffusion does not explicitly predict sequences for the binder; however it uses an implicit notion of sequence 
-  while generating backbones. The authors note it could have been trained to co-design sequence and backbone, but they 
+**Details**
+
+RFdiffusion generation<sup>[1]</sup>
+- RFdiffusion is a backbone-only diffusion model that generates protein backbone structures (Cα, N, C, O atoms).
+- Does not explicitly predict sequences for the binder; however it uses an implicit notion of sequence
+  while generating backbones. The authors note it could have been trained to co-design sequence and backbone, but they
   found the RFdiffusion + ProteinMPNN workflow works well. Using ProteinMPNN also enables generating multiple sequences
   for the same backbone.
 - Note that RFdiffusion discards all side-chain atoms of the target in the output PDB. These are reconstructed by LigandMPNN and by the AlphaFold2 prediction.
+
+RFdiffusion3 generation<sup>[7]</sup>
+- RFdiffusion3 is an all-atom diffusion model that co-diffuses backbone and side-chain atoms in a single pass.
+- Natively supports complex conditioning: atom-level hotspot control and spatial constraints on which atoms are fixed in 3D space.
+- Designed for protein–protein interaction tasks, producing higher-quality binder interfaces with fewer required designs compared to RFdiffusion.
+- Sequences are still refined by LigandMPNN in this workflow for consistency with the downstream refolding evaluation.
 
 ProteinMPNN FastRelax protocol
 - Successive rounds of ProteinMPNN sequence design and PyRosetta FastRelax aims to converge to a low-energy sequence–structure pair.
@@ -172,6 +183,7 @@ AlphaFold2 protocol
 4. [BioPython ProteinAnalysis](https://biopython.org/docs/latest/api/Bio.SeqUtils.ProtParam.html#Bio.SeqUtils.ProtParam.ProteinAnalysis)
 5. [ColabDesign](https://github.com/sokrypton/ColabDesign)
 6. [Predicted Aligned Error (PAE)](https://www.ebi.ac.uk/training/online/courses/alphafold/inputs-and-outputs/evaluating-alphafolds-predicted-structures-using-confidence-scores/pae-a-measure-of-global-confidence-in-alphafold-predictions/)
+7. [RFdiffusion3](https://www.biorxiv.org/content/10.1101/2025.09.18.676967)
 """,
             unsafe_allow_html=True,
         )
@@ -215,10 +227,8 @@ def input_step():
 
     st.subheader(workflow.input_name)
 
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(pdb=storage.read_file_str(workflow.rfdiffusion_params.input_pdb), color="chain-id")
-        ],
+    viz.molstar(
+        viz.StructureVisualization(data=storage.read_file_str(workflow.rfdiffusion_params.input_pdb), color="chain-id"),
         key="input_structure",
         width=700,
         height=400,
@@ -286,18 +296,8 @@ def preview_step():
 
     # Generate preview
     st.write("#### Generate preview")
-    num_timesteps = 15
-    with st.columns([2, 1])[0]:
-        st.write(f"""
-        Generate a quick RFdiffusion preview of the design with reduced number of timesteps 
-        ({num_timesteps}/50) to verify your inputs. This step is optional.
-        
-        This should take 2-10 minutes depending on the length of the target and binder.
-        """)
 
-    if st.button(":material/wand_stars: Generate preview"):
-        with st.spinner("Submitting RFdiffusion job..."):
-            workflow.preview_job_id = submit_rfdiffusion_preview(workflow, timesteps=num_timesteps)
+    submit_rfdiffusion_preview_component(workflow, timesteps=15)
 
     # Check if needed parameters are set
     if not workflow.preview_job_id:
@@ -346,17 +346,6 @@ def settings_step():
 
     show_rfdiffusion_binder_seq_design_inputs(workflow)
 
-    with st.columns([1, 2])[0]:
-        workflow.rfdiffusion_params.model_weights = st.selectbox(
-            "Model weights",
-            help="Use 'active site' model weights to hold better selected residues specified in the contig.",
-            index=MODEL_WEIGHTS_BINDER.index(workflow.rfdiffusion_params.model_weights)
-            if workflow.rfdiffusion_params.model_weights
-            else 0,
-            key="active_site",
-            options=MODEL_WEIGHTS_BINDER,
-        )
-
     contig = st.text_input(
         "Contig",
         placeholder="A123-456/0 20-40",
@@ -388,6 +377,8 @@ def settings_step():
                 re.fullmatch("[A-Z][0-9]+", hotspot) for hotspot in workflow.rfdiffusion_params.hotspots.split(",")
             ):
                 st.error("Invalid hotspots format, expected 'A123,A124,A131'")
+
+        show_backbone_generation_settings(workflow)
 
     show_rfdiffusion_advanced_settings(workflow)
 

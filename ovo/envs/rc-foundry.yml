@@ -1,0 +1,9 @@
+channels:
+  - nodefaults
+  - conda-forge
+dependencies:
+  - python = 3.12
+  - pip
+  - pip:
+      - rc-foundry[all]
+      - gemmi==0.7.5

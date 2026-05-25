@@ -3,6 +3,7 @@ import warnings
 import zipfile
 import io
 import pickle
+import gzip
 from typing import List, Literal
 
 from urllib.parse import urlparse
@@ -361,9 +362,15 @@ class Storage:
             self._cache_store(abs_path, content)
         return content
 
-    def read_file_str(self, storage_path: str, cache_store: bool = True) -> str:
-        """Read the file from the source filesystem or from the source S3 bucket"""
+    def read_file_str(self, storage_path: str, cache_store: bool = True, decompress: bool = False) -> str:
+        """Read the file from the source filesystem or from the source S3 bucket
+        :param storage_path: relative (within storage root) or absolute path to the source file
+        :param cache_store: if True, cache the file contents in memory/disk for faster subsequent reads
+        :param decompress: if True, decompress the file contents using gzip before decoding
+        """
         file_content = self.read_file_bytes(storage_path, cache_store=cache_store)
+        if decompress:
+            file_content = gzip.decompress(file_content)
         return file_content.decode()
 
     def read_file_pickle(self, storage_path: str):

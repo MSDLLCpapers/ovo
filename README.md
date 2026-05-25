@@ -2,6 +2,8 @@
 
 # OVO, an open-source ecosystem for *de novo* protein design
 
+[![PyPI version](https://img.shields.io/pypi/v/ovo)](https://pypi.org/project/ovo/) [![DOI](https://img.shields.io/badge/DOI-10.1101%2F2025.11.27.691041-blue)](https://doi.org/10.1101/2025.11.27.691041) [![Docs](https://img.shields.io/badge/docs-ovo.dichlab.org-green)](https://ovo.dichlab.org/docs/user_guide/installation.html) [![License](https://img.shields.io/pypi/l/ovo)](https://pypi.org/project/ovo/)
+
 OVO (pronounced "oh-voh") consolidates models, workflows, data management, and interactive visualization into a scalable, 
 high-performance, infrastructure-agnostic platform for *de novo* protein design. 
 OVO features Nextflow-based workflow orchestration, a storage layer, and both command-line and web interfaces 
@@ -29,6 +31,7 @@ We gratefully acknowledge the authors and developers of the following methods an
 | Method Name              | Description                                        | Reference / Paper                                                                                                                   | Link                                                                                                   |
 |--------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
 | RFdiffusion              | Diffusion-based protein structure generation       | [Watson et al. 2023](https://doi.org/10.1038/s41586-023-06415-8)                                                                    | [GitHub](https://github.com/RosettaCommons/RFdiffusion)                                                |
+| RFdiffusion3             | Design of all-atom biomolecular interactions       | [Butcher et al. 2025](https://doi.org/10.1101/2025.09.18.676967)                                                                    | [GitHub](https://github.com/RosettaCommons/foundry/blob/production/models/rfd3/README.md)              |
 | ProteinMPNN              | Protein sequence design for fixed backbones        | [Dauparas et al. 2022](https://doi.org/10.1126/science.add2187)                                                                     | [GitHub](https://github.com/dauparas/ProteinMPNN)                                                      |
 | LigandMPNN               | Atomic context-conditioned protein sequence design | [Dauparas et al. 2025](https://doi.org/10.1038/s41592-025-02626-1)                                                                  | [GitHub](https://github.com/dauparas/LigandMPNN)                                                      |
 | PyRosetta FastRelax      | Binder sequence design protocol                    | [Bennett et al. 2023](https://doi.org/10.1038/s41467-023-38328-5)                                                                   | [GitHub](https://github.com/nrbennet/dl_binder_design)                                                      |

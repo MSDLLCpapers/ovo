@@ -1,3 +1,4 @@
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -115,9 +116,18 @@ def process_workflow_results(
                 batch_number = (total_idx_backbone // batch_size) + 1
                 backbone_number = total_idx_backbone + 1
                 batch_name = f"contig{contig_idx + 1}_batch{batch_number}"
-                source_backbone_path = (
-                    f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
-                )
+                if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion":
+                    source_backbone_path = (
+                        f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
+                    )
+                elif workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+                    # RFD3 has also an internal batching logic, but we do batch size 1 in the NF pipeline
+                    # semantics: design_<0..num_batches-1>_model_<0...batch_size-1>_standardized.pdb
+                    source_backbone_path = f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_{batch_idx_backbone}_model_0_standardized.pdb"
+                else:
+                    raise ValueError(
+                        f"Unsupported backbone generator: {workflow.rfdiffusion_params.backbone_generator}"
+                    )
                 source_backbone_paths.append((contig_idx, batch_name, backbone_number, source_backbone_path))
 
     designs = []
@@ -249,14 +259,26 @@ def process_rfdiffusion_design(
     backbone_filename = os.path.basename(source_backbone_path).removesuffix(".pdb")
 
     rfdiffusion_backbone_trb_path = None
+    rfd3_all_atom_cif_path = None
     if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key:
-        source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
-        source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
-        rfdiffusion_backbone_trb_path = storage.store_file_path(
-            source_abs_path=f"{source_dir}/{source_trb_path}",
-            storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
-            overwrite=False,
-        )
+        if "rfdiffusion3" not in source_backbone_path:
+            source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
+            source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
+            rfdiffusion_backbone_trb_path = storage.store_file_path(
+                source_abs_path=f"{source_dir}/{source_trb_path}",
+                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
+                overwrite=False,
+            )
+        else:
+            # Store compressed cif file, all-atom generated structure from RFD3
+            source_all_atom_cif_path = source_backbone_path.replace("_standardized_pdb/", "_cif/").replace(
+                "_standardized.pdb", ".cif.gz"
+            )
+            rfd3_all_atom_cif_path = storage.store_file_path(
+                source_abs_path=f"{source_dir}/{source_all_atom_cif_path}",
+                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_all_atom.cif.gz",
+                overwrite=False,
+            )
 
     backbone_pdb_path = storage.store_file_path(
         source_abs_path=f"{source_dir}/{source_backbone_path}",
@@ -336,12 +358,20 @@ def process_rfdiffusion_design(
                 ),
             ]
         )
-
         if rfdiffusion_backbone_trb_path:
             descriptor_values.append(
                 DescriptorValue(
                     descriptor_key=descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key,
                     value=rfdiffusion_backbone_trb_path,
+                    **shared_args,
+                )
+            )
+
+        if rfd3_all_atom_cif_path:
+            descriptor_values.append(
+                DescriptorValue(
+                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key,
+                    value=rfd3_all_atom_cif_path,
                     **shared_args,
                 )
             )
@@ -373,6 +403,7 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
     params = {
         "batch_size": workflow.rfdiffusion_params.batch_size,
         "rfdiffusion_input_pdb": workflow_input_path,
+        "backbone_generator": workflow.rfdiffusion_params.backbone_generator,
         "refolding_tests": workflow.refolding_params.primary_test,
         "refolding_chains": ",".join(workflow.get_refolding_designed_chains()),
         "design_type": design_type,
@@ -422,6 +453,37 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
         hotspots = ",".join(workflow.rfdiffusion_params.hotspots.replace(",", " ").split())
         params["hotspot"] = hotspots
 
+    if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+        p = workflow.rfdiffusion_params
+        spec_overrides = {}
+        if p.rfd3_unindex:
+            spec_overrides["unindex"] = p.rfd3_unindex
+        if fixed_atoms := p.rfd3_select_fixed_atoms:
+            # fixed atoms can be a dict specifying atoms per residue,
+            # or a comma-separated string of residues (all atoms)
+            try:
+                fixed_atoms_dict = json.loads(fixed_atoms)
+                spec_overrides["select_fixed_atoms"] = fixed_atoms_dict
+            except json.JSONDecodeError:
+                spec_overrides["select_fixed_atoms"] = fixed_atoms
+        if p.rfd3_select_hotspots:
+            spec_overrides["select_hotspots"] = json.loads(p.rfd3_select_hotspots)
+        if p.rfd3_ligand:
+            spec_overrides["ligand"] = p.rfd3_ligand
+        if p.rfd3_infer_ori_strategy:
+            spec_overrides["infer_ori_strategy"] = p.rfd3_infer_ori_strategy
+        if p.rfd3_is_non_loopy is None and design_type == "binder":
+            # RFD3 docs strongly recommend is_non_loopy for PPI design
+            spec_overrides["is_non_loopy"] = True
+        elif p.rfd3_is_non_loopy is not None:
+            spec_overrides["is_non_loopy"] = p.rfd3_is_non_loopy
+        if p.rfd3_ori_token:
+            spec_overrides["ori_token"] = [float(x) for x in p.rfd3_ori_token.split(",")]
+        if p.rfd3_spec_overrides:
+            spec_overrides.update(json.loads(p.rfd3_spec_overrides))
+        if spec_overrides:
+            params["rfdiffusion3_spec_overrides"] = json.dumps(spec_overrides)
+
     if workflow.refolding_params.esmfold_fp16:
         params["esmfold_fp16"] = True
 
@@ -432,10 +494,22 @@ def get_rfdiffusion_run_parameters(
     workflow: RFdiffusionWorkflow, partial_diffusion=False, timesteps: int = None
 ) -> str:
     args = ""
-    if partial_diffusion or workflow.rfdiffusion_params.partial_diffusion:
-        args += f" diffuser.partial_T={timesteps or workflow.rfdiffusion_params.timesteps} "
+    if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+        args += f" inference_sampler.num_timesteps={workflow.rfdiffusion_params.timesteps} "
     else:
-        args += f" diffuser.T={timesteps or workflow.rfdiffusion_params.timesteps} "
+        if partial_diffusion or workflow.rfdiffusion_params.partial_diffusion:
+            args += f" diffuser.partial_T={timesteps or workflow.rfdiffusion_params.timesteps} "
+        else:
+            args += f" diffuser.T={timesteps or workflow.rfdiffusion_params.timesteps} "
+
+    if workflow.rfdiffusion_params.backbone_generator != "rfdiffusion3":
+        if workflow.rfdiffusion_params.inpaint_seq:
+            args += f" contigmap.inpaint_seq=[{workflow.rfdiffusion_params.inpaint_seq}] "
+
+        if workflow.rfdiffusion_params.model_weights not in [None, "Base", "Complex_base"]:
+            args += (
+                f" inference.ckpt_override_path=rfdiffusion_models/{workflow.rfdiffusion_params.model_weights}_ckpt.pt "
+            )
 
     if workflow.rfdiffusion_params.contigmap_length:
         length_range = (
@@ -443,13 +517,10 @@ def get_rfdiffusion_run_parameters(
             if "-" in str(workflow.rfdiffusion_params.contigmap_length)
             else f"{workflow.rfdiffusion_params.contigmap_length}-{workflow.rfdiffusion_params.contigmap_length}"
         )
-        args += f" contigmap.length={length_range} "
-
-    if workflow.rfdiffusion_params.inpaint_seq:
-        args += f" contigmap.inpaint_seq=[{workflow.rfdiffusion_params.inpaint_seq}] "
-
-    if workflow.rfdiffusion_params.model_weights not in [None, "Base", "Complex_base"]:
-        args += f" inference.ckpt_override_path=rfdiffusion_models/{workflow.rfdiffusion_params.model_weights}_ckpt.pt "
+        if workflow.rfdiffusion_params.backbone_generator != "rfdiffusion3":
+            args += f" contigmap.length={length_range} "
+        else:
+            args += f" +specification.length={length_range} "
 
     args += f" {workflow.rfdiffusion_params.run_parameters} "
 

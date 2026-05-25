@@ -1,4 +1,5 @@
 include { RFdiffusion } from params.getSharedPipelinePath("ovo.rfdiffusion-backbone")
+include { RFdiffusion3 } from params.getSharedPipelinePath("ovo.rfdiffusion3-backbone")
 include { LigandMpnn } from params.getSharedPipelinePath("ovo.ligandmpnn-sequence-design")
 include { ProteinMPNN_Fast_Relax } from params.getSharedPipelinePath("ovo.proteinmpnn-fastrelax")
 include { BackboneMetrics } from params.getSharedPipelinePath("ovo.backbone-metrics")
@@ -61,7 +62,7 @@ workflow {
       batches = file_list.merge(indexes, { _, idx -> ["contig1_batch${idx}", pdb_inputs[0]] })
       backbones_dir = CreateBackboneFolders.out.pdb_dir
     } else {
-      def contigs = params.rfdiffusion_contig.split(',')
+      def contigs = "${params.rfdiffusion_contig}".split(",")
       if (pdb_inputs.size() != contigs.size()) {
           if (pdb_inputs.size() == 1) {
               // use same pdb for all contigs
@@ -83,15 +84,27 @@ workflow {
       println "Generating RFdiffusion batches:"
       rfd_input_batches.each { println it }
 
-      RFdiffusion(
-          Channel.fromList(rfd_input_batches),
-          params.rfdiffusion_models_path,
-          params.hotspot,
-          false,
-          params.save_traj,
-          params.rfdiffusion_run_parameters
-      )
-      backbones_dir = RFdiffusion.out.standardized_pdb_dir
+      if (params.backbone_generator == "rfdiffusion") {
+        RFdiffusion(
+            Channel.fromList(rfd_input_batches),
+            params.rfdiffusion_models_path,
+            params.hotspot,
+            false,
+            params.save_traj,
+            params.rfdiffusion_run_parameters
+        )
+        backbones_dir = RFdiffusion.out.standardized_pdb_dir
+      } else if (params.backbone_generator == "rfdiffusion3") {
+        RFdiffusion3(
+            Channel.fromList(rfd_input_batches),
+            params.foundry_models_path,
+            params.hotspot,
+            false,
+            params.rfdiffusion_run_parameters,
+            params.rfdiffusion3_spec_overrides
+        )
+        backbones_dir = RFdiffusion3.out.standardized_pdb_dir
+      }
     }
 
     // TODO Here we assume that the rfdiffusion file produces a single binder chain (A) and single target chain (B)

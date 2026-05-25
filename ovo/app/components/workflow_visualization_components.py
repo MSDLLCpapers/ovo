@@ -26,12 +26,14 @@ from ovo.core.database.descriptors import (
     BACKBONE_DESIGN_PATH_DESCRIPTORS,
 )
 
-from ovo.app.components.molstar_custom_component import (
-    molstar_custom_component,
-    StructureVisualization,
-    ChainVisualization,
+from ovo import viz
+from ovo.core.utils.pdb import (
+    align_multiple_proteins_pdb,
+    pdb_to_mmcif,
+    filter_pdb_str,
+    get_sequences_from_pdb_str,
+    align_pdb_to_front,
 )
-from ovo.core.utils.pdb import align_multiple_proteins_pdb, pdb_to_mmcif, filter_pdb_str, get_sequences_from_pdb_str
 from ovo.core.utils.colors import get_color_from_str
 from ovo.app.utils.cached_db import (
     get_cached_design_descriptors,
@@ -166,12 +168,10 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     with left:
         st.write("##### Full input structure")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=input_pdb_str, contigs=input_segments, representation_type="cartoon+ball-and-stick"
-                ),
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=input_pdb_str, contigs=input_segments, representation="cartoon+ball-and-stick"
+            ),
             key="full_input",
             height=350,
         )
@@ -184,13 +184,11 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     with middle:
         st.write(f"##### {backbone_design_descriptor.name}")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=storage.read_file_str(paths[backbone_design_descriptor.key]),
-                    contigs=output_segments,
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=storage.read_file_str(paths[backbone_design_descriptor.key]),
+                contigs=output_segments,
+            ),
             key="rfdiff_contig_segments",
             height=350,
         )
@@ -205,14 +203,12 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     with right:
         st.write(f"##### {sequence_design_descriptor.name}")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=storage.read_file_str(paths[sequence_design_descriptor.key]),
-                    contigs=output_segments,
-                    representation_type="cartoon+ball-and-stick",
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=storage.read_file_str(paths[sequence_design_descriptor.key]),
+                contigs=output_segments,
+                representation="cartoon+ball-and-stick",
+            ),
             key="mpnn_contig_segments",
             height=350,
         )
@@ -244,26 +240,24 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
         else:
             pdb_str = prediction_pdb
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_str,
-                    representation_type="cartoon",
-                    color="plddt",
-                ),
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_str,
+                representation="cartoon",
+                color="plddt",
+            ),
             key=f"pred_{prediction_descriptor.key}",
             height=350,
         )
         st.write(description)
 
     with middle:
-        st.write(f"##### Input motif aligned to prediction")
+        st.write("##### Input motif aligned to prediction")
 
         input_motif_pdb = filter_pdb_str(input_pdb_str, [f"{s.chain}{s.start}-{s.end}" for s in input_segments])
         structures = [
-            StructureVisualization(
-                pdb=input_motif_pdb, contigs=input_segments, representation_type="cartoon+ball-and-stick"
+            viz.StructureVisualization(
+                data=input_motif_pdb, contigs=input_segments, representation="cartoon+ball-and-stick"
             )
         ]
 
@@ -278,14 +272,14 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
         num_fixed = sum(segment.end - segment.start + 1 for segment in input_segments)
 
         structures.append(
-            StructureVisualization(
-                pdb=aligned_prediction_pdb,
-                representation_type="cartoon+ball-and-stick",
+            viz.StructureVisualization(
+                data=aligned_prediction_pdb,
+                representation="cartoon+ball-and-stick",
             )
         )
 
-        molstar_custom_component(
-            structures=structures,
+        viz.molstar(
+            *structures,
             key=f"input_motif_aligned_to_{prediction_descriptor.name}",
             height=350,
             html_filename=os.path.basename(prediction_storage_path).replace(".pdb", "_aligned_motif"),
@@ -301,7 +295,7 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
         )
 
     with right:
-        st.write(f"##### Design aligned to prediction")
+        st.write("##### Design aligned to prediction")
 
         structures, rmsd = align_multiple_proteins_pdb(
             pdb_strs=[
@@ -322,15 +316,13 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
         elif prediction_descriptor.b_factor_value == "fractional_plddt":
             aligned_str = pdb_to_mmcif(aligned_str, "-", True, fractional_plddt=True)
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(pdb=structures[0], contigs=output_segments),
-                StructureVisualization(
-                    pdb=aligned_str,
-                    representation_type="cartoon",
-                    color="plddt",
-                ),
-            ],
+        viz.molstar(
+            viz.StructureVisualization(data=structures[0], contigs=output_segments),
+            viz.StructureVisualization(
+                data=aligned_str,
+                representation="cartoon",
+                color="plddt",
+            ),
             key=f"design_aligned_to_{prediction_descriptor.key}",
             height=350,
         )
@@ -367,21 +359,19 @@ def rfdiffusion_multiple_binder_designs_visualization(all_design_ids: list[str],
             chain_residue_mappings=[[("B", None)] for _ in example_designs],
         )
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=aligned_pdb_str,
-                    representation_type=None,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": get_color_from_str(design.id, "seaborn:tab10_light")},
-                            representation_type="cartoon",
+        viz.molstar(
+            *[
+                viz.StructureVisualization(
+                    data=aligned_pdb_str,
+                    representation=None,
+                    representations=[
+                        viz.Representation(
+                            "A",
+                            "cartoon",
+                            color=get_color_from_str(design.id, "seaborn:tab10_light"),
                             label=f"RFdiffusion {design.id} binder backbone",
                         ),
-                        ChainVisualization(
-                            chain_id="B", representation_type="cartoon", label=f"RFdiffusion {design.id} target"
-                        ),
+                        viz.Representation("B", "cartoon", label=f"RFdiffusion {design.id} target"),
                     ],
                 )
                 for design, aligned_pdb_str in zip(example_designs, aligned_pdb_strs)
@@ -443,22 +433,20 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     with left:
         st.write(f"##### {backbone_design_descriptor.name}")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=storage.read_file_str(paths[backbone_design_descriptor.key]),
-                    highlighted_selections=hotspot_selections,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": get_color_from_str(design.id, "seaborn:tab10_light")},
-                            representation_type="cartoon",
-                            label=f"{backbone_design_descriptor.name} {design.id}",
-                        ),
-                        ChainVisualization(chain_id="B", representation_type="cartoon", label=f"{design.id} target"),
-                    ],
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=storage.read_file_str(paths[backbone_design_descriptor.key]),
+                selection=hotspot_selections,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        "cartoon",
+                        color=get_color_from_str(design.id, "seaborn:tab10_light"),
+                        label=f"{backbone_design_descriptor.name} {design.id}",
+                    ),
+                    viz.Representation("B", "cartoon", label=f"{design.id} target"),
+                ],
+            ),
             key="backbone_design",
             height=350,
         )
@@ -470,27 +458,26 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         if paths.get(d.key):
             sequence_design_descriptor = d
 
+    sequence_design_pdb_data = align_pdb_to_front(storage.read_file_str(paths[sequence_design_descriptor.key]), "A")
+
     with middle:
         st.write(f"##### {sequence_design_descriptor.name}")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=storage.read_file_str(paths[sequence_design_descriptor.key]),
-                    highlighted_selections=hotspot_selections,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": get_color_from_str(design.id, "seaborn:tab10_light")},
-                            representation_type="cartoon+ball-and-stick",
-                            label=f"{sequence_design_descriptor.name} {design.id}",
-                        ),
-                        ChainVisualization(
-                            chain_id="B", representation_type="cartoon+ball-and-stick", label=f"{design.id} target"
-                        ),
-                    ],
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=sequence_design_pdb_data,
+                selection=hotspot_selections,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        "cartoon+ball-and-stick",
+                        color=get_color_from_str(design.id, "seaborn:tab10_light"),
+                        label=f"{sequence_design_descriptor.name} {design.id}",
+                    ),
+                    viz.Representation("B", "cartoon+ball-and-stick", label=f"{design.id} target"),
+                ],
+                auto_zoom_chains=["A"],
+            ),
             key="sequence_design_1",
             height=350,
         )
@@ -500,27 +487,21 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     with right:
         st.write("##### Designed binding pose")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=storage.read_file_str(paths[sequence_design_descriptor.key]),
-                    highlighted_selections=hotspot_selections,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": get_color_from_str(design.id, "seaborn:tab10_light")},
-                            representation_type="cartoon+ball-and-stick",
-                            label=f"{sequence_design_descriptor.name} {design.id}",
-                        ),
-                        ChainVisualization(
-                            chain_id="B",
-                            representation_type="molecular-surface",
-                            color="hydrophobicity",
-                            label=f"{design.id} target",
-                        ),
-                    ],
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=sequence_design_pdb_data,
+                selection=hotspot_selections,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        "cartoon+ball-and-stick",
+                        color=get_color_from_str(design.id, "seaborn:tab10_light"),
+                        label=f"{sequence_design_descriptor.name} {design.id}",
+                    ),
+                    viz.Representation("B", "molecular-surface", color="hydrophobicity", label=f"{design.id} target"),
+                ],
+                auto_zoom_chains=["A"],
+            ),
             key="sequence_design_2",
             height=350,
         )
@@ -553,32 +534,30 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         elif prediction_descriptor.b_factor_value == "fractional_plddt":
             aligned_str = pdb_to_mmcif(aligned_str, "-", True, fractional_plddt=True)
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=structures[0],
-                    representation_type="cartoon",
-                    color="chain-id",
-                    highlighted_selections=workflow.selected_segments,
-                ),
-                StructureVisualization(
-                    pdb=aligned_str,
-                    representation_type=None,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            representation_type="cartoon+ball-and-stick",
-                            color="plddt",
-                            label=prediction_descriptor.name,
-                        ),
-                        ChainVisualization(
-                            chain_id="B",
-                            representation_type="cartoon",
-                            label="Prediction of target chain aligned to input target chain",
-                        ),
-                    ],
-                ),
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=structures[0],
+                representation="cartoon",
+                color="chain-id",
+                selection=workflow.selected_segments,
+            ),
+            viz.StructureVisualization(
+                data=aligned_str,
+                representation=None,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        "cartoon+ball-and-stick",
+                        color="plddt",
+                        label=prediction_descriptor.name,
+                    ),
+                    viz.Representation(
+                        "B",
+                        "cartoon",
+                        label="Prediction of target chain aligned to input target chain",
+                    ),
+                ],
+            ),
             key="full_input_aligned_to_prediction",
             height=350,
         )
@@ -602,35 +581,33 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         if prediction_descriptor.b_factor_value == "plddt":
             aligned_str = pdb_to_mmcif(aligned_str, "-", True)
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=structures[0],
-                    representation_type=None,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": get_color_from_str(design.id, "seaborn:tab10_light")},
-                            representation_type="cartoon+ball-and-stick",
-                            label=sequence_design_descriptor.name,
-                        ),
-                        ChainVisualization(chain_id="B", representation_type="cartoon", label="MPNN target"),
-                    ],
-                ),
-                StructureVisualization(
-                    pdb=aligned_str,
-                    representation_type=None,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            representation_type="cartoon+ball-and-stick",
-                            color="plddt",
-                            label=prediction_descriptor.name,
-                        ),
-                        ChainVisualization(chain_id="B", representation_type="cartoon", label="Target chain"),
-                    ],
-                ),
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=structures[0],
+                representation=None,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        "cartoon+ball-and-stick",
+                        color=get_color_from_str(design.id, "seaborn:tab10_light"),
+                        label=sequence_design_descriptor.name,
+                    ),
+                    viz.Representation("B", "cartoon", label="MPNN target"),
+                ],
+            ),
+            viz.StructureVisualization(
+                data=aligned_str,
+                representation=None,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        "cartoon+ball-and-stick",
+                        color="plddt",
+                        label=prediction_descriptor.name,
+                    ),
+                    viz.Representation("B", "cartoon", label="Target chain"),
+                ],
+            ),
             key="design_aligned_to_af2_2",
             height=350,
         )
@@ -657,27 +634,19 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         if prediction_descriptor.b_factor_value == "plddt":
             pdb_str = pdb_to_mmcif(pdb_str, "-", True)
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_str,
-                    representation_type=None,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            representation_type="ball-and-stick",
-                            color="plddt",
-                            label="Prediction of binder chain",
-                        ),
-                        ChainVisualization(
-                            chain_id="B",
-                            color="hydrophobicity",
-                            representation_type="molecular-surface",
-                            label="Prediction of target chain",
-                        ),
-                    ],
-                ),
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_str,
+                representation=None,
+                representations=[
+                    viz.Representation(
+                        "A", "cartoon+ball-and-stick", color="plddt", label="Prediction of binder chain"
+                    ),
+                    viz.Representation(
+                        "B", "molecular-surface", color="hydrophobicity", label="Prediction of target chain"
+                    ),
+                ],
+            ),
             key="binding_pose_predicted",
             height=350,
         )
@@ -708,13 +677,11 @@ def bindcraft_binder_design_visualization(design_id: str):
         ],
     )
 
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(
-                pdb=storage.read_file_str(design.structure_path),
-                color="plddt",
-            )
-        ],
+    viz.molstar(
+        viz.StructureVisualization(
+            data=storage.read_file_str(design.structure_path),
+            color="plddt",
+        ),
         key="bindcraft_1",
     )
 
@@ -725,14 +692,12 @@ def visualize_design_structure(design_id: str, height="500px"):
         st.write("No structure available for this design.")
         return
 
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(
-                pdb=storage.read_file_str(design.structure_path),
-                color="chain-id",
-                representation_type="cartoon+ball-and-stick",
-            )
-        ],
+    viz.molstar(
+        viz.StructureVisualization(
+            data=storage.read_file_str(design.structure_path),
+            color="chain-id",
+            representation="cartoon+ball-and-stick",
+        ),
         key="default_structure",
         height=height,
     )
@@ -799,11 +764,11 @@ def visualize_scaffold_alignment(
     :param inpainted_positions: List of positions (e.g., 'A12') that were inpainted.
     """
     html = [
-        f'<div style="font-family: monospace; font-size: 14px; margin: 10px 2px; display: inline-block;">'
-        f"&nbsp;&nbsp;&nbsp;&nbsp;Region<br />"
-        f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Input<br />"
-        f"&nbsp;&nbsp;&nbsp;&nbsp;Design<br />"
-        f"</div>"
+        '<div style="font-family: monospace; font-size: 14px; margin: 10px 2px; display: inline-block;">'
+        "&nbsp;&nbsp;&nbsp;&nbsp;Region<br />"
+        "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Input<br />"
+        "&nbsp;&nbsp;&nbsp;&nbsp;Design<br />"
+        "</div>"
     ]
     aligned_input = []
     aligned_design = []
@@ -873,19 +838,12 @@ def visualize_align_structure_selection(
         chain_residue_mappings=[[(chain, None)] for chain in chains] * len(example_designs),
     )
 
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(
-                pdb=aligned_pdb_str,
-                representation_type=None,
-                chains=[
-                    ChainVisualization(
-                        chain_id=chain,
-                        color="secondary-structure",
-                        representation_type="cartoon",
-                    )
-                    for chain in chains
-                ],
+    viz.molstar(
+        *[
+            viz.StructureVisualization(
+                data=aligned_pdb_str,
+                representation=None,
+                representations=[viz.Representation(chain, "cartoon", color="secondary-structure") for chain in chains],
             )
             for aligned_pdb_str in aligned_subset_pdb_strs
         ],

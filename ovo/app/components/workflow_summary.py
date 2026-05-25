@@ -6,13 +6,9 @@ import pandas as pd
 import streamlit as st
 
 from ovo import db, storage, DesignJob, Pool
-from ovo.app.components.molstar_custom_component import (
-    molstar_custom_component,
-    StructureVisualization,
-)
+from ovo import viz
 from ovo.app.utils.cached_db import (
     get_cached_pools,
-    get_cached_round,
     get_cached_rounds,
 )
 from ovo.core.database import (
@@ -72,29 +68,23 @@ def rfdiffusion_scaffold_workflow_summary(jobs: list[DesignJob]):
                 all_input_paths=[j.workflow.get_input_pdb_path(contig_index) for j, p, contig_index in group_subjobs],
                 key_suffix=str(i),
             )
-            molstar_custom_component(
-                structures=[
-                    StructureVisualization(
-                        # show only the chains that were used in the contig
-                        pdb=filter_pdb_str(storage.read_file_str(input_path), target_chains),
-                        representation_type="cartoon+ball-and-stick",
-                        contigs=parse_contig_for_input_structure(fixed_segments),
-                    )
-                ],
+            viz.molstar(
+                viz.StructureVisualization(
+                    data=filter_pdb_str(storage.read_file_str(input_path), target_chains),
+                    representation="cartoon+ball-and-stick",
+                    contigs=parse_contig_for_input_structure(fixed_segments),
+                ),
                 key=f"input_structure_{key}_{i}",
                 height=450,
             )
         with right:
             st.write("##### Input motif")
-            molstar_custom_component(
-                structures=[
-                    StructureVisualization(
-                        # show only the chains that were used in the contig
-                        pdb=filter_pdb_str(storage.read_file_str(input_path), fixed_segments.split("/"), add_ter=True),
-                        representation_type="cartoon+ball-and-stick",
-                        contigs=parse_contig_for_input_structure(fixed_segments),
-                    )
-                ],
+            viz.molstar(
+                viz.StructureVisualization(
+                    data=filter_pdb_str(storage.read_file_str(input_path), fixed_segments.split("/"), add_ter=True),
+                    representation="cartoon+ball-and-stick",
+                    contigs=parse_contig_for_input_structure(fixed_segments),
+                ),
                 key=f"structure_motif_{key}_{i}",
                 height=450,
             )
@@ -145,15 +135,13 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
         )
         input_pdb_full = storage.read_file_str(input_path)
         input_pdb_target_region = filter_pdb_str(input_pdb_full, target_contig.split("/"))
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=input_pdb_target_region,
-                    representation_type="cartoon+ball-and-stick",
-                    color="hydrophobicity",
-                    highlighted_selections=hotspots.split(",") if hotspots else None,
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=input_pdb_target_region,
+                representation="cartoon+ball-and-stick",
+                color="hydrophobicity",
+                selection=hotspots.split(",") if hotspots else None,
+            ),
             key=f"structure_{key}_{i}",
             height=450,
             width=700,
@@ -194,23 +182,21 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
                         st.write("No binding residues found")
                         continue
                     binding_segments = from_hotspots_to_segments(",".join(binding_residues))
-                    molstar_custom_component(
-                        structures=[
-                            StructureVisualization(
-                                pdb=input_pdb_full,
-                                representation_type="cartoon",
-                                highlighted_selections=hotspots.split(",") if hotspots else None,
-                                contigs=[
-                                    ContigSegment(
-                                        chain=segment[0],
-                                        start=int(segment[1:].split("-")[0]),
-                                        end=int(segment[1:].split("-")[1]),
-                                        color="#00cc00" if color == "green" else "#ff0000",
-                                    )
-                                    for segment in binding_segments
-                                ],
-                            )
-                        ],
+                    viz.molstar(
+                        viz.StructureVisualization(
+                            data=input_pdb_full,
+                            representation="cartoon",
+                            selection=hotspots.split(",") if hotspots else None,
+                            contigs=[
+                                ContigSegment(
+                                    chain=segment[0],
+                                    start=int(segment[1:].split("-")[0]),
+                                    end=int(segment[1:].split("-")[1]),
+                                    color="#00cc00" if color == "green" else "#ff0000",
+                                )
+                                for segment in binding_segments
+                            ],
+                        ),
                         key=f"structure_{method}_{key}_{accepted}_{i}",
                         height=400,
                     )
@@ -252,15 +238,13 @@ def bindcraft_workflow_summary(jobs: list[DesignJob]):
         st.write(f"#### {title}")
         show_subjob_table(group_subjobs, accepted_designs_by_pool, total_designs_by_pool)
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=filter_pdb_str(storage.read_file_str(input_path), target_chains.split(",")),
-                    representation_type="cartoon+ball-and-stick",
-                    color="hydrophobicity",
-                    highlighted_selections=hotspots.split(",") if hotspots else None,
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=filter_pdb_str(storage.read_file_str(input_path), target_chains.split(",")),
+                representation="cartoon+ball-and-stick",
+                color="hydrophobicity",
+                selection=hotspots.split(",") if hotspots else None,
+            ),
             key=f"structure_{key}_{i}",
             height=450,
             width=700,

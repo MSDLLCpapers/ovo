@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import streamlit as st
 
-from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
+from ovo import viz
 from ovo.core.database import WorkflowTypes, Workflow
 from ovo.core.utils.residue_selection import parse_selections, from_segments_to_hotspots, ContigSegment
 from ovo.core.utils.formatting import safe_filename
@@ -195,16 +195,14 @@ def sequence_selection_fragment(
                 "Click residues in sequence or structure to add them to the selection. Shift+Click to select a residue range."
             )
 
-    selected_str = molstar_custom_component(
-        structures=[
-            StructureVisualization(
-                pdb=pdb_input_string,
-                highlighted_selections=workflow.get_selected_segments(**selection_kwargs),
-                color=color,
-                contigs=fixed_segments if color == "chain-id" else None,
-                representation_type=representation_type,
-            )
-        ],
+    selected_str = viz.molstar(
+        viz.StructureVisualization(
+            data=pdb_input_string,
+            selection=workflow.get_selected_segments(**selection_kwargs),
+            color=color,
+            contigs=fixed_segments if color == "chain-id" else None,
+            representation=representation_type,
+        ),
         selection_mode=True,
         show_controls=True,
         height=700,

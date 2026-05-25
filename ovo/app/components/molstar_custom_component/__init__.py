@@ -1,8 +1,33 @@
-import os
-import json
-from ovo.app.components.molstar_custom_component.dataclasses import StructureVisualization, ChainVisualization
-import uuid
+import base64
 import glob
+import json
+import os
+import uuid
+
+from ovo.app.components.molstar_custom_component.dataclasses import (
+    ChainVisualization as ChainVisualization,
+    Representation as Representation,
+    StructureVisualization as StructureVisualization,
+)
+
+
+def _serialize_structures(structures: list[StructureVisualization]) -> list[dict]:
+    """Return JSON-safe dicts for a list of structures, base64-encoding binary trajectories.
+
+    The frontend reverses the base64 step for any ``trajectory`` that's a string.
+    """
+    out: list[dict] = []
+    for struct in structures:
+        d = struct.to_dict()
+        traj = d.get("trajectory")
+        if isinstance(traj, (bytes, bytearray, memoryview)):
+            d["trajectory"] = base64.b64encode(bytes(traj)).decode("ascii")
+        data = d.get("data")
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            d["data"] = base64.b64encode(bytes(data)).decode("ascii")
+        out.append(d)
+    return out
+
 
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 build_dir = os.path.join(parent_dir, "frontend/build")
@@ -58,10 +83,8 @@ def molstar_custom_component(
 
         _component_func = components.declare_component("molstar_custom_component", path=build_dir)
 
-    serializedStructures = json.dumps([struct.to_dict() for struct in structures])
-
     component_value = _component_func(
-        structures=serializedStructures,
+        structures=json.dumps(_serialize_structures(structures)),
         height=f"{height}px" if isinstance(height, int) else height,
         width=f"{width}px" if isinstance(width, int) else width,
         showControls=show_controls,
@@ -76,7 +99,7 @@ def molstar_custom_component(
         for structure in structures:
             st.download_button(
                 label="Download PDB",
-                data=structure.pdb,
+                data=structure.data,
                 file_name=f"{download_filename}.pdb",
             )
             break
@@ -116,15 +139,14 @@ def read_static_files():
 
 def molstar_html(structures: list[StructureVisualization]):
     css_content, js_content = read_static_files()
-
     return f"""
             <div id="root" class="molstar_notebook"></div>
             <style type="text/css">
             {css_content}
             </style>
             <script>
-            window.STRUCTURES = {json.dumps([s.to_dict() for s in structures])};
-            
+            window.STRUCTURES = {json.dumps(_serialize_structures(structures))};
+
             // JS bundle
             {js_content.replace('</script>"', '</" + "script>"')}
             // watch out that here the original js_content might also include closing script tags NOT in quotes!

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "RFdiffusion3 backbone pipeline parameters",
+  "description": "RFdiffusion3 backbone generation pipeline",
+  "type": "object",
+  "properties": {
+    "input_structure_path": {
+      "type": "string",
+      "description": "Input PDB or CIF file for RFdiffusion3."
+    },
+    "contig": {
+      "type": "string",
+      "description": "Contig map string in v1 slash-separated format, e.g. 'A52-156/0 50-60' for binder design or 'A20-30/10-20/A40-50' for scaffold design. Auto-converted to RFdiffusion3 comma syntax internally.",
+      "pattern": "^[A-Z0-9\\-\\/ ]+$"
+    },
+    "num_designs": {
+      "type": "integer",
+      "description": "Number of backbones to generate per batch (maps to diffusion_batch_size)"
+    },
+    "hotspot": {
+      "type": "string",
+      "description": "Binding hotspot residues for binder design, including chain ids e.g. A123,A124. Maps to select_hotspots in the RFD3 JSON spec."
+    },
+    "dump_trajectories": {
+      "type": "boolean",
+      "description": "Save RFdiffusion3 trajectory files (large; default: false)"
+    },
+    "run_parameters": {
+      "type": "string",
+      "description": "Additional CLI arguments for RFdiffusion3 (e.g. 'inference_sampler.step_scale=3 inference_sampler.gamma_0=0.2')"
+    },
+    "spec_overrides": {
+      "type": "string",
+      "description": "JSON-encoded InputSpec overrides to merge into the generated RFdiffusion3 specification."
+    },
+    "publish_dir": {
+      "type": "string"
+    },
+    "docker_repository": {
+      "type": "string"
+    },
+    "max_memory": {
+      "type": "string"
+    }
+  }
+}

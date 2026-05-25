@@ -3,11 +3,7 @@ import re
 
 import streamlit as st
 from ovo.app.components.contigs_organizer import contigs_organizer
-from ovo.app.components.molstar_custom_component import (
-    molstar_custom_component,
-    StructureVisualization,
-    ChainVisualization,
-)
+from ovo import viz
 
 from ovo import storage
 from ovo.core.database.models_rfdiffusion import (
@@ -16,6 +12,7 @@ from ovo.core.database.models_rfdiffusion import (
     RFdiffusionBinderDesignWorkflow,
 )
 from ovo.app.components.trim_components import check_hotspots
+from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.pdb import add_glycan_to_pdb, filter_pdb_str, get_standardized_remarks_from_pdb_str
 from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
@@ -112,14 +109,12 @@ def scaffold_contig_preview(pdb_input_string, parsed_contig: list[ContigSegment]
             pdb_input_string, segments=[f"{seg.chain}{seg.start}-{seg.end}" for seg in fixed_segments], add_ter=True
         )
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_fixed_string,
-                    contigs=fixed_segments,
-                    representation_type="cartoon+ball-and-stick",
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_fixed_string,
+                contigs=fixed_segments,
+                representation="cartoon+ball-and-stick",
+            ),
             key="fixed_segments_preview",
             height=400,
         )
@@ -266,6 +261,12 @@ def update_contig_based_on_selected_segments(old_contig: str, selected_segments:
                     
                     New contig: {contig}
                     """)
+                elif not selected_segments:
+                    # This can happen in two cases: either user deselected all segments,
+                    # or this workflow was submitted programmatically without storing selected segments.
+                    # We opt on not changing the contig in either case,
+                    # since we don't want to lose the user's contig anyway if they just deselected all segments.
+                    pass
                 else:
                     # TODO we could preserve at least the generated segment lengths in between segments that haven't changed
                     contig = "/".join(selected_segments or [])
@@ -278,6 +279,49 @@ def update_contig_based_on_selected_segments(old_contig: str, selected_segments:
                         New contig: {contig}
                         """)
     return contig
+
+
+def submit_rfdiffusion_preview_component(workflow: RFdiffusionWorkflow, timesteps: int):
+    help_container = st.container()
+    preview_timesteps_key = f"{workflow.name} preview timesteps"
+    with st.columns(3)[0]:
+        if preview_timesteps_key not in st.session_state:
+            st.session_state[preview_timesteps_key] = timesteps
+        new_timesteps = st.slider(
+            "Num RFdiffusion timesteps (T)",
+            min_value=1,
+            max_value=20,
+            value=st.session_state[preview_timesteps_key],
+            key="timesteps_input",
+        )
+        if new_timesteps and new_timesteps != st.session_state[preview_timesteps_key]:
+            st.session_state[preview_timesteps_key] = new_timesteps
+            # Clear previous preview if settings changed
+            workflow.preview_job_id = None
+
+    with help_container:
+        st.write(f"""
+            Generate a quick RFdiffusion preview of the design with reduced number of timesteps
+            ({st.session_state[preview_timesteps_key]}/50) to verify your inputs. This step is optional.
+
+            This should take from 2-10 minutes depending on the length of the protein.
+            """)
+
+    if workflow.rfdiffusion_params.backbone_generator not in ["rfdiffusion"]:
+        st.warning(
+            f"NOTE: Preview generation using {workflow.rfdiffusion_params.backbone_generator} "
+            f"is not supported yet. Preview will be generated with rfdiffusion."
+        )
+        if workflow.rfdiffusion_params.rfd3_unindex:
+            st.warning(
+                f"NOTE: Unindexed RFD3 residues will not be present in the design: {workflow.rfdiffusion_params.rfd3_unindex}"
+            )
+
+    if st.button(":material/wand_stars: Generate preview"):
+        with st.spinner("Submitting RFdiffusion job..."):
+            workflow.preview_job_id = submit_rfdiffusion_preview(
+                workflow, timesteps=st.session_state[preview_timesteps_key]
+            )
 
 
 def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str):
@@ -318,15 +362,13 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
     visual_col1, visual_col2 = st.columns(2)
     with visual_col1:
         st.write("Input structure")
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_input_string,
-                    contigs=input_segments,
-                    highlighted_selections=hotspot_segments,
-                    representation_type="cartoon+ball-and-stick",
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_input_string,
+                contigs=input_segments,
+                selection=hotspot_segments,
+                representation="cartoon+ball-and-stick",
+            ),
             key="inp_structure",
         )
     with visual_col2:
@@ -341,22 +383,20 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
         # and that the residue numbers are same as in the input PDB
         output_hotspot_segments = [s.replace(workflow.get_target_chain(), "B") for s in hotspot_segments or []]
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_preview_string,
-                    contigs=None if is_binder else output_segments,
-                    highlighted_selections=output_hotspot_segments,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": "0xde853c"},
-                        )
-                    ]
-                    if is_binder
-                    else None,
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_preview_string,
+                contigs=None if is_binder else output_segments,
+                selection=output_hotspot_segments,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        color="#de853c",
+                    )
+                ]
+                if is_binder
+                else None,
+            ),
             key="preview_structure",
             download_filename="rfdiffusion_preview",
         )

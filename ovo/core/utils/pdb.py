@@ -535,6 +535,36 @@ def get_aligned_structure_as_string(structure) -> str:
     return io.getvalue()
 
 
+def align_pdb_to_front(pdb_str: str, chain: str) -> str:
+    """Aligns the given PDB string so that the specified chain is at the front of the structure (high in Z axis)."""
+    parser = PDB.PDBParser(QUIET=True)
+    structure = parser.get_structure("Protein", StringIO(pdb_str))
+    model = structure[0]
+    target_chain = model[chain]
+
+    # Calculate the center of mass of the target chain
+    chain_coords = np.array([atom.coord for atom in target_chain.get_atoms()])
+    center_of_mass = chain_coords.mean(axis=0)
+
+    # Translate the structure so that the center of mass of the target chain is at the origin
+    for atom in structure.get_atoms():
+        atom.coord -= center_of_mass
+
+    # Rotate the structure so that the target chain is aligned with the Z axis
+    all_coords = np.array([atom.coord for atom in structure.get_atoms()])
+    target_vector = all_coords.mean(axis=0)
+    if np.linalg.norm(target_vector) < 1e-6:
+        print("Warning: target vector is too small, skipping rotation")
+        return pdb_str
+    z_axis = np.array([0, 0, -1])
+    rotation_matrix = R.align_vectors([z_axis], [target_vector])[0].as_matrix()
+
+    for atom in structure.get_atoms():
+        atom.coord = rotation_matrix @ atom.coord
+
+    return get_aligned_structure_as_string(structure)
+
+
 # Taken from AUTOBAN
 def pad_line(line):
     """Helper function to pad line to 80 characters in case it is shorter"""
