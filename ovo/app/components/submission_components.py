@@ -4,7 +4,12 @@ import os
 import streamlit as st
 
 from ovo import config, db, schedulers
-from ovo.core.database.models_rfdiffusion import RFdiffusionWorkflow, ProteinMPNNParams
+from ovo.core.database.models_rfdiffusion import (
+    RFdiffusionWorkflow,
+    ProteinMPNNParams,
+    MODEL_WEIGHTS_SCAFFOLD,
+    MODEL_WEIGHTS_BINDER,
+)
 from ovo.app.components.acceptance_thresholds_components import thresholds_input_component
 from ovo.app.components.navigation import open_first_section
 from ovo.app.utils.bindcraft_utils import load_json_from_file, get_dict_diff, merge_dictionaries
@@ -19,6 +24,7 @@ from ovo.core.database.models_rfdiffusion import RFdiffusionBinderDesignWorkflow
 from ovo.core.database.models import Pool, Round, Workflow
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
+from ovo.core.utils.formatting import truncate_middle
 
 
 def pool_submission_inputs(page_key: str):
@@ -84,11 +90,17 @@ def get_pool_inputs(page_key: str) -> tuple[str, str, str]:
     return round_id, pool_name, pool_description
 
 
+def shorten_absolute_file_paths(v, max_length=40):
+    if not isinstance(v, str) or not v.startswith("/") or len(v) < max_length:
+        return v
+    return truncate_middle(v, max_length)
+
+
 def format_param_table(df):
     # concatenate list values into comma-separated strings
     df = df.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
     # shorten long file paths to just .../filename.ext
-    df = df.apply(lambda v: ".../" + v.split("/")[-1] if isinstance(v, str) and "/" in v and len(v) > 50 else v)
+    df = df.apply(shorten_absolute_file_paths)
     return df
 
 
@@ -280,6 +292,144 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
             )
 
 
+TIMESTEPS_INPUT_KEY = "timesteps"
+
+
+def show_backbone_generation_settings(workflow: RFdiffusionWorkflow):
+    def _on_backbone_generator_change():
+        new_gen = st.session_state["backbone_generator"]
+        # Clear previous preview (only compatible with RFdiffusion v1)
+        workflow.preview_job_id = None
+        default_timesteps = 200 if new_gen == "rfdiffusion3" else 50
+        workflow.rfdiffusion_params.timesteps = default_timesteps
+        st.session_state[TIMESTEPS_INPUT_KEY] = default_timesteps
+
+    generator_options = ["rfdiffusion", "rfdiffusion3"]
+    workflow.rfdiffusion_params.backbone_generator = st.selectbox(
+        "Backbone generator",
+        options=generator_options,
+        format_func=lambda x: "RFdiffusion (RFD1)" if x == "rfdiffusion" else "RFdiffusion3 (RFD3)",
+        index=generator_options.index(workflow.rfdiffusion_params.backbone_generator),
+        key="backbone_generator",
+        on_change=_on_backbone_generator_change,
+    )
+
+    if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+        show_rfdiffusion3_params(workflow)
+    elif workflow.rfdiffusion_params.backbone_generator == "rfdiffusion":
+        if workflow.is_instance(RFdiffusionBinderDesignWorkflow):
+            workflow.rfdiffusion_params.model_weights = st.radio(
+                "Model weights",
+                help="Use 'beta' model weights to generate a greater diversity of topologies.",
+                index=MODEL_WEIGHTS_BINDER.index(workflow.rfdiffusion_params.model_weights)
+                if workflow.rfdiffusion_params.model_weights
+                else 0,
+                key="active_site",
+                options=MODEL_WEIGHTS_BINDER,
+            )
+        else:
+            workflow.rfdiffusion_params.model_weights = st.radio(
+                "Model weights",
+                help="Use 'active site' model weights to hold better selected residues specified in the contig.",
+                index=MODEL_WEIGHTS_SCAFFOLD.index(workflow.rfdiffusion_params.model_weights)
+                if workflow.rfdiffusion_params.model_weights
+                else 0,
+                key="active_site",
+                options=MODEL_WEIGHTS_SCAFFOLD,
+            )
+        st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion#binder-design")
+
+
+def show_rfdiffusion3_params(workflow: RFdiffusionWorkflow):
+    """Show RFdiffusion3-specific InputSpec parameters, filtered by design type.
+    Only renders when backbone_generator is 'rfdiffusion3'.
+
+    Scaffold: unindex, ligand, select_fixed_atoms (enzyme/scaffolding use case)
+    Binder: select_fixed_atoms (hotspots handled by existing UI field)
+    """
+    if workflow.rfdiffusion_params.backbone_generator != "rfdiffusion3":
+        return
+
+    design_type = workflow.get_refolding_design_type()
+
+    assert design_type in REFOLDING_TESTS_BY_TYPE, (
+        f"Unknown design type '{design_type}' for RFdiffusion3 parameters. Expected one of: {', '.join(REFOLDING_TESTS_BY_TYPE.keys())}"
+    )
+
+    st.write("#### RFdiffusion3 parameters")
+
+    if design_type == "scaffold":
+        workflow.rfdiffusion_params.rfd3_unindex = (
+            st.text_input(
+                "Unindexed motif (unindex)",
+                value=workflow.rfdiffusion_params.rfd3_unindex,
+                placeholder="e.g. A244,A274,A320",
+                key="rfd3_unindex",
+                help="Residues whose relative position in the sequence is unknown to the model. Useful for scaffolding around active sites.",
+            )
+            or None
+        )
+        workflow.rfdiffusion_params.rfd3_ligand = (
+            st.text_input(
+                "Ligand (ligand)",
+                value=workflow.rfdiffusion_params.rfd3_ligand,
+                placeholder="e.g. HAX,OAA",
+                key="rfd3_ligand",
+                help="Ligand CCD names from RCSB PDB to include in the design.",
+            )
+            or None
+        )
+
+    if design_type == "binder":
+        workflow.rfdiffusion_params.rfd3_select_hotspots = (
+            st.text_area(
+                "Atom-level hotspots (select_hotspots)",
+                value=workflow.rfdiffusion_params.rfd3_select_hotspots,
+                placeholder='e.g. {"E64": "CD2,CZ", "E88": "CG,CZ"}',
+                key="rfd3_select_hotspots",
+                help="Dict of residue → atom names for atom-level hotspot control. "
+                "Overrides residue-level hotspots above when set. "
+                "Hotspots will typically be at most 4.5Å to any heavy atom in the designed structure.",
+            )
+            or None
+        )
+        if workflow.rfdiffusion_params.rfd3_select_hotspots:
+            try:
+                parsed_hs = json.loads(workflow.rfdiffusion_params.rfd3_select_hotspots)
+                if not isinstance(parsed_hs, dict):
+                    st.error('Atom-level hotspots must be a JSON dict, e.g. {"E64": "CD2,CZ"}')
+            except json.JSONDecodeError as e:
+                st.error(f"Invalid JSON: {e}")
+
+    workflow.rfdiffusion_params.rfd3_select_fixed_atoms = (
+        st.text_area(
+            "Fixed atoms (select_fixed_atoms)",
+            value=workflow.rfdiffusion_params.rfd3_select_fixed_atoms,
+            placeholder='e.g. A123,A234 or {"A123": "CA,CB,C,N"}',
+            key="rfd3_select_fixed_atoms",
+            help='Override which atoms are fixed in 3D space. Contig string or dict syntax (e.g. "A244":"TIP","A274":"BKBN").',
+        )
+        or None
+    )
+
+    # is_non_loopy: default True for binder (RFD3 docs recommend it for PPI), Auto (None) for scaffold
+    is_non_loopy_options = ["Auto", "True", "False"]
+    is_non_loopy_default = "True" if design_type == "binder" else "Auto"
+    current = workflow.rfdiffusion_params.rfd3_is_non_loopy
+    if current is None:
+        current_label = is_non_loopy_default
+    else:
+        current_label = str(current)
+    is_non_loopy_selected = st.selectbox(
+        "Fewer loops (is_non_loopy)",
+        options=is_non_loopy_options,
+        index=is_non_loopy_options.index(current_label),
+        key="rfd3_is_non_loopy",
+        help="True = fewer loops, more helices/sheets (recommended for binder). False = more loops. Auto = no bias (RFD3 default).",
+    )
+    workflow.rfdiffusion_params.rfd3_is_non_loopy = {"Auto": None, "True": True, "False": False}[is_non_loopy_selected]
+
+
 def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
     st.markdown("Advanced settings")
 
@@ -297,32 +447,44 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
 
         st.markdown("#### RFdiffusion")
 
+        is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
+
+        if is_rfd3:
+            timestep_label = "Number of timesteps (inference_sampler.num_timesteps)"
+            timestep_help = "Number of diffusion steps. Default is 200; use 10–50 for fast testing."
+        else:
+            timestep_label = "Num RFdiffusion timesteps (T)"
+            timestep_help = "Number of diffusion steps. Default is 50; use 10–20 for fast testing."
+
+        if TIMESTEPS_INPUT_KEY not in st.session_state:
+            st.session_state[TIMESTEPS_INPUT_KEY] = workflow.rfdiffusion_params.timesteps
+
         workflow.rfdiffusion_params.timesteps = st.number_input(
-            "Num RFdiffusion timesteps (T)",
+            timestep_label,
             min_value=1,
-            value=workflow.rfdiffusion_params.timesteps,
-            key="timesteps",
+            key=TIMESTEPS_INPUT_KEY,
+            help=timestep_help,
         )
         st.caption(
             ":material/info: Number of denoising diffusion steps determines the granularity of the diffusion process. "
-            "Higher values lead to better quality structures but also longer runtime. "
+            "Higher values lead to better quality structures but also longer runtime."
         )
 
-        if workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
-            workflow.rfdiffusion_params.contigmap_length = (
-                st.text_input(
-                    "Sequence length limit (contigmap.length)",
-                    placeholder="For example 123 or 123-456",
-                    value=workflow.rfdiffusion_params.contigmap_length,
-                    key="contigmap_length",
-                )
-                or None
+        workflow.rfdiffusion_params.contigmap_length = (
+            st.text_input(
+                "Sequence length limit" + (" (contigmap.length)" if not is_rfd3 else ""),
+                placeholder="For example 123 or 123-456",
+                value=workflow.rfdiffusion_params.contigmap_length,
+                key="contigmap_length",
             )
-            st.caption(
-                ":material/info: When using multiple generated segments with random length range (for example 10-100), "
-                "make sure that randomly sampling those lengths will produce contigs within the total length range."
-            )
+            or None
+        )
+        st.caption(
+            ":material/info: When using multiple generated segments with random length range (for example 10-100), "
+            "make sure that randomly sampling those lengths will produce contigs within the total length range."
+        )
 
+        if not is_rfd3 and workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
             workflow.rfdiffusion_params.inpaint_seq = (
                 st.text_input(
                     "Sequence inpainting regions (contigmap.inpaint_seq)",
@@ -353,15 +515,107 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
         )
         st.caption(f"Supported filtering metrics: {', '.join(descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES)}")
 
+        run_params_placeholder = (
+            "e.g. inference_sampler.step_scale=0.5" if is_rfd3 else "e.g. contigmap.inpaint_str=[123-456]"
+        )
         workflow.rfdiffusion_params.run_parameters = st.text_input(
-            "Additional commandline arguments for RF diffusion",
-            placeholder="For example contigmap.inpaint_str=[123-456] contigmap.inpaint_str_strand=[123-456]",
+            "Additional run parameters",
+            placeholder=run_params_placeholder,
             value=workflow.rfdiffusion_params.run_parameters,
             key="rfdiff_run_parameters",
         )
-        st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
+        if is_rfd3:
+            st.caption(
+                ":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5). Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
+            )
+        else:
+            st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
         if workflow.rfdiffusion_params.run_parameters:
             st.warning("Additional parameters can override previously selected parameters.")
+
+        if is_rfd3:
+            st.markdown("**InputSpec overrides (RFdiffusion3)**")
+            col1, col2 = st.columns(2)
+            with col1:
+                infer_ori_options = ["", "hotspots", "com"]
+                workflow.rfdiffusion_params.rfd3_infer_ori_strategy = (
+                    st.selectbox(
+                        "Origin strategy (infer_ori_strategy)",
+                        options=infer_ori_options,
+                        format_func=lambda x: "Auto-detect" if x == "" else x,
+                        index=infer_ori_options.index(workflow.rfdiffusion_params.rfd3_infer_ori_strategy or ""),
+                        key="rfd3_infer_ori_strategy",
+                        help="Controls placement of the ORI token. 'hotspots' places it near hotspot COM, 'com' uses input structure COM. Auto-detect sets 'hotspots' when hotspots are provided, 'com' otherwise.",
+                    )
+                    or None
+                )
+            with col2:
+                workflow.rfdiffusion_params.rfd3_ori_token = (
+                    st.text_input(
+                        "ORI token (ori_token)",
+                        value=workflow.rfdiffusion_params.rfd3_ori_token,
+                        placeholder="e.g. 10.5,20.3,15.1",
+                        key="rfd3_ori_token",
+                        help="Explicit [x,y,z] origin override to control center of mass placement of the designed structure. Overrides infer_ori_strategy.",
+                    )
+                    or None
+                )
+
+            # workflow.rfdiffusion_params.rfd3_length = (
+            #     st.text_input(
+            #         "Total length constraint (length)",
+            #         value=workflow.rfdiffusion_params.rfd3_length,
+            #         placeholder="e.g. 100-150 or 120",
+            #         key="rfd3_length",
+            #         help="Constrain the total design length. Useful when contig alone does not fix the total length.",
+            #     )
+            #     or None
+            # )
+
+            workflow.rfdiffusion_params.rfd3_spec_overrides = (
+                st.text_area(
+                    "Additional InputSpec overrides (JSON)",
+                    value=workflow.rfdiffusion_params.rfd3_spec_overrides,
+                    placeholder='e.g. {"select_unfixed_sequence": "A20-35", "redesign_motif_sidechains": true}',
+                    key="rfd3_spec_overrides",
+                    help="JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict.",
+                    height=80,
+                )
+                or None
+            )
+            st.caption(
+                ":material/info: JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict. Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
+            )
+            if workflow.rfdiffusion_params.rfd3_spec_overrides:
+                try:
+                    parsed = json.loads(workflow.rfdiffusion_params.rfd3_spec_overrides)
+                    if not isinstance(parsed, dict):
+                        st.error("Spec overrides must be a JSON object (dict)")
+                    else:
+                        from ovo.core.database.models_rfdiffusion import RFD3_SPEC_FIELDS
+
+                        unknown = set(parsed.keys()) - RFD3_SPEC_FIELDS
+                        if unknown:
+                            st.error(f"Unknown InputSpec keys: {', '.join(sorted(unknown))}")
+                        # Warn about keys that overlap with dedicated UI fields
+                        named_param_keys = {
+                            "unindex",
+                            "select_fixed_atoms",
+                            "select_hotspots",
+                            "ligand",
+                            "length",
+                            "infer_ori_strategy",
+                            "is_non_loopy",
+                            "ori_token",
+                        }
+                        overlapping = set(parsed.keys()) & named_param_keys
+                        if overlapping:
+                            st.warning(
+                                f"Keys [{', '.join(sorted(overlapping))}] overlap with dedicated parameters above. "
+                                f"The values from this field will take precedence."
+                            )
+                except json.JSONDecodeError as e:
+                    st.error(f"Invalid JSON: {e}")
 
         st.markdown("#### Protein MPNN ")
 

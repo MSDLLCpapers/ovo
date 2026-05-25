@@ -39,6 +39,20 @@
       "type": "string",
       "description": "Binding hotspot for RFdiffusion and downstream evaluation, including chain ids e.g. C123,C124"
     },
+    "backbone_generator": {
+      "type": "string",
+      "enum": ["rfdiffusion", "rfdiffusion3"],
+      "description": "Backbone design model to use",
+      "default": "rfdiffusion"
+    },
+    "foundry_models_path": {
+      "type": "string",
+      "description": "Path to RFdiffusion3 checkpoint file or a directory containing the file 'rfd3_latest.ckpt'"
+    },
+    "rfdiffusion3_spec_overrides": {
+      "type": "string",
+      "description": "Additional JSON-encoded overrides for RFdiffusion3 InputSpec, e.g. '{\"infer_ori_strategy\": \"com\"}'"
+    },
     "rfdiffusion_run_parameters": {
       "type": "string",
       "description": "Additional CLI arguments for RFdiffusion"

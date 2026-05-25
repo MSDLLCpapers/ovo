@@ -8,7 +8,7 @@ from ovo.app.components.history_components import history_dropdown_component
 from ovo.app.components.input_components import sequence_selection_fragment, initialize_workflow
 from ovo import viz
 from ovo.app.components.navigation import show_prev_next_sections
-from ovo.app.components.preview_components import visualize_rfdiffusion_preview
+from ovo.app.components.preview_components import visualize_rfdiffusion_preview, submit_rfdiffusion_preview_component
 from ovo.app.components.scheduler_components import wait_with_statusbar
 from ovo.app.components.submission_components import (
     pool_submission_inputs,
@@ -34,7 +34,6 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.app.components.submission_components import show_rfdiffusion_advanced_settings
 from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
 from ovo.core.database.models import WorkflowTypes, Pool, DesignJob
-from ovo.core.logic.design_logic_rfdiffusion import submit_rfdiffusion_preview
 from ovo.core.utils.formatting import get_hashed_path_for_bytes, safe_filename
 from ovo.core.utils.pdb import mmcif_to_pdb
 from ovo.core.utils.residue_selection import get_chains_and_contigs
@@ -367,19 +366,8 @@ def preview_step():
 
     # Generate preview
     st.write("#### Generate preview")
-    num_timesteps = 10
-    with st.columns([2, 1])[0]:
-        st.write(f"""
-        Generate a quick RFdiffusion preview of the design with {num_timesteps} partial diffusion timesteps to verify your inputs.
 
-        This should take 2-10 minutes depending on the length of the target and binder.
-        """)
-
-    if st.button(":material/wand_stars: Generate preview"):
-        with st.spinner("Submitting RFdiffusion job..."):
-            workflow.preview_job_id = submit_rfdiffusion_preview(
-                workflow, partial_diffusion=True, timesteps=num_timesteps
-            )
+    submit_rfdiffusion_preview_component(workflow, timesteps=10)
 
     # Check if needed parameters are set
     if not workflow.preview_job_id:
@@ -422,7 +410,7 @@ def settings_step():
     show_rfdiffusion_binder_seq_design_inputs(workflow)
 
     with st.columns([1, 2])[0]:
-        workflow.rfdiffusion_params.model_weights = st.selectbox(
+        workflow.rfdiffusion_params.model_weights = st.radio(
             "Model weights",
             help="Use 'active site' model weights to hold better selected residues specified in the contig.",
             index=MODEL_WEIGHTS_BINDER.index(workflow.rfdiffusion_params.model_weights)

@@ -55,6 +55,11 @@ RFDIFFUSION_MODEL_FILES = [
         "rfdiffusion_models/InpaintSeq_ckpt.pt",
         "3b71b2b954e87d46b75a88ba64e0420fbf27f592604b10b6c3561b8c8ab70ab6",
     ),
+    (
+        "https://files.ipd.uw.edu/pub/rfd3/rfd3_foundry_2025_12_01_remapped.ckpt",
+        "foundry_models/rfd3_latest.ckpt",
+        "9b3f85923e0d51e9453e15cdd2f8c666e7ce096a60577f57d11bbc54ae6d67c1",
+    ),
 ]
 
 ALPHAFOLD_MODEL_FILES = [

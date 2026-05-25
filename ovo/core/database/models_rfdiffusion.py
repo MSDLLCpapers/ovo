@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -16,6 +17,36 @@ from ovo.core.utils.residue_selection import (
     create_partial_diffusion_binder_contig,
     parse_contig_for_input_structure,
 )
+
+# Valid keys for RFD3 DesignInputSpecification (from rfd3.inference.input_parsing).
+# Canonical source: ovo/pipelines/rfdiffusion3-backbone/bin/build_input_json.py
+# Used for early validation of user-provided spec overrides.
+RFD3_SPEC_FIELDS = {
+    "input",
+    "atom_array_input",
+    "contig",
+    "unindex",
+    "length",
+    "ligand",
+    "cif_parser_args",
+    "extra",
+    "dialect",
+    "select_fixed_atoms",
+    "select_unfixed_sequence",
+    "select_buried",
+    "select_partially_buried",
+    "select_exposed",
+    "select_hbond_acceptor",
+    "select_hbond_donor",
+    "select_hotspots",
+    "redesign_motif_sidechains",
+    "symmetry",
+    "ori_token",
+    "infer_ori_strategy",
+    "plddt_enhanced",
+    "is_non_loopy",
+    "partial_t",
+}
 
 MODEL_WEIGHTS_SCAFFOLD = ["Base", "ActiveSite"]
 MODEL_WEIGHTS_BINDER = ["Complex_base", "Complex_beta"]
@@ -49,6 +80,20 @@ class RFdiffusionParams(WorkflowParams):
     backbone_filters: str | None = None
     # Additional CLI params for RFdiffusion run_inference.py
     run_parameters: str = ""
+    # Backbone generator model: "rfdiffusion" (v1) or "rfdiffusion3"
+    backbone_generator: str = "rfdiffusion"
+    # RFD3 InputSpec fields (ignored for RFD1)
+    rfd3_unindex: str | None = None  # unindexed motif, contig string e.g. "A244,A274,A320"
+    rfd3_select_fixed_atoms: str | None = None  # fixed atoms override, contig string e.g. "A244:TIP,A274:BKBN"
+    rfd3_select_hotspots: str | None = None  # atom-level hotspots dict JSON e.g. '{"E64": "CD2,CZ", "E88": "CG,CZ"}'
+    rfd3_ligand: str | None = None  # ligand CCD names e.g. "HAX,OAA"
+    # rfd3_length: str | None = None  # total length constraint e.g. "100-150" or "120"
+    rfd3_infer_ori_strategy: str | None = None  # override auto-derived infer_ori_strategy: "hotspots" or "com"
+    rfd3_is_non_loopy: bool | None = None  # True = prefer helices/sheets, fewer loops. Default True for binder design.
+    rfd3_ori_token: str | None = None  # explicit ORI token [x,y,z] e.g. "10.5,20.3,15.1"
+    rfd3_spec_overrides: str | None = (
+        None  # additional arbitrary JSON overrides for RFD3 InputSpec, applied on top of named params
+    )
     # Skip RFdiffusion backbone design, use custom backbone input from the given directory or .zip file
     custom_backbones: str = None
 
@@ -138,6 +183,47 @@ class RFdiffusionParams(WorkflowParams):
                 if field not in descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES:
                     raise ValueError(
                         f"Invalid backbone filter field '{field}', supported fields: {', '.join(descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES)}"
+                    )
+        if self.backbone_generator not in ("rfdiffusion", "rfdiffusion3"):
+            raise ValueError(
+                f"backbone_generator must be 'rfdiffusion' or 'rfdiffusion3', got: '{self.backbone_generator}'"
+            )
+        if self.backbone_generator == "rfdiffusion3":
+            if self.rfd3_select_hotspots:
+                try:
+                    parsed_hotspots = json.loads(self.rfd3_select_hotspots)
+                    if not isinstance(parsed_hotspots, dict):
+                        raise ValueError('rfd3_select_hotspots must be a JSON dict, e.g. {"E64": "CD2,CZ"}')
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"rfd3_select_hotspots is not valid JSON: {e}") from e
+            if self.rfd3_infer_ori_strategy and self.rfd3_infer_ori_strategy not in ("hotspots", "com"):
+                raise ValueError(
+                    f"rfd3_infer_ori_strategy must be 'hotspots' or 'com', got: '{self.rfd3_infer_ori_strategy}'"
+                )
+            if self.rfd3_ori_token:
+                parts = self.rfd3_ori_token.split(",")
+                if len(parts) != 3:
+                    raise ValueError(
+                        f"rfd3_ori_token must be 3 comma-separated floats (x,y,z), got: '{self.rfd3_ori_token}'"
+                    )
+                try:
+                    [float(p) for p in parts]
+                except ValueError:
+                    raise ValueError(
+                        f"rfd3_ori_token must be 3 comma-separated floats (x,y,z), got: '{self.rfd3_ori_token}'"
+                    )
+            if self.rfd3_spec_overrides:
+                try:
+                    parsed = json.loads(self.rfd3_spec_overrides)
+                    if not isinstance(parsed, dict):
+                        raise ValueError("rfd3_spec_overrides must be a JSON object (dict)")
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"rfd3_spec_overrides is not valid JSON: {e}") from e
+                unknown_keys = set(parsed.keys()) - RFD3_SPEC_FIELDS
+                if unknown_keys:
+                    raise ValueError(
+                        f"Unknown InputSpec keys in rfd3_spec_overrides: {', '.join(sorted(unknown_keys))}. "
+                        f"Valid keys: {', '.join(sorted(RFD3_SPEC_FIELDS))}"
                     )
 
 
