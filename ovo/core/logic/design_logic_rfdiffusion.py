@@ -209,7 +209,7 @@ def process_workflow_results(
         designs,
         descriptor_values,
         job,
-        no_warning_for_missing_prefix="refolding|",
+        skipped_keys=workflow.get_skipped_threshold_keys(),
     )
     # Return designs and descriptors to be saved
     return designs + descriptor_values

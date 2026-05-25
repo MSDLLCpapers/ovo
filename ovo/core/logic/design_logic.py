@@ -6,7 +6,7 @@ import zipfile
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Collection
 
 import pandas as pd
 from humanize import naturaltime
@@ -386,7 +386,7 @@ def set_designs_accepted(
     designs: list[Design],
     descriptor_values: list[DescriptorValue],
     job: DesignJob,
-    no_warning_for_missing_prefix: str | tuple = None,
+    skipped_keys: Collection[str] | None = None,
 ):
     """Update the accepted field of designs based on the given thresholds (does not save to DB)
 
@@ -399,7 +399,7 @@ def set_designs_accepted(
     :param designs: List of Design objects to update
     :param descriptor_values: List of DescriptorValue objects to use for checking thresholds
     :param job: DesignJob object
-    :param no_warning_for_missing_prefix: Do not add a warning for missing descriptor keys that start with this prefix/prefixes
+    :param skipped_keys: Do not apply these descriptor keys (used for descriptors that are not computed)
     """
 
     if isinstance(job, dict):
@@ -415,16 +415,18 @@ def set_designs_accepted(
         thresholds = job.workflow.acceptance_thresholds
 
     available_descriptor_keys = set(dv.descriptor_key for dv in descriptor_values)
-    missing_descriptor_keys = []
+    warn_missing_descriptor_keys = []
     for descriptor_key, threshold in thresholds.items():
+        if skipped_keys and descriptor_key in skipped_keys:
+            threshold.enabled = False
+            continue
         if descriptor_key not in available_descriptor_keys and threshold.enabled:
             threshold.enabled = False
-            if not no_warning_for_missing_prefix or not descriptor_key.startswith(no_warning_for_missing_prefix):
-                missing_descriptor_keys.append(descriptor_key)
+            warn_missing_descriptor_keys.append(descriptor_key)
 
-    if missing_descriptor_keys and job is not None:
+    if warn_missing_descriptor_keys and job is not None:
         job.warnings.append(
-            f"Some descriptors were not computed, their acceptance threshold was not applied: {', '.join(missing_descriptor_keys)}"
+            f"Some descriptors were not computed, their acceptance threshold was not applied: {', '.join(warn_missing_descriptor_keys)}"
         )
 
     # initialize dict of dicts (descriptor_key -> design_id -> value)
