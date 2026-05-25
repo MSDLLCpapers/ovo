@@ -6,7 +6,7 @@ import streamlit as st
 
 from ovo.app.components.history_components import history_dropdown_component
 from ovo.app.components.input_components import sequence_selection_fragment, initialize_workflow
-from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
+from ovo import viz
 from ovo.app.components.navigation import show_prev_next_sections
 from ovo.app.components.preview_components import visualize_rfdiffusion_preview
 from ovo.app.components.scheduler_components import wait_with_statusbar
@@ -226,8 +226,8 @@ def input_step():
     else:
         input_pdb_path = workflow.rfdiffusion_params.input_pdb
 
-    molstar_custom_component(
-        structures=[StructureVisualization(pdb=storage.read_file_str(input_pdb_path))],
+    viz.molstar(
+        viz.StructureVisualization(data=storage.read_file_str(input_pdb_path)),
         height=500,
         key="diversification",
     )

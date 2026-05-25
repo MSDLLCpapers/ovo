@@ -2,6 +2,8 @@
 
 # OVO, an open-source ecosystem for *de novo* protein design
 
+[![PyPI version](https://img.shields.io/pypi/v/ovo)](https://pypi.org/project/ovo/) [![DOI](https://img.shields.io/badge/DOI-10.1101%2F2025.11.27.691041-blue)](https://doi.org/10.1101/2025.11.27.691041) [![Docs](https://img.shields.io/badge/docs-ovo.dichlab.org-green)](https://ovo.dichlab.org/docs/user_guide/installation.html) [![License](https://img.shields.io/pypi/l/ovo)](https://pypi.org/project/ovo/)
+
 OVO (pronounced "oh-voh") consolidates models, workflows, data management, and interactive visualization into a scalable, 
 high-performance, infrastructure-agnostic platform for *de novo* protein design. 
 OVO features Nextflow-based workflow orchestration, a storage layer, and both command-line and web interfaces 

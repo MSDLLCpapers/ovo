@@ -3,11 +3,7 @@ import re
 
 import streamlit as st
 from ovo.app.components.contigs_organizer import contigs_organizer
-from ovo.app.components.molstar_custom_component import (
-    molstar_custom_component,
-    StructureVisualization,
-    ChainVisualization,
-)
+from ovo import viz
 
 from ovo import storage
 from ovo.core.database.models_rfdiffusion import (
@@ -112,14 +108,12 @@ def scaffold_contig_preview(pdb_input_string, parsed_contig: list[ContigSegment]
             pdb_input_string, segments=[f"{seg.chain}{seg.start}-{seg.end}" for seg in fixed_segments], add_ter=True
         )
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_fixed_string,
-                    contigs=fixed_segments,
-                    representation_type="cartoon+ball-and-stick",
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_fixed_string,
+                contigs=fixed_segments,
+                representation="cartoon+ball-and-stick",
+            ),
             key="fixed_segments_preview",
             height=400,
         )
@@ -318,15 +312,13 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
     visual_col1, visual_col2 = st.columns(2)
     with visual_col1:
         st.write("Input structure")
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_input_string,
-                    contigs=input_segments,
-                    highlighted_selections=hotspot_segments,
-                    representation_type="cartoon+ball-and-stick",
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_input_string,
+                contigs=input_segments,
+                selection=hotspot_segments,
+                representation="cartoon+ball-and-stick",
+            ),
             key="inp_structure",
         )
     with visual_col2:
@@ -341,22 +333,20 @@ def visualize_rfdiffusion_preview(workflow: RFdiffusionWorkflow, output_dir: str
         # and that the residue numbers are same as in the input PDB
         output_hotspot_segments = [s.replace(workflow.get_target_chain(), "B") for s in hotspot_segments or []]
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_preview_string,
-                    contigs=None if is_binder else output_segments,
-                    highlighted_selections=output_hotspot_segments,
-                    chains=[
-                        ChainVisualization(
-                            chain_id="A",
-                            color_params={"value": "0xde853c"},
-                        )
-                    ]
-                    if is_binder
-                    else None,
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_preview_string,
+                contigs=None if is_binder else output_segments,
+                selection=output_hotspot_segments,
+                representations=[
+                    viz.Representation(
+                        "A",
+                        color="#de853c",
+                    )
+                ]
+                if is_binder
+                else None,
+            ),
             key="preview_structure",
             download_filename="rfdiffusion_preview",
         )

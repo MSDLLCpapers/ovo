@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from ovo import storage, CategoricalResidueDescriptor, ResidueNumberDescriptor, NumericGlobalDescriptor, Descriptor
-from ovo.app.components import molstar_custom_component, StructureVisualization, ChainVisualization
+from ovo import viz
 from ovo.app.components.descriptor_table import residue_number_descriptor_detail_table
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.workflow_visualization_components import visualize_design_sequence
@@ -70,14 +70,17 @@ def detail_table(descriptor, descriptor_values: pd.Series):
             "value": st.column_config.TextColumn(descriptor.name),
             "category_abundance": st.column_config.ProgressColumn(
                 "Category #",
-                help=f"Category abundance among the designs",
+                help="Category abundance among the designs",
                 format="%d",
                 min_value=0,
                 max_value=int(table_data["category_abundance"].max()),
                 width="small",
             ),
         }
-        format_func = lambda design_id: f"{design_id} | {descriptor.name} = {table_data.value.loc[design_id]}"
+
+        def format_func(design_id):
+            return f"{design_id} | {descriptor.name} = {table_data.value.loc[design_id]}"
+
     elif isinstance(descriptor, NumericGlobalDescriptor):
         caption = f"Designs sorted by **{descriptor.name}**"
         min_val = descriptor.min_value if descriptor.min_value is not None else float(table_data["value"].min())
@@ -112,7 +115,10 @@ def detail_table(descriptor, descriptor_values: pd.Series):
             ),
             "flag": st.column_config.Column("Flag", width="small"),
         }
-        format_func = lambda design_id: f"{design_id} | {descriptor.name} = {table_data.value.loc[design_id]:.2f}"
+
+        def format_func(design_id):
+            return f"{design_id} | {descriptor.name} = {table_data.value.loc[design_id]:.2f}"
+
     elif isinstance(descriptor, ResidueNumberDescriptor):
         table_data, column_config, caption, format_func = residue_number_descriptor_detail_table(
             descriptor, descriptor_values
@@ -205,17 +211,15 @@ def detail_design(
 
     left, right = st.columns([1.5, 1])
     with left:
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=storage.read_file_str(design.structure_path),
-                    chains=[
-                        ChainVisualization(color=color, representation_type=representation_type, chain_id=chain_id)
-                        for chain in design.spec.chains
-                        for chain_id in chain.chain_ids
-                    ],
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=storage.read_file_str(design.structure_path),
+                representations=[
+                    viz.Representation(chain_id, representation_type, color=color)
+                    for chain in design.spec.chains
+                    for chain_id in chain.chain_ids
+                ],
+            ),
             key="dialog_structure",
             height="300px",
         )

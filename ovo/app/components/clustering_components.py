@@ -6,24 +6,21 @@ import plotly.graph_objects as go
 from plotly import express as px
 
 from ovo.app.components.custom_elements import wrapped_columns
-from ovo.app.utils.cached_db import get_cached_design, get_cached_designs, get_cached_pools
+from ovo.app.utils.cached_db import get_cached_design, get_cached_pools
 from ovo.core.database.descriptors_clustering import CLUSTER_INFO_REFERENCES, CLUSTERING_PRESETS
 from ovo.app.components.descriptor_scatterplot import PlotSettings
-from ovo.app.components import molstar_custom_component, StructureVisualization, ChainVisualization
+from ovo import viz
 from ovo.app.components.download_component import download_descriptor_table, download_job_designs_component
 from ovo import storage, Design
 from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, ProteinClusteringWorkflow
-from ovo.core.utils.pdb import align_multiple_proteins_pdb
 from ovo.core.utils.formatting import datetime_from_utc_to_local
 from ovo.app.components.descriptor_table import descriptor_table
-from ovo.app.pages.designs.explorer import design_navigation_selector, design_visualization_fragment
+from ovo.app.pages.designs.explorer import design_visualization_fragment
 from ovo.app.components.workflow_visualization_components import (
     visualize_align_structure_selection,
-    visualize_design_sequence,
 )
 from ovo.core.logic.descriptor_logic import get_wide_descriptor_table
 from ovo.core.database import DescriptorJob
-from ovo.app.components.custom_elements import wrapped_columns
 
 FOLDSEEK_ALIGNMENT_DESCRIPTIONS_MAP = {
     0: "3Di Gotoh-Smith-Waterman (local)",
@@ -132,7 +129,7 @@ def umap_scatterplot_plot_preset(
     ]
 
     # Hover template
-    hovertemplate = f"<b>%{{customdata[0]}}</b><br>Cluster representative: %{{customdata[1]}}<br>Cluster ID: %{{customdata[2]}}<br><extra></extra>"
+    hovertemplate = "<b>%{customdata[0]}</b><br>Cluster representative: %{customdata[1]}<br>Cluster ID: %{customdata[2]}<br><extra></extra>"
 
     data_trace = go.Scatter(
         x=scatterplot_df[setting.x.key],
@@ -275,19 +272,15 @@ def cluster_representatives_tiles(df_descriptor_values, tool: str, job: Descript
 
                 design = get_cached_design(repr_design_id)
                 if design and design.structure_path:
-                    molstar_custom_component(
-                        structures=[
-                            StructureVisualization(
-                                pdb=storage.read_file_str(design.structure_path),
-                                representation_type=None,
-                                chains=[
-                                    ChainVisualization(
-                                        chain_id=chain, color="secondary-structure", representation_type="cartoon"
-                                    )
-                                    for chain in job.workflow.chains
-                                ],
-                            )
-                        ],
+                    viz.molstar(
+                        viz.StructureVisualization(
+                            data=storage.read_file_str(design.structure_path),
+                            representation=None,
+                            representations=[
+                                viz.Representation(chain, "cartoon", color="secondary-structure")
+                                for chain in job.workflow.chains
+                            ],
+                        ),
                         key=f"cluster_{repr_design_id}_structure",
                         height="300px",
                     )
@@ -373,21 +366,15 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
         st.markdown(f"**Representative: {representative}**")
         repr_design = get_cached_design(representative)
         if repr_design and repr_design.structure_path:
-            molstar_custom_component(
-                structures=[
-                    StructureVisualization(
-                        pdb=storage.read_file_str(repr_design.structure_path),
-                        representation_type=None,
-                        chains=[
-                            ChainVisualization(
-                                chain_id=chain,
-                                color="secondary-structure",
-                                representation_type="cartoon",
-                            )
-                            for chain in job.workflow.chains
-                        ],
-                    )
-                ],
+            viz.molstar(
+                viz.StructureVisualization(
+                    data=storage.read_file_str(repr_design.structure_path),
+                    representation=None,
+                    representations=[
+                        viz.Representation(chain, "cartoon", color="secondary-structure")
+                        for chain in job.workflow.chains
+                    ],
+                ),
                 key="cluster_repr_structure",
                 height="400px",
             )

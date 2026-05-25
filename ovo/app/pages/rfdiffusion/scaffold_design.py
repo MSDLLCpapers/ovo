@@ -9,7 +9,7 @@ from ovo.core.database.models_rfdiffusion import (
     RFdiffusionScaffoldDesignWorkflow,
     MODEL_WEIGHTS_SCAFFOLD,
 )
-from ovo.app.components import molstar_custom_component, StructureVisualization
+from ovo import viz
 from ovo.app.components.history_components import history_dropdown_component
 from ovo.app.components.input_components import pdb_input_component, sequence_selection_fragment, initialize_workflow
 from ovo.app.components.navigation import show_prev_next_sections
@@ -197,10 +197,8 @@ def input_step():
 
     st.subheader(workflow.input_name)
 
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(pdb=storage.read_file_str(workflow.rfdiffusion_params.input_pdb), color="chain-id")
-        ],
+    viz.molstar(
+        viz.StructureVisualization(data=storage.read_file_str(workflow.rfdiffusion_params.input_pdb), color="chain-id"),
         key="input_structure",
         width=700,
         height=400,

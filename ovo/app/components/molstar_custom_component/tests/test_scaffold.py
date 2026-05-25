@@ -1,8 +1,7 @@
 import streamlit as st
 import os
 
-from ovo.app.components.molstar_custom_component import molstar_custom_component
-from ovo.app.components.molstar_custom_component.dataclasses import StructureVisualization
+from ovo import viz
 from ovo.core.utils.pdb import get_standardized_remarks_from_pdb_str
 from ovo.core.utils.residue_selection import parse_contig_for_input_structure, parse_contig_for_output_structure
 
@@ -34,10 +33,8 @@ output_segments = parse_contig_for_output_structure(contig)
 left, right = st.columns(2)
 
 with left:
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(pdb=input_pdb, contigs=input_segments),
-        ],
+    viz.molstar(
+        viz.StructureVisualization(data=input_pdb, contigs=input_segments),
         selection_mode=True,
         show_controls=True,
         key="example1",
@@ -46,10 +43,8 @@ with left:
     st.write(input_segments)
 
 with right:
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(pdb=output_pdb, contigs=output_segments),
-        ],
+    viz.molstar(
+        viz.StructureVisualization(data=output_pdb, contigs=output_segments),
         selection_mode=True,
         show_controls=True,
         key="example2",

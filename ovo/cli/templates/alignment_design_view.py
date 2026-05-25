@@ -1,7 +1,7 @@
 import streamlit as st
 
 from ovo import storage
-from ovo.app.components import molstar_custom_component, StructureVisualization
+from ovo import viz
 from ovo.app.utils.cached_db import get_cached_design_ids, get_cached_design
 from ovo.core.utils.pdb import align_multiple_proteins_pdb
 
@@ -72,12 +72,10 @@ def __MODULE_NAME___fragment(pool_ids: list[str], design_ids: list[str] | None =
         all_atom=False,
     )
 
-    molstar_custom_component(
-        structures=[
-            StructureVisualization(pdb=structures[0], color="chain-id"),
-            StructureVisualization(pdb=structures[1], color="chain-id"),
-        ],
-        key=f"alignment1",
+    viz.molstar(
+        viz.StructureVisualization(data=structures[0], color="chain-id"),
+        viz.StructureVisualization(data=structures[1], color="chain-id"),
+        key="alignment1",
         height=600,
     )
 

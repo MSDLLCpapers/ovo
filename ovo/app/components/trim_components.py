@@ -8,7 +8,7 @@ from ovo.core.utils.residue_selection import (
     from_residues_to_chain_breaks,
     parse_contig_for_input_structure,
 )
-from ovo.app.components.molstar_custom_component import molstar_custom_component, StructureVisualization
+from ovo import viz
 
 
 def parameters_trim_structure_component(workflow: RFdiffusionBinderDesignWorkflow):
@@ -163,43 +163,36 @@ def trimmed_structure_visualizer(workflow: RFdiffusionBinderDesignWorkflow, pdb_
 
     with left:
         st.write("Input structure")
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_input_string,
-                    contigs=parse_contig_for_input_structure(f"{target_chain}{trim_start}-{trim_end}"),
-                    highlighted_selections=workflow.get_selected_segments(),
-                    color="uniform",
-                    representation_type="cartoon",
+        structures = [
+            viz.StructureVisualization(
+                data=pdb_input_string,
+                contigs=parse_contig_for_input_structure(f"{target_chain}{trim_start}-{trim_end}"),
+                selection=workflow.get_selected_segments(),
+                color="uniform",
+                representation="cartoon",
+            )
+        ]
+        if "molecular-surface" in representation_type:
+            structures.append(
+                viz.StructureVisualization(
+                    data=pdb_input_string_trimmed,
+                    selection=workflow.get_selected_segments(),
+                    color=color,
+                    representation=representation_type,
                 )
-            ]
-            + (
-                [
-                    StructureVisualization(
-                        pdb=pdb_input_string_trimmed,
-                        highlighted_selections=workflow.get_selected_segments(),
-                        color=color,
-                        representation_type=representation_type,
-                    )  # include surface of the trimmed structure when displaying surface
-                ]
-                if "molecular-surface"
-                else []
-            ),
-            key="inp_trim_structure",
-        )
+            )
+        viz.molstar(*structures, key="inp_trim_structure")
 
     with right:
         st.write("Trimmed structure")
 
-        molstar_custom_component(
-            structures=[
-                StructureVisualization(
-                    pdb=pdb_input_string_trimmed,
-                    highlighted_selections=workflow.get_selected_segments(),
-                    color=color,
-                    representation_type=representation_type,
-                )
-            ],
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pdb_input_string_trimmed,
+                selection=workflow.get_selected_segments(),
+                color=color,
+                representation=representation_type,
+            ),
             height="524px",  # to level with other visualization
             key="trimmed_structure",
         )
@@ -217,7 +210,7 @@ def check_hotspots(contig: str, hotspots: str):
     hotspots_list = hotspots.split(",")
     not_included = []
     for hotspot in hotspots_list:
-        hotspot_chain, hotspot_resnum = hotspot[0], int(hotspot[1:])
+        _, hotspot_resnum = hotspot[0], int(hotspot[1:])
 
         if hotspot[0] != target_chain:
             not_included.append(hotspot)

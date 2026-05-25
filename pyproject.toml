@@ -13,6 +13,7 @@ authors = [
     {name = "Marco Ancona", email = "marco.ancona@msd.com"},
     {name = "Tereza Calounova", email = "tereza.calounova@msd.com"},
 ]
+license = "MIT"
 
 dependencies = [
     "numpy",
