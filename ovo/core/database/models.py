@@ -428,6 +428,8 @@ class DesignWorkflow(Workflow):
         row = super().get_table_row(**kwargs)
         from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 
+        skipped_threshold_keys = self.get_skipped_threshold_keys()
+
         return pd.concat(
             [
                 row,
@@ -438,7 +440,7 @@ class DesignWorkflow(Workflow):
                             ALL_DESCRIPTORS_BY_KEY[key].name if key in ALL_DESCRIPTORS_BY_KEY else key,
                         ): t.format()
                         for key, t in self.acceptance_thresholds.items()
-                        if t.enabled and key not in self.get_skipped_threshold_keys()
+                        if t.enabled and key not in skipped_threshold_keys
                     },
                     **kwargs,
                 ),
