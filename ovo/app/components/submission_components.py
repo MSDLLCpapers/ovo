@@ -91,13 +91,13 @@ def get_pool_inputs(page_key: str) -> tuple[str, str, str]:
     round_id, pool_name, pool_description = st.session_state.pool_inputs[page_key]
     return round_id, pool_name, pool_description
 
-  
+
 def shorten_absolute_file_paths(v, max_length=40):
     if not isinstance(v, str) or not v.startswith("/") or len(v) < max_length:
         return v
     return truncate_middle(v, max_length)
 
-  
+
 def format_param_table(
     project_name: str,
     round_name: str,
