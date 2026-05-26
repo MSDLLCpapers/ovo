@@ -33,7 +33,7 @@ def mock_molstar(return_value: dict = None):
     @contextmanager
     def _mock_molstar(mocker: MockerFixture):
         molstar = mocker.patch(
-            "ovo.app.components.input_components.molstar_custom_component",
+            "ovo.app.components.input_components.viz.molstar",
             return_value=json.dumps(return_value or None),
         )
         yield molstar
