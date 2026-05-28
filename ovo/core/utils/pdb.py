@@ -460,6 +460,8 @@ def align_multiple_proteins_pdb(
     :param force_sequence_alignment: if True, always align based on sequence even if lengths match
     :param all_atom: if True, align using all atoms from matched residues (not just CA atoms)
     :param verbose: if True, print information about the alignment process
+
+    :return: tuple of list of aligned PDB strings and final RMSD value (avg if more than 2 structures aligned)
     """
     assert len(pdb_strs) == len(chain_residue_mappings), (
         f"Expected same number of structures and chain residue mappings, got {len(pdb_strs)} != {len(chain_residue_mappings)}"
@@ -507,6 +509,7 @@ def align_multiple_proteins_pdb(
 
     super_imposer = PDB.Superimposer()
 
+    rmsds = []
     for i in range(1, len(structures)):
         ref_atoms = []
         mod_atoms = []
@@ -520,9 +523,10 @@ def align_multiple_proteins_pdb(
                 mod_atoms.append(PDB.Atom.Atom("X", mod_coords[atom_name], 1.0, 1.0, " ", "X", atom_id, atom))
         super_imposer.set_atoms(ref_atoms, mod_atoms)
         super_imposer.apply(structures[i].get_atoms())
+        rmsds.append(super_imposer.rms)
 
     aligned_structures_pdb = [get_aligned_structure_as_string(structure) for structure in structures]
-    rmsd = super_imposer.rms
+    rmsd = sum(rmsds) / len(rmsds) if rmsds else 0.0
     return aligned_structures_pdb, rmsd
 
 

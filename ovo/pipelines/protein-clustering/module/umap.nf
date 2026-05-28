@@ -20,6 +20,8 @@ process Umap {
         val similarity_query_column
         val similarity_target_column
         val similarity_score_column
+        val similarity_format
+        val is_distance
         val n_neighbors
         val output_dir
     output:
@@ -32,12 +34,16 @@ process Umap {
         --cluster_file ${cluster_file} \
         --similarity_file ${similarity_file} \
         --cluster_file_columns "${cluster_file_columns}" \
+        ${cluster_file_columns == "" ? '--cluster_file_has_header' : ''} \
         --similarity_file_columns "${similarity_file_columns}" \
+        ${similarity_file_columns == "" ? '--similarity_file_has_header' : ''} \
         --clustering_index_column "${clustering_index_column}" \
         --clustering_repr_column "${clustering_repr_column}" \
         --similarity_query_column "${similarity_query_column}" \
         --similarity_target_column "${similarity_target_column}" \
         --similarity_score_column "${similarity_score_column}" \
+        --similarity_format "${similarity_format}" \
+        ${is_distance ? '--is_distance' : ''} \
         --n_neighbors ${n_neighbors} \
         --output_dir "${output_dir}"
     """

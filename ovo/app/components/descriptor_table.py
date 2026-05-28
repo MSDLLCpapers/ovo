@@ -4,6 +4,7 @@ from typing import List, Collection
 from cmap import Colormap
 
 from ovo.core.database.models import Descriptor, NumericGlobalDescriptor, ResidueNumberDescriptor
+from ovo.core.logic.descriptor_logic import get_interface_residues_by_design_table
 from ovo.core.logic.proteinqc_logic import get_descriptor_cmap
 
 
@@ -111,29 +112,12 @@ def residue_number_descriptor_detail_table(descriptor: Descriptor, descriptor_va
     caption: str
     format_func: function for design_id formatting
     """
-    unique_residues = set()
-    design_to_residues = {}
-
-    # Build mapping from design to set of residues, and collect all unique residues
-    for design_id, val in descriptor_values.items():
-        residues = {r.strip() for r in str(val).split(",") if r.strip()}
-        design_to_residues[design_id] = residues
-        unique_residues.update(residues)
-    unique_residues = sorted(unique_residues)
-    # Remove "None" if present
-    if "None" in unique_residues:
-        unique_residues.remove("None")
-    bool_data = []
-
-    # For each design, create a boolean row for presence of each residue
-    for design_id in descriptor_values.index:
-        row = [res in design_to_residues[design_id] for res in unique_residues]
-        bool_data.append(row)
-    bool_df = pd.DataFrame(bool_data, index=descriptor_values.index, columns=unique_residues)
+    df = get_interface_residues_by_design_table(descriptor_values)
+    n_unique_residues = len(df.columns)
 
     # Add column for number of residues present in each design and sort
-    bool_df["# residues present"] = bool_df.sum(axis=1)
-    bool_df = bool_df.sort_values(by="# residues present", ascending=False)
+    df["# residues present"] = df.sum(axis=1)
+    df = df.sort_values(by="# residues present", ascending=False)
 
     caption = f"Designs (rows) vs residues (columns) for **{descriptor.name}**"
     column_config = {}
@@ -141,12 +125,12 @@ def residue_number_descriptor_detail_table(descriptor: Descriptor, descriptor_va
         "# residues present",
         format="%d",
         min_value=0,
-        max_value=len(unique_residues),
+        max_value=n_unique_residues,
         width="small",
         help=f"Number of {descriptor.name} present in the design",
     )
     formatted_strings = {
-        design_id: f"{design_id} | #residues={row['# residues present']}" for design_id, row in bool_df.iterrows()
+        design_id: f"{design_id} | #residues={row['# residues present']}" for design_id, row in df.iterrows()
     }
     format_func = lambda design_id: formatted_strings.get(design_id, str(design_id))
-    return bool_df, column_config, caption, format_func
+    return df, column_config, caption, format_func

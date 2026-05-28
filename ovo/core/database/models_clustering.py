@@ -1,6 +1,7 @@
 from typing import List, Callable
 
 from ovo.core.database import DescriptorJob
+from ovo.core.database.descriptors_rfdiffusion import INTERFACE_TARGET_RESIDUES, PYDSSP_STRING
 from ovo.core.database.models import DescriptorWorkflow, WorkflowParams, WorkflowTypes, Design
 from dataclasses import dataclass, field
 
@@ -56,6 +57,30 @@ FOLDSEEK_UMAP_PIPELINE = ProteinClusteringTool(
     supports_conda=True,
 )
 
+SEQUENCE_HIERARCHICAL_UMAP_PIPELINE = ProteinClusteringTool(
+    name="Sequence identity with hierarchical clustering and UMAP",
+    tool_key="sequence_hierarchical_clustering",
+    supports_conda=True,
+)
+
+RMSD_HIERARCHICAL_UMAP_PIPELINE = ProteinClusteringTool(
+    name="CEAlign RMSD similarity with hierarchical clustering and UMAP",
+    tool_key="rmsd_hierarchical_clustering",
+    supports_conda=True,
+)
+
+SECONDARY_STRUCTURE_UMAP_PIPELINE = ProteinClusteringTool(
+    name="Secondary structure similarity with hierarchical clustering and UMAP",
+    tool_key="secondary_structure_hierarchical_clustering",
+    supports_conda=True,
+)
+
+INTERFACE_RESIDUES_HIERARCHICAL_PIPELINE = ProteinClusteringTool(
+    name="Interface residues Jaccard similarity with hierarchical clustering and UMAP",
+    tool_key="interface_residues_hierarchical_clustering",
+    supports_conda=True,
+)
+
 
 @dataclass
 class FoldseekParams(WorkflowParams):
@@ -67,6 +92,15 @@ class FoldseekParams(WorkflowParams):
     embedding_metric: str = "qtmscore"
     min_seq_id: float = 0.0
     s: float = 9.5
+
+
+@dataclass
+class HierarchicalClusteringParams(WorkflowParams):
+    similarity_method: str  # sequence, secondary_structure, interface_residues, rmsd
+    linkage_method: str = "average"  # single, complete, average, ward
+    threshold: float = None
+    criterion: str = "distance"  # distance or maxclust
+    cyclic: bool = False
 
 
 @WorkflowTypes.register("Foldseek Clustering workflow")
@@ -105,9 +139,187 @@ class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
             raise NotImplementedError("Currently only single chain clustering is supported.")
 
 
-PROTEIN_CLUSTERING_TOOLS = [FOLDSEEK_UMAP_PIPELINE]
+@dataclass
+class BaseHierarchicalClusteringWorkflow(ProteinClusteringWorkflow):
+    designs_target: List[Design] = field(default_factory=list)
+    params: HierarchicalClusteringParams = field(default_factory=HierarchicalClusteringParams)
+    requires_structures: bool = False  # Whether this workflow requires structure files
+
+    def get_pipeline_name(self) -> str:
+        return "ovo.protein-clustering"
+
+    def prepare_params(self, workdir: str) -> dict:
+        from ovo.core.logic.descriptor_logic import prepare_hierarchical_clustering_workflow_params
+
+        return prepare_hierarchical_clustering_workflow_params(self, workdir=workdir)
+
+    def process_results(self, job: DescriptorJob, callback: Callable = None):
+        from ovo import db
+        from ovo.core.logic.descriptor_logic import read_descriptor_file_values
+
+        descriptor_values = read_descriptor_file_values(
+            descriptor_job=job,
+            # descriptor key prefix (pipeline|tool_key) -> filename to parse
+            filenames={f"protein_clustering|{self.tool_key}": "final_clustering"},
+            # mapping from design.id to ID column in produced file
+            design_id_mapping={design_id: design_id for design_id in self.design_ids},
+        )
+
+        db.save_all(descriptor_values + [job])
+        return descriptor_values + [job]
+
+    def validate(self):
+        super().validate()
+
+        if self.params.threshold is None:
+            raise ValueError("Threshold value must be specified for hierarchical clustering workflows.")
+        if self.params.threshold < 0:
+            raise ValueError("Threshold value must be non-negative.")
+
+        criterion = getattr(self.params, "criterion", None)
+        if criterion == "maxclust":
+            if not isinstance(self.params.threshold, int) or self.params.threshold < 1:
+                raise ValueError("Threshold value must be a positive integer for maxclust criterion.")
+        elif not (0 <= self.params.threshold <= 1) and self.params.similarity_method in [
+            "sequence",
+            "secondary_structure",
+            "interface_residues",
+        ]:
+            raise ValueError("Threshold value must be between 0 and 1 for similarity-based clustering methods.")
+
+        # Only validate structures for workflows that require them
+        if self.requires_structures:
+            from ovo import db
+
+            designs = db.select(Design, id__in=self.design_ids)
+            designs_without_structures = [d.id for d in designs if not d.structure_path]
+            if designs_without_structures:
+                raise ValueError(
+                    f"This clustering workflow requires structure files, "
+                    f"but {len(designs_without_structures)} design(s) have no structure_path: "
+                    f"{', '.join(designs_without_structures[:5])}"
+                    f"{'...' if len(designs_without_structures) > 5 else ''}"
+                )
+
+
+@WorkflowTypes.register("Sequence Hierarchical Clustering workflow")
+@dataclass
+class SequenceHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow):
+    tool_key: str = SEQUENCE_HIERARCHICAL_UMAP_PIPELINE.tool_key
+    params: HierarchicalClusteringParams = field(
+        default_factory=lambda: HierarchicalClusteringParams(similarity_method="sequence", threshold=0.5),
+        metadata=dict(tool_name="Sequence Hierarchical Clustering"),
+    )
+    requires_structures: bool = False
+
+    def validate(self):
+        from ovo import db
+
+        super().validate()
+
+        # Sequence clustering can work without structures, but needs sequences in spec
+        designs = db.select(Design, id__in=self.design_ids)
+        designs_without_sequences = []
+        for design in designs:
+            if not design.spec or not design.spec.chains:
+                designs_without_sequences.append(design.id)
+                continue
+            # Check if at least one chain has a sequence
+            has_sequence = any(
+                chain.sequence
+                for chain in design.spec.chains
+                for chain_id in chain.chain_ids
+                if chain_id in self.chains
+            )
+            if not has_sequence:
+                designs_without_sequences.append(design.id)
+
+        if designs_without_sequences:
+            raise ValueError(
+                f"Sequence hierarchical clustering requires all designs to have sequences in their spec, "
+                f"but {len(designs_without_sequences)} design(s) are missing sequences: "
+                f"{', '.join(designs_without_sequences[:5])}"
+                f"{'...' if len(designs_without_sequences) > 5 else ''}"
+            )
+
+
+@WorkflowTypes.register("CEAlign RMSD Hierarchical Clustering workflow")
+@dataclass
+class RMSDHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow):
+    tool_key: str = RMSD_HIERARCHICAL_UMAP_PIPELINE.tool_key
+    params: HierarchicalClusteringParams = field(
+        default_factory=lambda: HierarchicalClusteringParams(similarity_method="rmsd", threshold=5.0),
+        metadata=dict(tool_name="RMSD Hierarchical Clustering"),
+    )
+    requires_structures: bool = True
+
+
+@WorkflowTypes.register("Secondary Structure Hierarchical Clustering workflow")
+@dataclass
+class SecondaryStructureHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow):
+    tool_key: str = SECONDARY_STRUCTURE_UMAP_PIPELINE.tool_key
+    params: HierarchicalClusteringParams = field(
+        default_factory=lambda: HierarchicalClusteringParams(similarity_method="secondary_structure", threshold=0.2),
+        metadata=dict(tool_name="Secondary Structure Hierarchical Clustering"),
+    )
+    requires_structures: bool = False
+
+    def validate(self):
+        from ovo import db
+
+        super().validate()
+
+        # Check that all designs have secondary structure descriptor calculated
+        descriptor_values = db.select_descriptor_values(PYDSSP_STRING.key, design_ids=self.design_ids)
+        if descriptor_values.isna().any():
+            designs_with_na_descriptor = descriptor_values[descriptor_values.isna()].index.tolist()
+
+            raise ValueError(
+                f"Designs are missing required descriptor '{PYDSSP_STRING.key}' for Secondary Structure Hierarchical Clustering. "
+                f"Please calculate this descriptor for these designs before running the workflow: {', '.join(designs_with_na_descriptor)}"
+            )
+
+
+@WorkflowTypes.register("Interface Residues Hierarchical Clustering workflow")
+@dataclass
+class InterfaceResiduesHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow):
+    tool_key: str = INTERFACE_RESIDUES_HIERARCHICAL_PIPELINE.tool_key
+    designs_target: List[Design] = field(default_factory=list)
+    params: HierarchicalClusteringParams = field(
+        default_factory=lambda: HierarchicalClusteringParams(similarity_method="interface_residues", threshold=0.5),
+        metadata=dict(tool_name="Interface Residues Hierarchical Clustering"),
+    )
+    requires_structures: bool = False
+
+    def validate(self):
+        from ovo import db
+
+        super().validate()
+
+        # Check that all designs have interface residues descriptor calculated
+        descriptor_values = db.select_descriptor_values(INTERFACE_TARGET_RESIDUES.key, design_ids=self.design_ids)
+        if descriptor_values.isna().any():
+            designs_with_na_descriptor = descriptor_values[descriptor_values.isna()].index.tolist()
+
+            raise ValueError(
+                f"Designs are missing required descriptor '{INTERFACE_TARGET_RESIDUES.key}' for Interface Residues Hierarchical Clustering. "
+                f"Please calculate this descriptor for these designs before running the workflow: {', '.join(designs_with_na_descriptor)}"
+            )
+
+
+PROTEIN_CLUSTERING_TOOLS = [
+    FOLDSEEK_UMAP_PIPELINE,
+    SEQUENCE_HIERARCHICAL_UMAP_PIPELINE,
+    RMSD_HIERARCHICAL_UMAP_PIPELINE,
+    SECONDARY_STRUCTURE_UMAP_PIPELINE,
+    INTERFACE_RESIDUES_HIERARCHICAL_PIPELINE,
+]
 PROTEIN_CLUSTERING_TOOLS_BY_KEY = {tool.tool_key: tool for tool in PROTEIN_CLUSTERING_TOOLS}
 
 CLUSTERING_WORKFLOWS_BY_TOOL_KEY = {
     FOLDSEEK_UMAP_PIPELINE.tool_key: FoldseekClusteringWorkflow,
+    SEQUENCE_HIERARCHICAL_UMAP_PIPELINE.tool_key: SequenceHierarchicalClusteringWorkflow,
+    RMSD_HIERARCHICAL_UMAP_PIPELINE.tool_key: RMSDHierarchicalClusteringWorkflow,
+    SECONDARY_STRUCTURE_UMAP_PIPELINE.tool_key: SecondaryStructureHierarchicalClusteringWorkflow,
+    INTERFACE_RESIDUES_HIERARCHICAL_PIPELINE.tool_key: InterfaceResiduesHierarchicalClusteringWorkflow,
 }

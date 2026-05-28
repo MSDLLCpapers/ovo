@@ -121,6 +121,6 @@ def design_visualization_fragment(selected_design_ids: list[str]):
 
     WorkflowType.visualize_single_design_sequences(design_id)
 
-    st.markdown(f"### Download {design_id}")
+    st.markdown(f"### Download single design: {design_id}")
 
     download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")

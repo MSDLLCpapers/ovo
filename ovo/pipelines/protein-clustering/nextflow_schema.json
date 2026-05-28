@@ -4,7 +4,7 @@
   "title": "Folseek protein usage: clustering and similarity search",
   "description": "",
   "type": "object",
-  "required": ["chains", "query_pdb", "n_neighbors"],
+  "required": ["chains", "query_pdb", "n_neighbors", "workflow_name"],
   "properties": {
     "chains": {
       "type": "string",
@@ -18,6 +18,12 @@
       "type": "string",
       "description": "Input PDB folder (ending with /) or .txt file containing multiple PDB paths (one per line) to be used as target database for similarity search (default: same as query_pdb_dir)"
     },
+    "workflow_name": {
+      "type": "string",
+      "description": "Workflow to run: 'foldseek' or 'hierarchical'",
+      "enum": ["foldseek", "hierarchical"]
+    },
+
      "foldseek_exhaustive_search": {
       "type": "boolean",
       "description": "Foldseek: Skips prefilter and performs an all-vs-all alignment (more sensitive but much slower) (default: false)"
@@ -50,14 +56,40 @@
       "type": "number",
       "description": "Foldseek: Adjust sensitivity to speed trade-off; lower is faster, higher more sensitive (fast: 7.5, default: 9.5)"
     },
+    "hierarchical_cyclic": {
+      "type": "boolean",
+      "description": "Whether structures are cyclic peptides (affects sequence alignment for hierarchical clustering)"
+    },
+    "hierarchical_similarity_method": {
+      "type": "string",
+      "description": "Similarity calculation method for hierarchical clustering",
+      "enum": ["sequence", "rmsd", "secondary_structure", "interface_residues"]
+    },
+    "hierarchical_linkage_method": {
+      "type": "string",
+      "description": "Linkage method for hierarchical clustering",
+      "enum": ["single", "complete", "average", "ward"]
+    },
+    "hierarchical_threshold": {
+      "type": "number",
+      "description": "Threshold for hierarchical clustering (interpretation depends on criterion)"
+    },
+    "hierarchical_criterion": {
+      "type": "string",
+      "description": "Criterion for hierarchical clustering threshold",
+      "enum": ["distance", "inconsistent", "maxclust"]
+    },
+    "hierarchical_dssp_csv": {
+      "type": "string",
+      "description": "Path to CSV file with DSSP annotations (required for secondary_structure similarity method)"
+    },
+    "hierarchical_interface_residues_csv": {
+      "type": "string",
+      "description": "Path to CSV file with interface residues (required for interface_residues similarity method)"
+    },
     "n_neighbors": {
       "type": "string",
       "description": "List of numbers specifying the neighbors to use for computation of UMAP; the larger the number the more global structure is preserved"
-    },
-    "workflow_name": {
-      "type": "string",
-      "description": "Name of the clustering workflow to run",
-      "enum": ["foldseek"]
     }
   }
 }

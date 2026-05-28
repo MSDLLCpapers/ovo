@@ -608,6 +608,7 @@ if __name__ == "__main__":
             for key, vals in passed_per_filter_per_design.items():
                 df[key] = pd.Series(vals)
                 print(f"{key} passed by {df[key].mean():.2%} designs")
-        df.to_csv(options.output_csv)
-        print("Saved metrics to:", options.output_csv)
-        print("Saved filtered PDBs to:", options.output_csv)
+
+    df.to_csv(options.output_csv)
+    print("Saved metrics to:", options.output_csv)
+    print("Saved filtered PDBs to:", options.output_csv)

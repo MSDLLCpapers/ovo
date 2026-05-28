@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "Biopython hierarchical clustering schema",
+  "description": "",
+  "type": "object",
+  "required": ["chains", "input_pdb_dir", "output_dir", "cyclic", "similarity_method"],
+  "properties": {
+    "chains": {
+      "type": "string",
+      "description": "List of chains, separated by comma, to be used for clustering and similarity search"
+    },
+    "input_pdb_dir": {
+      "type": "string",
+      "description": "Path to directory with PDB files to be used as input"
+    },
+    "dssp_csv": {
+      "type": "string",
+      "description": "Path to CSV file with DSSP annotations for the input PDB files. Required if similarity_method is 'secondary_structure'"
+    },
+    "interface_residues_csv": {
+      "type": "string",
+      "description": "Path to CSV file with interface residues for the input PDB files. Required if similarity_method is 'interface_residues'"
+    },
+    "output_dir": {
+      "type": "string",
+      "description": "Path to output directory"
+    },
+    "cyclic": {
+      "type": "boolean",
+      "description": "Is the structure cyclic or not?"
+    },
+    "similarity_method": {
+      "type": "string",
+      "description": "Method to calculate similarity between structures. Supported values: 'sequence', 'rmsd', 'secondary_structure'"
+    },
+    "linkage_method": {
+      "type": "string",
+      "description": "Linkage method to be used for hierarchical clustering. Supported values: 'single', 'complete', 'average', 'ward'"
+    },
+    "threshold": {
+      "type": "number",
+      "description": "Threshold to apply when forming flat clusters. The meaning of the threshold depends on the chosen criterion."
+    },
+    "criterion": {
+      "type": "string",
+      "description": "Criterion to use for forming flat clusters. Supported values: 'distance', 'inconsistent', 'maxclust'"
+    }
+}
+}

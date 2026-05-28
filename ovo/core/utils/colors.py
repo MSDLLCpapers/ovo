@@ -34,3 +34,14 @@ def lighten(hex_color, factor=1.3):
 
 def darken(hex_color, factor=1.3):
     return darken_lighten(hex_color, factor=1 / factor)
+
+
+def hex_to_rgba(hex_color: str, alpha: float = 1.0) -> str:
+    """Convert hex color to rgba with specified alpha"""
+    # Remove # if present
+    hex_color = hex_color.lstrip("#")
+    # Convert to RGB
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"

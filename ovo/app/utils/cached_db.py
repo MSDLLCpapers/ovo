@@ -84,11 +84,13 @@ def get_cached_descriptor_jobs_for_design_ids(
 
 @clear_when_modified(DescriptorValue)
 @st.cache_data(max_entries=100, ttl="1h")
-def get_cached_available_descriptors(design_ids: Collection[str]) -> dict[str, Descriptor]:
+def get_cached_available_descriptors(
+    design_ids: Collection[str], exclude_required_jobs: bool = True
+) -> dict[str, Descriptor]:
     """
     Return all descriptor keys found in DB for the given design ids.
     """
-    return get_available_descriptors(design_ids)
+    return get_available_descriptors(design_ids, exclude_required_jobs=exclude_required_jobs)
 
 
 @clear_when_modified(DescriptorValue)

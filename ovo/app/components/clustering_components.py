@@ -5,21 +5,44 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly import express as px
 
-from ovo.app.components.custom_elements import wrapped_columns
-from ovo.app.utils.cached_db import get_cached_design, get_cached_pools
-from ovo.core.database.descriptors_clustering import CLUSTER_INFO_REFERENCES, CLUSTERING_PRESETS
+from ovo.app.components.custom_elements import wrapped_columns, confirm_download_button
+from ovo.app.utils.cached_db import (
+    get_cached_design,
+    get_cached_pools,
+    get_cached_descriptor_values,
+    get_cached_available_descriptors,
+)
+from ovo.core.database.descriptors_clustering import (
+    CLUSTER_INFO_REFERENCES,
+    CLUSTERING_PRESETS,
+    INTERFACE_HIERARCHICAL_REPR_CLUSTER,
+    INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID,
+)
 from ovo.app.components.descriptor_scatterplot import PlotSettings
 from ovo import viz
-from ovo.app.components.download_component import download_descriptor_table, download_job_designs_component
+from ovo.app.components.download_component import download_job_designs_component
 from ovo import storage, Design
-from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, ProteinClusteringWorkflow
+from ovo.core.database.descriptors_rfdiffusion import INTERFACE_TARGET_RESIDUES, PYDSSP_STRING
+from ovo.core.database.models_clustering import (
+    BaseHierarchicalClusteringWorkflow,
+    FoldseekClusteringWorkflow,
+    InterfaceResiduesHierarchicalClusteringWorkflow,
+    ProteinClusteringWorkflow,
+    SecondaryStructureHierarchicalClusteringWorkflow,
+    RMSDHierarchicalClusteringWorkflow,
+)
 from ovo.core.utils.formatting import datetime_from_utc_to_local
+from ovo.core.utils.colors import hex_to_rgba
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.pages.designs.explorer import design_visualization_fragment
 from ovo.app.components.workflow_visualization_components import (
     visualize_align_structure_selection,
 )
-from ovo.core.logic.descriptor_logic import get_wide_descriptor_table
+from ovo.core.logic.descriptor_logic import (
+    get_interface_residues_by_design_table,
+    get_wide_descriptor_table,
+    export_design_descriptors_excel,
+)
 from ovo.core.database import DescriptorJob
 
 FOLDSEEK_ALIGNMENT_DESCRIPTIONS_MAP = {
@@ -100,6 +123,94 @@ def set_foldseek_params(workflow: FoldseekClusteringWorkflow, key_suffix: str = 
             key=f"protein_clustering_min_seq_id_input{key_suffix}",
             help="List matches above this sequence identity (for clustering)",
         )
+    return workflow
+
+
+def set_hierarchical_clustering_params(
+    workflow: BaseHierarchicalClusteringWorkflow, cyclic: bool = False, key_suffix: str = ""
+):
+    """Set hierarchical clustering parameters based on workflow type"""
+
+    # Configuration based on similarity method
+    config = {
+        "sequence": {
+            "threshold_range": (0.0, 1.0),
+            "threshold_help": "Sequence distance threshold. Lower values = tighter clusters. 0.1-0.2: Very similar sequences (>80% identity), 0.3-0.5: Moderate similarity (50-70% identity), 0.6-0.8: Loosely related sequences",
+            "show_cyclic": True,
+        },
+        "rmsd": {
+            "threshold_range": (0.0, None),
+            "threshold_help": "CEAlign RMSD distance threshold in Ångströms. Lower values = more structurally similar. 0.5-1.5Å: Very similar structures, 2.0-4.0Å: Moderate structural differences, 5.0+Å: Significant structural differences.",
+            "show_cyclic": True,
+        },
+        "interface_residues": {
+            "threshold_range": (0.0, 1.0),
+            "threshold_help": "Jaccard distance threshold for interface residues. 0.2: Very tight clusters (≥80% similarity), 0.5: Default, 0.8: Loose clusters (≥20% similarity)",
+            "show_cyclic": False,
+        },
+        "secondary_structure": {
+            "threshold_range": (0.0, 1.0),
+            "threshold_help": "Secondary structure distance threshold. Lower values = more similar fold patterns. 0.1-0.3: Very similar secondary structures, 0.4-0.6: Moderate structural similarity, 0.7-0.9: Different but related folds",
+            "show_cyclic": True,
+        },
+    }
+
+    method = workflow.params.similarity_method
+    cfg = config[method]
+
+    linkage_options = ["single", "complete", "average", "ward"]
+    workflow.params.linkage_method = st.selectbox(
+        "Linkage method",
+        options=linkage_options,
+        index=linkage_options.index(workflow.params.linkage_method)
+        if workflow.params.linkage_method in linkage_options
+        else 0,
+        key=f"hierarchical_clustering_linkage_method_input{key_suffix}",
+        help="The linkage algorithm to use for hierarchical clustering. Single: minimum distance, complete: maximum distance, average: average distance, ward: minimizes variance within clusters.",
+    )
+    criterion_options = ["distance", "maxclust"]
+    workflow.params.criterion = st.selectbox(
+        "Clustering criterion",
+        options=criterion_options,
+        index=criterion_options.index(workflow.params.criterion)
+        if workflow.params.criterion in criterion_options
+        else 0,
+        key=f"sequence_hierarchical_clustering_criterion_input{key_suffix}",
+        help="The criterion to use for cutting the hierarchy into flat clusters. 'distance' merges samples under a given distance threshold, 'maxclust' cuts to achieve (at most) the given number of clusters.",
+    )
+
+    # Configure threshold input based on criterion
+    if workflow.params.criterion == "distance":
+        workflow.params.threshold = st.number_input(
+            "Distance threshold",
+            value=workflow.params.threshold,
+            min_value=cfg["threshold_range"][0],
+            max_value=cfg["threshold_range"][1],
+            key=f"hierarchical_clustering_threshold_input{key_suffix}",
+        )
+        st.caption(cfg["threshold_help"])
+    elif workflow.params.criterion == "maxclust":
+        workflow.params.threshold = st.number_input(
+            "Maximum number of clusters",
+            value=int(workflow.params.threshold) if workflow.params.threshold >= 1 else 10,
+            min_value=1,
+            max_value=None,
+            step=1,
+            key=f"hierarchical_clustering_threshold_input{key_suffix}",
+            help="Maximum number of clusters to form. The algorithm will cut the dendrogram to produce exactly this many clusters.",
+        )
+    else:
+        st.error("Unknown clustering criterion selected.")
+        raise ValueError("Unknown clustering criterion selected.")
+
+    if cfg["show_cyclic"]:
+        workflow.params.cyclic = st.checkbox(
+            "Cyclic clustering",
+            value=cyclic,
+            key=f"sequence_hierarchical_clustering_cyclic_checkbox{key_suffix}",
+            help="Whether to treat the sequence as cyclic for clustering (e.g. for cyclic peptides). If enabled, all rotations of the sequence/structure will be considered when calculating distances.",
+        )
+
     return workflow
 
 
@@ -272,14 +383,28 @@ def cluster_representatives_tiles(df_descriptor_values, tool: str, job: Descript
 
                 design = get_cached_design(repr_design_id)
                 if design and design.structure_path:
+                    if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
+                        default_representation_type = "cartoon"
+                        chain_color = "uniform"
+                        color_params = {"value": legend["color"].replace("#", "0x")}
+                    else:
+                        default_representation_type = None
+                        chain_color = "secondary-structure"
+                        color_params = None
+
                     viz.molstar(
                         viz.StructureVisualization(
                             data=storage.read_file_str(design.structure_path),
-                            representation=None,
+                            representation_type=default_representation_type,
                             representations=[
-                                viz.Representation(chain, "cartoon", color="secondary-structure")
-                                for chain in job.workflow.chains
+                                viz.Representation(
+                                    job.workflow.chains,
+                                    representation_type="cartoon",
+                                    color=chain_color,
+                                    color_params=color_params,
+                                ),
                             ],
+                            auto_zoom_chains=job.workflow.chains,
                         ),
                         key=f"cluster_{repr_design_id}_structure",
                         height="300px",
@@ -328,6 +453,8 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
     if selected_cluster_id is None:
         return
 
+    color_mapping = get_cluster_color_mapping_from_legend(df_descriptor_values, job.workflow.tool_key)
+
     cluster = cluster_data_mapping[selected_cluster_id]
     cluster_design_ids = cluster["design_ids"]
     representative = cluster[repr_descriptor.key]
@@ -351,29 +478,44 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
 
     # Show sequence of all designs in cluster
     st.markdown("### Sequences in the cluster")
+    descriptors = []
+    if isinstance(job.workflow, SecondaryStructureHierarchicalClusteringWorkflow):
+        descriptors.append(PYDSSP_STRING)
+    if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
+        descriptors.append(INTERFACE_TARGET_RESIDUES)
+
+    # Do not use descriptors associated with required descriptor jobs
+    descriptors = [d for d in descriptors if not d.required_descriptor_job]
     df_descriptors = get_wide_descriptor_table(
         design_ids=df_descriptor_values_cluster.index.tolist(),
-        descriptor_keys=df_descriptor_values_cluster.columns,
+        descriptor_keys=[d.key for d in descriptors],
         nested=True,
-        descriptor_job_id=job.id,
     )
-    filter_df_descriptor = df_descriptors[[col for col in df_descriptors.columns if "Sequence" in col]]
-    descriptor_table(design_ids=cluster_design_ids, descriptors_df=filter_df_descriptor, descriptors=[])
+    descriptor_table(design_ids=cluster_design_ids, descriptors_df=df_descriptors, descriptors=descriptors)
 
     # Show structures side by side: representative and designs in cluster aligned
+    visualize_interface = isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow)
     left_col_struct, right_col_struct = st.columns(2, vertical_alignment="top")
     with left_col_struct:
         st.markdown(f"**Representative: {representative}**")
         repr_design = get_cached_design(representative)
         if repr_design and repr_design.structure_path:
+            if visualize_interface:
+                default_representation_type = "cartoon"
+                chain_color = "uniform"
+                color_params = {"value": color_mapping[selected_cluster_id].replace("#", "0x")}
+            else:
+                default_representation_type = None
+                chain_color = "secondary-structure"
+                color_params = None
             viz.molstar(
                 viz.StructureVisualization(
                     data=storage.read_file_str(repr_design.structure_path),
-                    representation=None,
+                    representation_type=default_representation_type,
                     representations=[
-                        viz.Representation(chain, "cartoon", color="secondary-structure")
-                        for chain in job.workflow.chains
+                        viz.Representation(job.workflow.chains, "cartoon", color=chain_color, color_params=color_params)
                     ],
+                    auto_zoom_chains=job.workflow.chains,
                 ),
                 key="cluster_repr_structure",
                 height="400px",
@@ -384,13 +526,32 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
     with right_col_struct:
         st.markdown("**Aligned Cluster Structures**")
 
+        if visualize_interface:
+            target_residues = df_descriptors[(INTERFACE_TARGET_RESIDUES.tool, INTERFACE_TARGET_RESIDUES.name)]
+            valid_residue_ids = []
+            for residues in target_residues.dropna().values:
+                for residue_id in str(residues).split(","):
+                    residue_id = residue_id.strip()
+                    if not residue_id or residue_id.lower() == "none":
+                        continue
+                    valid_residue_ids.append(residue_id)
+            align_chains = sorted({residue_id[0] for residue_id in valid_residue_ids})
+            assert align_chains, "No target interface residues found"
+        else:
+            align_chains = job.workflow.chains
         try:
             visualize_align_structure_selection(
                 design_ids=cluster_design_ids,
                 max_examples=15,
                 key=f"cluster_{selected_cluster_id}_aligned",
-                chains=job.workflow.chains,
+                align_chains=align_chains,
+                visualize_chains=job.workflow.chains,
+                default_representation_type="cartoon" if visualize_interface else None,
+                color="chain-id" if visualize_interface else "secondary-structure",
+                auto_zoom_chains=job.workflow.chains,
             )
+            if isinstance(job.workflow, RMSDHierarchicalClusteringWorkflow):
+                st.info("Displayed alignment and RMSD are produced using superposition, not the original CEAlign.")
         except Exception as e:
             traceback.print_exc()
             st.error(f"Error visualizing aligned structures: {str(e)}")
@@ -429,20 +590,54 @@ def display_clustering_job_params(job: DescriptorJob):
                 st.write(param_str)
 
 
-def download_descriptors_from_job(df_descriptor_values: pd.DataFrame, job: DescriptorJob):
-    """Provide download button for descriptor table from clustering job"""
-    design_ids = df_descriptor_values.index.tolist()
-    descriptor_keys = df_descriptor_values.columns.tolist()
+def download_descriptors_from_job(design_ids: list[str], job_descriptor_keys: list[str], job: DescriptorJob):
+    """Provide download button for descriptor table from descriptor job, including all other available descriptors"""
     workflow_name = job.workflow.name.replace(" ", "_").lower()
+    filename = f"{workflow_name}_{job.id}_descriptors"
 
-    download_descriptor_table(
-        filename=f"{workflow_name}_{job.id}_descriptors",
-        design_ids=design_ids,
-        descriptor_keys=descriptor_keys,
-        key="download_clustering_descriptors",
-        descriptor_job_id=job.id,
+    available_descriptors_by_key = get_cached_available_descriptors(design_ids)
+
+    if st.button(
+        "Download full descriptor table",
+        key="prepare_descriptors_download_descriptor_job_descriptors",
         width="content",
-    )
+    ):
+        with st.spinner("Preparing descriptor table..."):
+            # Fetch job descriptors with job_id filter to get correct results from this specific job
+            df_job = get_wide_descriptor_table(
+                design_ids=design_ids,
+                descriptor_keys=job_descriptor_keys,
+                descriptor_job_id=job.id,
+                nested=False,
+                human_readable=False,
+            )
+            # Fetch all other descriptors without job_id filter
+            if available_descriptors_by_key:
+                df_other = get_wide_descriptor_table(
+                    design_ids=design_ids,
+                    descriptor_keys=available_descriptors_by_key.keys(),
+                    descriptor_job_id=None,
+                    nested=False,
+                    human_readable=False,
+                )
+                # Drop sequence and labels columns as they are already retrieved in df_job
+                sequence_cols = [col for col in df_other.columns if "sequence_" in col.lower()]
+                label_cols = [col for col in df_other.columns if "label" in col.lower()]
+                cols_to_drop = sequence_cols + label_cols
+                df_other = df_other.drop(columns=cols_to_drop)
+                # Merge the two tables
+                df_combined = pd.merge(df_job, df_other, left_index=True, right_index=True)
+            else:
+                df_combined = df_job
+
+            excel_bytes = export_design_descriptors_excel(df_combined)
+
+        confirm_download_button(
+            data=excel_bytes.getvalue(),
+            file_name=f"{filename}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_descriptors_download_descriptor_job_descriptors",
+        )
 
 
 def display_clustering_metrics(df_descriptor_values: pd.DataFrame, job: DescriptorJob):
@@ -459,3 +654,54 @@ def display_clustering_metrics(df_descriptor_values: pd.DataFrame, job: Descript
         st.metric("Largest cluster size", largest_cluster_size)
         st.metric("Average cluster size", f"{average_cluster_size:.2f}")
         st.metric("Median cluster size", median_cluster_size)
+
+
+def interface_clustering_table(df_descriptor_values: pd.DataFrame, job: DescriptorJob):
+    descriptor = INTERFACE_TARGET_RESIDUES
+    descriptor_values = get_cached_descriptor_values(descriptor.key, design_ids=job.workflow.design_ids)
+    descriptor_values_by_design_series = pd.Series(descriptor_values, index=job.workflow.design_ids)
+    interface_residues_table = get_interface_residues_by_design_table(descriptor_values_by_design_series)
+    df_merged_test = (
+        df_descriptor_values[[INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID.key, INTERFACE_HIERARCHICAL_REPR_CLUSTER.key]]
+        .merge(interface_residues_table, left_index=True, right_index=True)
+        .sort_values(by=INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID.key)
+    )
+
+    # Apply cluster-based row coloring using the same colors as in UMAP and cluster tiles
+    color_mapping = get_cluster_color_mapping_from_legend(df_descriptor_values, job.workflow.tool_key)
+
+    # Drop the cluster representative column for display
+    df_for_display = df_merged_test.drop(columns=[INTERFACE_HIERARCHICAL_REPR_CLUSTER.key])
+    styled_df = style_cluster_rows(df_for_display, INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID.key, color_mapping)
+    st.dataframe(
+        styled_df,
+        column_config={
+            INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID.key: st.column_config.NumberColumn("Cluster ID", width="small")
+        },
+    )
+
+
+def get_cluster_color_mapping_from_legend(df_descriptor_values, tool_key: str) -> dict:
+    """Get mapping cluster_id -> color using existing cluster legend logic"""
+    cluster_legend = get_cluster_legend(df_descriptor_values, tool_key)
+
+    # Convert (repr_id, cluster_info) -> cluster_id -> color mapping
+    cluster_color_map = {}
+    for cluster_repr, legend_info in cluster_legend.items():
+        cluster_id = legend_info["cluster_id"]
+        color = legend_info["color"]
+        cluster_color_map[cluster_id] = color
+
+    return cluster_color_map
+
+
+def style_cluster_rows(df: pd.DataFrame, cluster_id_col: str, color_mapping: dict):
+    """Apply background color styling to rows based on cluster ID"""
+
+    def highlight_cluster(row):
+        cluster_id = row[cluster_id_col]
+        hex_color = color_mapping.get(cluster_id, "#FFFFFF")  # Default to white if not found
+        rgba_color = hex_to_rgba(hex_color, alpha=0.15)
+        return [f"background-color: {rgba_color}"] * len(row)
+
+    return df.style.apply(highlight_cluster, axis=1)

@@ -26,3 +26,6 @@ secrets.toml
 /docs/source/apidocs/ovo
 /Makefile
 ovo/pipelines/protein-clustering/local/*_pdb
+ovo/pipelines/protein-clustering/local/input
+/ovo/pipelines/biopython-hierarchical-clustering/local/input
+*CLAUDE.local.md

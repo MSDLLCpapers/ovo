@@ -1,6 +1,7 @@
 import uuid
 import streamlit as st
 import pandas as pd
+from collections import Counter
 
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.submission_components import chain_ids_input
@@ -8,14 +9,22 @@ from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors_per_job,
     get_cached_descriptor_jobs_for_design_ids,
+    get_cached_design,
 )
+from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING
 from ovo.core.utils.formatting import datetime_from_utc_to_local
 from ovo.core.database.models_clustering import (
     FOLDSEEK_UMAP_PIPELINE,
+    SEQUENCE_HIERARCHICAL_UMAP_PIPELINE,
+    RMSD_HIERARCHICAL_UMAP_PIPELINE,
+    SECONDARY_STRUCTURE_UMAP_PIPELINE,
+    INTERFACE_RESIDUES_HIERARCHICAL_PIPELINE,
     CLUSTERING_WORKFLOWS_BY_TOOL_KEY,
     PROTEIN_CLUSTERING_TOOLS_BY_KEY,
     PROTEIN_CLUSTERING_TOOLS,
+    InterfaceResiduesHierarchicalClusteringWorkflow,
     ProteinClusteringWorkflow,
+    SecondaryStructureHierarchicalClusteringWorkflow,
 )
 from ovo.core.logic.descriptor_logic import get_available_schedulers
 from ovo.core.database.descriptors_clustering import PROTEIN_CLUSTERING_DESCRIPTORS
@@ -23,11 +32,13 @@ from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 from ovo.app.components.clustering_components import (
     display_clustering_job_params,
     set_foldseek_params,
+    set_hierarchical_clustering_params,
     umap_scatterplot_component,
     cluster_representatives_tiles,
     inspect_clusters,
     download_descriptors_from_job,
     display_clustering_metrics,
+    interface_clustering_table,
 )
 from ovo.app.utils.cached_db import get_cached_descriptor_values
 
@@ -97,6 +108,18 @@ def submit_clustering_dialog(design_ids: list[str]):
                     if tool == FOLDSEEK_UMAP_PIPELINE:
                         # Use instance_id in keys to make them unique
                         set_foldseek_params(workflow, key_suffix=f"_instance_{instance_id}")
+                    elif tool in [
+                        SEQUENCE_HIERARCHICAL_UMAP_PIPELINE,
+                        SECONDARY_STRUCTURE_UMAP_PIPELINE,
+                        INTERFACE_RESIDUES_HIERARCHICAL_PIPELINE,
+                        RMSD_HIERARCHICAL_UMAP_PIPELINE,
+                    ]:
+                        # Use first design to infer whether cyclic clustering should be enabled by default
+                        design_example = get_cached_design(design_ids[0]) if design_ids else None
+                        cyclic = all(design_example.spec.get_chain(chain).cyclic for chain in chains)
+                        set_hierarchical_clustering_params(
+                            workflow, cyclic=cyclic, key_suffix=f"_instance_{instance_id}"
+                        )
                     else:
                         st.error("Tool parameters UI not implemented.")
 
@@ -185,6 +208,7 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     jobs_for_design_ids = get_cached_descriptor_jobs_for_design_ids(
         design_ids, workflow_names=clustering_workflow_names, project_id=st.session_state.project.id
     )
+
     if not jobs_for_design_ids:
         # Check if there are any clustering jobs for some of the designs
         jobs_for_some_designs = get_cached_descriptor_jobs_for_design_ids(
@@ -250,8 +274,10 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
             for descriptor in descriptors
         }
     )
+    if isinstance(job.workflow, SecondaryStructureHierarchicalClusteringWorkflow):
+        df_descriptor_values[PYDSSP_STRING.key] = get_cached_descriptor_values(PYDSSP_STRING.key, design_ids)
     # Download descriptors for current job
-    download_descriptors_from_job(df_descriptor_values, job)
+    download_descriptors_from_job(design_ids, [d.key for d in descriptors], job)
 
     # Identify which clustering tool was used and get cluster descriptor for id
     # this is neccessary when other clustering algorithms used and columns descriptors named differently
@@ -267,6 +293,10 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
 
     # Create tiles for cluster representatives
     cluster_representatives_tiles(df_descriptor_values, tool=tool_key, job=job)
+
+    if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
+        st.subheader("Interface residues by cluster")
+        interface_clustering_table(df_descriptor_values, job)
 
     # Cluster browser
     st.subheader("Cluster browser")

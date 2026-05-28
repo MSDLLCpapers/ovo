@@ -826,24 +826,33 @@ def visualize_scaffold_alignment(
 
 
 def visualize_align_structure_selection(
-    design_ids: list[str], chains, max_examples: int = 15, key="struct_visualization"
+    design_ids: list[str],
+    align_chains: list[str],
+    visualize_chains: list[str],
+    max_examples: int = 15,
+    default_representation_type=None,
+    color="secondary-structure",
+    auto_zoom_chains=None,
+    key="struct_visualization",
 ):
     # If list of designs too large, align only subset (max_examples) of designs
     max_examples = min(max_examples, len(design_ids))
     example_designs: list[Design] = get_cached_designs(design_ids[:max_examples])
 
-    aligned_subset_pdb_strs, rmsd = align_multiple_proteins_pdb(
-        pdb_strs=[storage.read_file_str(design.structure_path) for design in example_designs],
-        # Allign atoms of provided chains
-        chain_residue_mappings=[[(chain, None)] for chain in chains] * len(example_designs),
-    )
+    with storage.bulk_read_context():
+        aligned_subset_pdb_strs, rmsd = align_multiple_proteins_pdb(
+            pdb_strs=[storage.read_file_str(design.structure_path) for design in example_designs],
+            # Align atoms of provided chains
+            chain_residue_mappings=([[(chain, None) for chain in align_chains]] * len(example_designs)),
+        )
 
     viz.molstar(
         *[
             viz.StructureVisualization(
                 data=aligned_pdb_str,
-                representation=None,
-                representations=[viz.Representation(chain, "cartoon", color="secondary-structure") for chain in chains],
+                representation_type=default_representation_type,
+                representations=[viz.Representation(visualize_chains, "cartoon", color=color)],
+                auto_zoom_chains=auto_zoom_chains,
             )
             for aligned_pdb_str in aligned_subset_pdb_strs
         ],

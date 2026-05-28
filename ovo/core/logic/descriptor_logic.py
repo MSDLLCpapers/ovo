@@ -11,7 +11,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from ovo import db, storage, get_scheduler, config
 from ovo.core.auth import get_username
 from ovo.core.database.descriptors_proteinqc import PROTEINQC_MAIN_DESCRIPTORS
-from ovo.core.database.models_clustering import FoldseekClusteringWorkflow
+from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING, INTERFACE_TARGET_RESIDUES
+from ovo.core.database.models_clustering import BaseHierarchicalClusteringWorkflow, FoldseekClusteringWorkflow
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.database.models_refolding import RefoldingWorkflow, RefoldingSupportedDesignWorkflow
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY, ALL_DESCRIPTOR_KEYS_SET
@@ -33,9 +34,10 @@ from ovo.core.scheduler.base_scheduler import Scheduler
 from ovo.core.utils.pdb import NoStructuresFound
 
 
-def get_available_descriptors(design_ids: list[str]) -> dict[str, Descriptor]:
+def get_available_descriptors(design_ids: list[str], exclude_required_jobs: bool = True) -> dict[str, Descriptor]:
     """
     Return all descriptor keys found in DB for the given design ids.
+    If exclude_required_jobs is True, only return descriptors that don't depend on a descriptor job (ambiguous values without it)
     """
     design_ids = list(set(design_ids))
     if not design_ids:
@@ -45,6 +47,9 @@ def get_available_descriptors(design_ids: list[str]) -> dict[str, Descriptor]:
         descriptor_key: ALL_DESCRIPTORS_BY_KEY[descriptor_key]
         for descriptor_key in ALL_DESCRIPTORS_BY_KEY
         if descriptor_key in descriptor_keys
+        and not (
+            exclude_required_jobs and getattr(ALL_DESCRIPTORS_BY_KEY[descriptor_key], "required_descriptor_job", False)
+        )
     }
 
 
@@ -225,6 +230,7 @@ def prepare_design_sequences(designs: list[Design], workdir: str):
         raise ValueError("No sequences found for the selected designs.")
 
     df = pd.DataFrame(sequences, index=design_ids)
+    df.index.name = "design_id"
 
     return storage.prepare_workflow_input(storage_path="designs.csv", input_bytes=df.to_csv().encode(), workdir=workdir)
 
@@ -281,31 +287,13 @@ def prepare_foldseek_clustering_workflow_params(workflow: FoldseekClusteringWork
     chains = list(workflow.chains)
     n_neighbors = workflow.n_neighbors
 
-    storage_paths = []
-    design_ids = []
-    for design in designs_query:
-        if not design.structure_path:
-            print(f"Design {design.id} has no structure path. Skipping...")
-            continue
-        storage_paths.append(design.structure_path)
-        design_ids.append(design.id)
+    # Use prepare_design_structures helper for better error handling
+    input_query_path = prepare_design_structures(designs_query, workdir=workdir)
 
-    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
-    input_query_path = storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
-
-    storage_paths = []
-    design_ids = []
-    for design in designs_target:
-        if not design.structure_path:
-            print(f"Design {design.id} has no pdb path. Skipping...")
-            continue
-        storage_paths.append(design.structure_path)
-        design_ids.append(design.id)
-
-    # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
-    input_target_path = (
-        storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids) if designs_target else None
-    )
+    # Prepare target structures if provided
+    input_target_path = None
+    if designs_target:
+        input_target_path = prepare_design_structures(designs_target, workdir=workdir)
 
     optional_params = workflow.params.to_dict()
     # Add "foldseek_" prefix to optional parameters
@@ -319,6 +307,79 @@ def prepare_foldseek_clustering_workflow_params(workflow: FoldseekClusteringWork
         "workflow_name": "foldseek",
         **optional_params,
     }
+
+
+def prepare_hierarchical_clustering_workflow_params(workflow: BaseHierarchicalClusteringWorkflow, workdir: str) -> dict:
+    workflow.validate()
+
+    designs = db.select(Design, id__in=workflow.design_ids)
+
+    chains = list(workflow.chains)
+    n_neighbors = workflow.n_neighbors
+
+    # Determine if we need structures or can use sequences
+    if workflow.requires_structures:
+        input_query_path = prepare_design_structures(designs, workdir=workdir)
+    else:
+        # For sequence/descriptor-based clustering, use sequences CSV (provides design IDs)
+        # Try sequences first, fall back to structures if needed
+        input_query_path = prepare_design_sequences(designs, workdir=workdir)
+
+    optional_params = workflow.params.to_dict()
+
+    # Also add the pydssp df as a csv file to the input directory and pass the path as a parameter
+    if workflow.tool_key == "secondary_structure_hierarchical_clustering":
+        descriptors_df = get_wide_descriptor_table(
+            design_ids=workflow.design_ids, descriptor_keys=[PYDSSP_STRING.key], nested=False, human_readable=False
+        )
+        csv_bytes = descriptors_df.to_csv().encode("utf-8")
+        pydssp_csv_path = storage.prepare_workflow_input("pydssp_descriptors.csv", workdir, input_bytes=csv_bytes)
+        optional_params["dssp_csv"] = pydssp_csv_path
+
+    if workflow.tool_key == "interface_residues_hierarchical_clustering":
+        descriptor = INTERFACE_TARGET_RESIDUES
+        descriptor_values = db.select_descriptor_values(descriptor.key, design_ids=workflow.design_ids)
+        descriptor_values_by_design_series = pd.Series(descriptor_values, index=workflow.design_ids)
+        interface_residues_table = get_interface_residues_by_design_table(descriptor_values_by_design_series)
+        csv_bytes = interface_residues_table.to_csv().encode("utf-8")
+        interface_residues_table_path = storage.prepare_workflow_input(
+            "interface_residues.csv", workdir, input_bytes=csv_bytes
+        )
+        optional_params["interface_residues_csv"] = interface_residues_table_path
+
+    # Add "hierarchical_" prefix to optional parameters
+    optional_params = {f"hierarchical_{k}": v for k, v in optional_params.items()}
+
+    return {
+        "query_pdb": input_query_path,
+        "n_neighbors": ",".join(map(str, n_neighbors)),
+        "chains": ",".join(chains),
+        "workflow_name": "hierarchical",
+        **optional_params,
+    }
+
+
+def get_interface_residues_by_design_table(descriptor_values: pd.Series) -> pd.DataFrame:
+    unique_residues = set()
+    design_to_residues = {}
+
+    # Build mapping from design to set of residues, and collect all unique residues
+    for design_id, val in descriptor_values.items():
+        residues = {r.strip() for r in str(val).split(",") if r.strip()}
+        design_to_residues[design_id] = residues
+        unique_residues.update(residues)
+    # Remove "None" if present
+    if "None" in unique_residues:
+        unique_residues.remove("None")
+    unique_residues = sorted(unique_residues, key=lambda x: (x[0], int(x[1:])))  # sort by chain and residue number
+    bool_data = []
+
+    # For each design, create a boolean row for presence of each residue
+    for design_id in descriptor_values.index:
+        row = [res in design_to_residues[design_id] for res in unique_residues]
+        bool_data.append(row)
+    bool_df = pd.DataFrame(bool_data, index=descriptor_values.index, columns=unique_residues)
+    return bool_df
 
 
 def get_log(descriptor_job: DescriptorJob, tail: int = None) -> str:

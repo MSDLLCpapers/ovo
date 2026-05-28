@@ -16,48 +16,68 @@ def join_embedding_with_cluster(
         repr_: i for i, repr_ in enumerate(joined_embedding[cluster_repr_column].value_counts().index, start=1)
     }
     joined_embedding["cluster_id"] = joined_embedding[cluster_repr_column].map(cluster_repr_to_id)
+    joined_embedding.rename(columns={cluster_repr_column: "cluster_repr"}, inplace=True)
     return joined_embedding
 
 
-def get_umap_embeddings(
-    similarity_df: pd.DataFrame,
+def get_umap_embeddings_from_long_format(
+    df: pd.DataFrame,
     query_column: str,
     target_column: str,
     score_column: str,
-    n_neighbors: int = 50,
+    n_neighbors: int,
+    is_similarity: bool = True,
     n_components: int = 2,
     random_state: int = 42,
 ) -> pd.DataFrame:
     """
-    similarity_df: similarity DataFrame with columns containing columns specified by query_column, target_column, score_column
-    query_column: name of the column with query IDs
-    target_column: name of the column with target IDs
-    score_column: name of the column with similarity scores
-    n_neighbors: UMAP n_neighbors for balancing between local and global structure
-    k: number of nearest neighbors to compute for each query (>= n_neighbors) in kNN
-    metric: metric for NearestNeighbors ('cosine','euclidean', etc.)
-    n_components: output embedding dimension
+    Create UMAP embeddings from long format similarity or distance data.
+    Extracts kNN from the long format data and passes to UMAP.
+
+    Args:
+        df: DataFrame with query, target, score columns
+        query_column: name of the query column
+        target_column: name of the target column
+        score_column: name of the score column
+        n_neighbors: number of neighbors to retrieve for UMAP
+        is_similarity: if True, data contains similarity scores (higher = more similar);
+                      if False, data contains distances (lower = more similar)
+        n_components: output embedding dimension
+        random_state: random seed
+    Returns:
+        DataFrame with UMAP coordinates
     """
-    # remap IDs to contiguous integers
-    idx = sorted(set(similarity_df[query_column]).union(set(similarity_df[target_column])))
+    # Remap IDs to contiguous integers
+    idx = sorted(set(df[query_column]).union(set(df[target_column])))
     id_to_idx = {id_: i for i, id_ in enumerate(idx)}
     n = len(idx)
 
     indices = np.zeros((n, n_neighbors), dtype=np.int64)
     dists = np.zeros((n, n_neighbors), dtype=np.float32)
-    for query_id, query_rows in similarity_df.groupby(query_column):
-        top_rows = query_rows.sort_values(by=score_column, ascending=False).head(n_neighbors)
+
+    for query_id, query_rows in df.groupby(query_column):
+        # Sort: descending for similarity (highest first), ascending for distance (lowest first)
+        top_rows = query_rows.sort_values(by=score_column, ascending=not is_similarity).head(n_neighbors)
         top_target_ids = top_rows[target_column]
         top_scores = top_rows[score_column]
+
         if len(top_rows) < n_neighbors:
-            # Pad with self-similarity if not enough neighbors
+            # Pad with self-score if not enough neighbors
             pad_size = n_neighbors - len(top_rows)
             top_target_ids = pd.concat([pd.Series([query_id] * pad_size), top_target_ids])
-            top_scores = pd.concat([pd.Series([1.0] * pad_size), top_scores])
-        indices[id_to_idx[query_id]] = top_target_ids.apply(id_to_idx.get).to_numpy()
-        dists[id_to_idx[query_id]] = np.clip(1 - top_scores.to_numpy(), 0, 1)
+            # Pad with 1.0 for similarity (perfect match), 0.0 for distance (zero distance to self)
+            pad_value = 1.0 if is_similarity else 0.0
+            top_scores = pd.concat([pd.Series([pad_value] * pad_size), top_scores])
 
-    # Pass precomputed knn to UMAP
+        indices[id_to_idx[query_id]] = top_target_ids.apply(id_to_idx.get).to_numpy()
+
+        # Convert similarity to distance if needed, otherwise use scores as is
+        if is_similarity:
+            dists[id_to_idx[query_id]] = np.clip(1 - top_scores.to_numpy(), 0, 1)
+        else:
+            dists[id_to_idx[query_id]] = top_scores.to_numpy()
+
+    # Create UMAP embeddings from precomputed kNN
     mapper = umap.UMAP(
         n_neighbors=n_neighbors,
         n_components=n_components,
@@ -68,15 +88,48 @@ def get_umap_embeddings(
     )
     embedding = mapper.fit_transform(np.zeros((n, 1)))
 
-    # Map embedding back to original query IDs
+    # Create DataFrame with original IDs as index
     df_embedding = pd.DataFrame(embedding, index=idx)
+    df_embedding.rename(columns={0: f"umap_x_{n_neighbors}", 1: f"umap_y_{n_neighbors}"}, inplace=True)
+
+    return df_embedding
+
+
+def get_umap_embeddings_from_matrix(
+    distance_matrix: pd.DataFrame,
+    n_neighbors: int,
+    n_components: int = 2,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """
+    Create UMAP embeddings from a full pairwise distance matrix.
+    UMAP will internally compute kNN from the distance matrix.
+
+    Args:
+        distance_matrix: DataFrame with pairwise distances (square matrix)
+        n_neighbors: UMAP n_neighbors for balancing between local and global structure
+        n_components: output embedding dimension
+        random_state: random seed
+    Returns:
+        DataFrame with UMAP coordinates
+    """
+    mapper = umap.UMAP(
+        n_neighbors=n_neighbors,
+        n_components=n_components,
+        metric="precomputed",
+        init="random",
+        random_state=random_state,
+    )
+    embedding = mapper.fit_transform(distance_matrix.values)
+    df_embedding = pd.DataFrame(embedding, index=distance_matrix.index)
     df_embedding.rename(columns={0: f"umap_x_{n_neighbors}", 1: f"umap_y_{n_neighbors}"}, inplace=True)
     return df_embedding
 
 
-def validate_neighbors_value(similarity_df: pd.DataFrame, n_neighbors, query_column: str = "query") -> list[str]:
+def validate_neighbors_value(n_unique_queries: int, n_neighbors: str) -> list[str]:
+    """Validate there are enough neighbors for UMAP embedding and that n_neighbors is a valid integer."""
     errors = []
-    n_unique_queries = similarity_df[query_column].nunique()
+
     # Validate the number of input structures
     if n_unique_queries < 2:
         errors.append(f"Not enough unique queries passed (must be more than 2 - currently {n_unique_queries})")
@@ -86,21 +139,160 @@ def validate_neighbors_value(similarity_df: pd.DataFrame, n_neighbors, query_col
         errors.append(f"Invalid n_neighbors ({n_neighbors}): value must be integer.")
         return errors
     else:
-        n_neighbors = int(n_neighbors)
+        n_neighbors_int = int(n_neighbors)
 
     # Validate the n_neighbors value
-    if n_neighbors < 2:
+    if n_neighbors_int < 2:
         errors.append("N_neighbors must be greater than 1")
-    elif int(n_neighbors) > n_unique_queries:
-        errors.append(f"N_neighbors ({n_neighbors}) exceeding possible neighbors ({n_unique_queries}).")
+    elif n_neighbors_int > n_unique_queries:
+        errors.append(f"N_neighbors ({n_neighbors_int}) exceeding possible neighbors ({n_unique_queries}).")
 
     return errors
+
+
+def validate_matrix(matrix: pd.DataFrame, is_similarity: bool = True) -> list[str]:
+    """
+    Validate that the matrix has expected properties for similarity or distance matrix.
+
+    Args:
+        matrix: DataFrame with pairwise scores
+        is_similarity: if True, expect similarity matrix; if False, expect distance matrix
+    Returns:
+        List of warning messages (empty if validation passes)
+    Raises:
+        ValueError: if matrix is not square (critical error)
+    """
+    warnings = []
+
+    # Check if matrix is square - this is a critical error
+    if matrix.shape[0] != matrix.shape[1]:
+        raise ValueError(
+            f"Matrix must be square for pairwise distance/similarity computation. Got shape {matrix.shape}"
+        )
+
+    # Check diagonal values
+    diagonal = np.diag(matrix.values)
+    expected_diagonal = 1.0 if is_similarity else 0.0
+    matrix_type = "similarity" if is_similarity else "distance"
+
+    # Check if diagonal is close to expected value
+    if not np.allclose(diagonal, expected_diagonal, atol=1e-6):
+        unique_diag = np.unique(diagonal.round(6))
+        warnings.append(
+            f"Diagonal values unexpected for {matrix_type} matrix. "
+            f"Expected {expected_diagonal}, found values: {unique_diag[:10]}"
+        )
+
+    # Check symmetry
+    if not np.allclose(matrix.values, matrix.values.T, atol=1e-6):
+        warnings.append("Matrix is not symmetric")
+
+    # Check value range
+    min_val = matrix.min().min()
+    max_val = matrix.max().max()
+
+    if is_similarity:
+        # Similarity should be in [0, 1]
+        if min_val < -1e-6 or max_val > 1 + 1e-6:
+            warnings.append(f"Similarity values outside [0, 1] range: min={min_val:.6f}, max={max_val:.6f}")
+    else:
+        # Distance should be non-negative
+        if min_val < -1e-6:
+            warnings.append(f"Distance values are negative: min={min_val:.6f}")
+
+    return warnings
+
+
+def fill_missing_ids_in_matrix(
+    matrix: pd.DataFrame, cluster_ids: list[str], is_similarity: bool = True
+) -> pd.DataFrame:
+    """
+    Fill missing IDs in a pairwise matrix with appropriate self-scores.
+
+    Args:
+        matrix: DataFrame with IDs as index and columns
+        cluster_ids: List of cluster IDs to check for
+        is_similarity: if True, uses self-similarity = 1.0; if False, uses self-distance = 0.0
+    Returns:
+        Updated DataFrame with missing IDs filled
+    """
+    missing_ids = sorted(set(cluster_ids) - set(matrix.index))
+    if missing_ids:
+        matrix_type = "similarity" if is_similarity else "distance"
+        print(f"[Warning] {len(missing_ids)} design IDs are missing in the {matrix_type} matrix: {missing_ids}")
+        print(f"Adding self-{matrix_type} entries for missing IDs.")
+
+        # Determine self-score and other-score based on matrix type
+        if is_similarity:
+            self_score = 1.0  # Perfect similarity with self
+            other_score = 0.0  # No similarity with others (most dissimilar)
+        else:
+            self_score = 0.0  # Zero distance to self
+            other_score = float("inf")  # Infinite distance to others (we'll use a large value)
+
+        # Add missing IDs to matrix
+        for missing_id in missing_ids:
+            # Set very low similarity / very high distance to all other structures
+            matrix.loc[missing_id, :] = other_score if not is_similarity else other_score
+            matrix.loc[:, missing_id] = other_score if not is_similarity else other_score
+            # Set perfect self-score
+            matrix.loc[missing_id, missing_id] = self_score
+    return matrix
+
+
+def fill_missing_ids_in_similarity_long_format(
+    df: pd.DataFrame,
+    cluster_ids: list[str],
+    query_column: str,
+    target_column: str,
+    score_column: str,
+    is_similarity: bool = True,
+) -> pd.DataFrame:
+    """
+    Fill missing IDs in long format pairwise score data.
+
+    Args:
+        df: DataFrame with query, target, score columns
+        cluster_ids: List of cluster IDs to check for
+        query_column: name of the query column
+        target_column: name of the target column
+        score_column: name of the score column
+        is_similarity: if True, uses self-similarity = 1.0; if False, uses self-distance = 0.0
+    Returns:
+        Updated DataFrame with missing IDs filled
+    """
+    missing_ids = sorted(set(cluster_ids) - set(df[query_column].unique()))
+    if missing_ids:
+        matrix_type = "similarity" if is_similarity else "distance"
+        print(f"[Warning] {len(missing_ids)} design IDs are missing in the {matrix_type} file: {missing_ids}")
+        print(f"Adding self-{matrix_type} entries for missing IDs.")
+        # Determine self-score based on matrix type
+        self_score = 1.0 if is_similarity else 0.0
+        # Add self-score entries for missing IDs
+        df = pd.concat(
+            [
+                df,
+                pd.DataFrame(
+                    {
+                        query_column: missing_ids,
+                        target_column: missing_ids,
+                        score_column: [self_score] * len(missing_ids),
+                    }
+                ),
+            ]
+        )
+    return df
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cluster_file", type=str, required=True)
-    parser.add_argument("--similarity_file", type=str, required=True)
+    parser.add_argument(
+        "--similarity_file",
+        type=str,
+        required=True,
+        help="File containing pairwise similarity or distance scores. Can be in long format (query, target, score) or matrix format (square matrix with IDs as index and columns). If the file is distance use --is_distance",
+    )
     parser.add_argument("--cluster_file_columns", type=str, default="cluster_repr,cluster_member")
     parser.add_argument("--similarity_file_columns", type=str, required=True)
     parser.add_argument("--cluster_file_has_header", action="store_true", help="Set if cluster file has header row")
@@ -112,14 +304,32 @@ if __name__ == "__main__":
     parser.add_argument("--similarity_query_column", type=str, default="query")
     parser.add_argument("--similarity_target_column", type=str, default="target")
     parser.add_argument("--similarity_score_column", type=str, required=True)
+    parser.add_argument(
+        "--similarity_format",
+        type=str,
+        default="long",
+        choices=["long", "matrix"],
+        help="Format of similarity file: 'long' (query, target, score) or 'matrix' (NxN matrix)",
+    )
+    parser.add_argument(
+        "--is_distance",
+        action="store_true",
+        help="Set if the input contains distance scores (lower = more similar). "
+        "If not set, input is treated as similarity scores (higher = more similar).",
+    )
     parser.add_argument("--n_neighbors", type=str, required=True)
     parser.add_argument("--output_dir", type=str)
     options = parser.parse_args()
 
-    os.mkdir(options.output_dir)
+    # Determine if input is similarity or distance
+    is_similarity = not options.is_distance
 
-    if os.path.getsize(options.similarity_file) == 0:
-        raise ValueError("Similarity file is empty")
+    os.makedirs(options.output_dir, exist_ok=True)
+
+    # For symlinks, follow to the target; for compressed files, check actual file size
+    file_size = os.path.getsize(os.path.realpath(options.similarity_file))
+    if file_size == 0:
+        raise ValueError(f"Similarity file is empty: {options.similarity_file}")
 
     similarity_sep = "\t" if options.similarity_file.endswith(".tsv") else ","
     cluster_sep = "\t" if options.cluster_file.endswith(".tsv") else ","
@@ -128,19 +338,50 @@ if __name__ == "__main__":
     cluster_columns = options.cluster_file_columns.strip().split(",")
 
     similarity_index_column = options.similarity_query_column
+    similarity_target_column = options.similarity_target_column
+    similarity_score_column = options.similarity_score_column
     cluster_index_column = options.clustering_index_column
     cluster_representative_column = options.clustering_repr_column
 
-    score_col_idx = similarity_columns.index(options.similarity_score_column)
+    # Read similarity file
+    if options.similarity_format == "matrix":
+        # For matrix format, read directly as matrix
+        similarity_data = pd.read_csv(
+            options.similarity_file,
+            sep=similarity_sep,
+            header=0 if options.similarity_file_has_header else None,
+            index_col=0,
+        )
+        # For validation, we need to know unique queries
+        similarity_index_column = similarity_data.index.name or "index"
+    elif options.similarity_format == "long":
+        # Handle column specifications
+        if options.similarity_file_has_header:
+            # File has header - use column names directly
+            dtype_spec = {similarity_score_column: np.float32}
+            names_spec = None
+            header_spec = 0
+        else:
+            # File has no header - need explicit column names
+            if not options.similarity_file_columns or options.similarity_file_columns.strip() == "":
+                raise ValueError("similarity_file_columns must be provided when similarity_file_has_header is False")
 
-    # Read similarity file with or without header
-    similarity_df = pd.read_csv(
-        options.similarity_file,
-        sep=similarity_sep,
-        header=0 if options.similarity_file_has_header else None,
-        dtype={score_col_idx: np.float32},
-        names=None if options.similarity_file_has_header else similarity_columns,
-    )
+            similarity_columns = options.similarity_file_columns.strip().split(",")
+            score_col_idx = similarity_columns.index(similarity_score_column)
+            dtype_spec = {score_col_idx: np.float32}
+            names_spec = similarity_columns
+            header_spec = None
+
+        # Long format - read as DataFrame
+        similarity_data = pd.read_csv(
+            options.similarity_file,
+            sep=similarity_sep,
+            header=header_spec,
+            dtype=dtype_spec,
+            names=names_spec,
+        )
+    else:
+        raise ValueError("Please use either 'long' or 'matrix'format")
 
     # Read cluster file with or without header
     cluster_df = pd.read_csv(
@@ -149,55 +390,77 @@ if __name__ == "__main__":
         header=0 if options.cluster_file_has_header else None,
         names=None if options.cluster_file_has_header else cluster_columns,
     ).set_index(cluster_index_column)
+    cluster_ids = cluster_df.index.tolist()
 
-    n_unique_queries = similarity_df[similarity_index_column].nunique()
-    missing_ids = sorted(set(cluster_df.index) - set(similarity_df[similarity_index_column].unique()))
-    if missing_ids:
-        print(f"[Warning] {len(missing_ids)} design IDs are missing in the similarity file: {missing_ids}")
-        print("Adding self-similarity entries for missing IDs.")
-        # Add self-similarity entries for missing IDs
-        similarity_df = pd.concat(
-            [
-                similarity_df,
-                pd.DataFrame(
-                    {
-                        options.similarity_query_column: missing_ids,
-                        options.similarity_target_column: missing_ids,
-                        options.similarity_score_column: [1.0] * len(missing_ids),
-                    }
-                ),
-            ]
+    # Handle missing IDs in similarity data
+    if options.similarity_format == "matrix":
+        similarity_data = fill_missing_ids_in_matrix(similarity_data, cluster_ids, is_similarity)
+    elif options.similarity_format == "long":
+        similarity_data = fill_missing_ids_in_similarity_long_format(
+            similarity_data,
+            cluster_ids,
+            similarity_index_column,
+            similarity_target_column,
+            similarity_score_column,
+            is_similarity,
         )
-        n_unique_queries = similarity_df[similarity_index_column].nunique()
+
+    # Validate matrix format data
+    if options.similarity_format == "matrix":
+        validation_warnings = validate_matrix(similarity_data, is_similarity)
+        if validation_warnings:
+            print("[Validation Warnings]")
+            for warning in validation_warnings:
+                print(f"  - {warning}")
+
+    # Get number of unique queries
+    if options.similarity_format == "matrix":
+        n_unique_queries = len(similarity_data)
+    elif options.similarity_format == "long":
+        if not similarity_index_column:
+            raise ValueError("query_column is required for long format")
+        n_unique_queries = similarity_data[similarity_index_column].nunique()
 
     # Compute embedding for each n_neighbor, handle failures without exceptions
     query_embeddings = []
     all_errors = []
     for n_neighbors in options.n_neighbors.split(","):
-        error_messages = validate_neighbors_value(similarity_df, n_neighbors, query_column=similarity_index_column)
+        error_messages = validate_neighbors_value(n_unique_queries, n_neighbors)
         embedding_df = None
 
         if not error_messages:
-            # Compute embedding coords
             try:
-                embedding_df = get_umap_embeddings(
-                    similarity_df=similarity_df,
-                    query_column=similarity_index_column,
-                    target_column=options.similarity_target_column,
-                    score_column=options.similarity_score_column,
-                    n_neighbors=int(n_neighbors),
-                    n_components=2,
-                )
+                if options.similarity_format == "matrix":
+                    distance_matrix = similarity_data.copy()
+                    if is_similarity:
+                        # Convert similarity to distance: distance = 1 - similarity
+                        distance_matrix = 1 - distance_matrix
+                        distance_matrix = distance_matrix.clip(lower=0)
+
+                    embedding_df = get_umap_embeddings_from_matrix(
+                        distance_matrix=distance_matrix,
+                        n_neighbors=int(n_neighbors),
+                    )
+                elif options.similarity_format == "long":
+                    # For long format, extract kNN and create UMAP embeddings
+                    embedding_df = get_umap_embeddings_from_long_format(
+                        df=similarity_data,
+                        query_column=similarity_index_column,
+                        target_column=similarity_target_column,
+                        score_column=similarity_score_column,
+                        n_neighbors=int(n_neighbors),
+                        is_similarity=is_similarity,
+                    )
             except Exception as e:
                 traceback.print_exc()
                 error_messages = [str(e)]
 
         if embedding_df is None:
             nan_data = {
-                f"umap_x_{n_neighbors}": [np.nan] * n_unique_queries,
-                f"umap_y_{n_neighbors}": [np.nan] * n_unique_queries,
+                f"umap_x_{n_neighbors}": [np.nan] * len(similarity_data.index),
+                f"umap_y_{n_neighbors}": [np.nan] * len(similarity_data.index),
             }
-            embedding_df = pd.DataFrame(nan_data, index=similarity_df[similarity_index_column].unique())
+            embedding_df = pd.DataFrame(nan_data, index=similarity_data.index)
         query_embeddings.append(embedding_df)
         all_errors.extend(error_messages)
 

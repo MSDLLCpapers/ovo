@@ -376,7 +376,7 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
 
         WorkflowType.visualize_single_design_sequences(design_id)
 
-        st.write(f"### Download {design_id}")
+        st.write(f"### Download single design: {design_id}")
 
         download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")
 
