@@ -146,6 +146,11 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
             height=450,
             width=700,
         )
+        if not any(j.job_result for j, _, _ in group_subjobs):
+            st.write("No results yet.")
+            st.divider()
+            continue
+
         for method, color, descriptor in [
             ["Designed", "green", descriptors_rfdiffusion.INTERFACE_TARGET_RESIDUES],
             ["AlphaFold2 refolding predicted", "red", descriptors_refolding.AF2_PRIMARY_INTERFACE_TARGET_RESIDUES],

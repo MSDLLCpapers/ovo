@@ -75,18 +75,33 @@ def design_job_detail(pool_ids):
     with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="bottom"):
         st.subheader("Workflow parameters")
 
-        show_distinct = (
-            st.segmented_control(
-                "Distinct",
-                options=["All parameters", "Distinct parameters"],
-                key="show_distinct",
-                default="All parameters",
-                label_visibility="collapsed",
+        with st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
+            st.write("Show as:")
+            show_as_rows = (
+                st.segmented_control(
+                    "Show as",
+                    options=["Columns", "Rows"],
+                    key="show_as",
+                    default="Columns",
+                    label_visibility="collapsed",
+                )
+                == "Rows"
             )
-            == "Distinct parameters"
-            if len(pool_ids) > 1
-            else False
-        )
+
+            if len(pool_ids) > 1:
+                st.write("Filter:")
+                show_distinct = (
+                    st.segmented_control(
+                        "Distinct",
+                        options=["All parameters", "Distinct parameters"],
+                        key="show_distinct",
+                        default="All parameters",
+                        label_visibility="collapsed",
+                    )
+                    == "Distinct parameters"
+                )
+            else:
+                show_distinct = False
 
     table = get_cached_design_jobs_table(round_ids=sorted(set(p.round_id for p in pools)), id__in=pool_ids)
     table.index = [pools_by_design_job[j.id].id for j in design_jobs]
@@ -94,7 +109,10 @@ def design_job_detail(pool_ids):
     if show_distinct:
         table = table[table.columns[table.astype(str).nunique() > 1]]
 
-    st.dataframe(table)
+    if show_as_rows:
+        st.table(table.T, width="content")
+    else:
+        st.dataframe(table)
 
     num_pools_failed = sum(job.job_result == False for job in design_jobs)
     num_pools_in_progress = sum(job.job_result is None for job in design_jobs)
@@ -123,7 +141,9 @@ def design_job_detail(pool_ids):
                 st.error(f"Failed reading job details for job {job.job_id}: {e}")
 
     if len(pools) == num_pools_failed + num_pools_in_progress:
-        # Nothing to show yet, exit here
+        # No results yet, show workflow summary
+        st.subheader("Workflow summary")
+        show_workflow_summary(design_jobs)
         return
 
     if num_pools_in_progress:

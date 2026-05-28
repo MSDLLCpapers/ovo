@@ -18,7 +18,11 @@ from ovo.core.database.models import (
 import streamlit as st
 
 from ovo.core.logic import design_logic
-from ovo.core.logic.descriptor_logic import get_available_descriptors, get_available_descriptors_per_job
+from ovo.core.logic.descriptor_logic import (
+    get_available_descriptors,
+    get_available_descriptors_per_job,
+    get_wide_descriptor_table,
+)
 from ovo.core.logic.design_logic import get_design_jobs_table, get_pools_table
 
 
@@ -110,6 +114,12 @@ def get_cached_descriptor_values(
     descriptor_key: str, design_ids: list[str], descriptor_job_id: str | None = None
 ) -> pd.Series():
     return db.select_descriptor_values(descriptor_key, design_ids=design_ids, descriptor_job_id=descriptor_job_id)
+
+
+@clear_when_modified(DescriptorValue)
+@st.cache_data(max_entries=10, ttl="1h", show_spinner="Loading descriptors...")
+def get_cached_wide_descriptor_table(**kwargs):
+    return get_wide_descriptor_table(**kwargs)
 
 
 @clear_when_modified(Design)

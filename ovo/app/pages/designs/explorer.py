@@ -11,11 +11,15 @@ from ovo.app.components.descriptor_scatterplot import (
     descriptor_scatterplot_input_component,
 )
 from ovo.app.components.navigation import design_navigation_selector
-from ovo.app.utils.cached_db import get_cached_design, get_cached_pool, get_cached_design_job
+from ovo.app.utils.cached_db import (
+    get_cached_design,
+    get_cached_pool,
+    get_cached_design_job,
+    get_cached_wide_descriptor_table,
+)
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.database.models import Design, DesignWorkflow, UnknownWorkflow
 from ovo.app.utils.cached_db import get_cached_pools, get_cached_design_jobs
-from ovo.core.logic.descriptor_logic import get_wide_descriptor_table
 from ovo.app.components.design_labeling import design_labeling_fragment
 import traceback
 
@@ -71,20 +75,25 @@ def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
         )
     )
 
-    st.caption(
-        "Showing selected X and Y descriptors plus descriptors most relevant to the workflow. "
-        "Use the download button below to get a table with all descriptors."
-    )
+    if not descriptor_keys:
+        st.warning(
+            "No descriptors selected. Select X and Y descriptors above, or download the full descriptor table below."
+        )
+    else:
+        st.caption(
+            "Showing selected X and Y descriptors plus descriptors most relevant to the workflow. "
+            "Use the download button below to get a table with all descriptors."
+        )
 
-    df = get_wide_descriptor_table(
-        pool_ids=pool_ids,
-        design_ids=selected_design_ids,
-        descriptor_keys=descriptor_keys,
-        human_readable=True,
-        nested=True,
-    )
+        df = get_cached_wide_descriptor_table(
+            pool_ids=pool_ids,
+            design_ids=selected_design_ids,
+            descriptor_keys=descriptor_keys,
+            human_readable=True,
+            nested=True,
+        )
 
-    descriptor_table(selected_design_ids, df, [ALL_DESCRIPTORS_BY_KEY[k] for k in descriptor_keys], height=300)
+        descriptor_table(selected_design_ids, df, [ALL_DESCRIPTORS_BY_KEY[k] for k in descriptor_keys], height=300)
 
     st.subheader(f"Download {len(selected_design_ids):,} " + ("design" if len(selected_design_ids) == 1 else "designs"))
     download_job_designs_component(selected_design_ids, pools)
