@@ -157,7 +157,7 @@ def _include_trajectory_designs(
 
 
 def process_workflow_results(
-    job: DesignJob, callback: Callable = None, extra_filenames: dict | None = None
+    job: DesignJob, callback: Callable = None, extra_filenames: dict | None = None, extra_spec_args: dict | None = None
 ) -> list[Base]:
     """Process the results of a BindCraft design workflow, return Design and DescriptorValue entries to be saved in the database."""
     pool = db.get(Pool, design_job_id=job.id)
@@ -171,6 +171,7 @@ def process_workflow_results(
         num_replicas=job.workflow.bindcraft_params.num_replicas,
         pool_id=pool.id,
         callback=callback,
+        extra_spec_args=extra_spec_args,
     )
 
     if final_df.empty:
