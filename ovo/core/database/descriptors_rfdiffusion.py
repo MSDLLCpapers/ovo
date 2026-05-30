@@ -221,7 +221,50 @@ PYROSETTA_SAP_SCORE = NumericGlobalDescriptor(
     comparison="does_not_apply",
 )
 
-PYROSETTA_INTERFACE_DESCRIPTORS = [PYROSETTA_DDG, PYROSETTA_CMS, PYROSETTA_SAP_SCORE]
+PYROSETTA_BUNS = NumericGlobalDescriptor(
+    name="Buried Unsatisfied H-bonds",
+    description="Number of buried unsatisfied hydrogen bonds at the interface (ddG-style). Uses DAlphaBall rotation-invariant SASA. Calculated as bound - unbound buried unsats. Lower is better. For reference, default Bindcraft filters allow up to 4 buried unsats (in miniprotein interfaces).",
+    tool="PyRosetta",
+    key="pyrosetta_interface_metrics|pyrosetta|buns_heavy_ball_1.1D",
+    comparison="lower_is_better",
+)
+
+PYROSETTA_BUNS_PERCENT = NumericGlobalDescriptor(
+    name="Buried Unsatisfied H-bonds %",
+    description="Number of buried unsatisfied hydrogen bonds divided by number of residues at the interface * 100. Analogous to by Bindcraft InterfaceUnsatHbondsPercentage.",
+    tool="PyRosetta",
+    key="pyrosetta_interface_metrics|pyrosetta|buns_percent",
+    comparison="lower_is_better",
+)
+
+PYROSETTA_HBONDS_INT = NumericGlobalDescriptor(
+    name="Interface H-bonds",
+    description="Total number of hydrogen bonds at the binder-target interface.",
+    tool="PyRosetta",
+    key="pyrosetta_interface_metrics|pyrosetta|hbonds_int",
+    comparison="higher_is_better",
+    min_value=0,
+)
+
+PYROSETTA_INTERFACE_SC = NumericGlobalDescriptor(
+    name="Interface Shape Complementarity",
+    description="Shape complementarity score at the binder-target interface. Values range from 0 (poor fit) to 1 (perfect fit).",
+    tool="PyRosetta",
+    key="pyrosetta_interface_metrics|pyrosetta|interface_sc",
+    comparison="higher_is_better",
+    min_value=0,
+    max_value=1,
+)
+
+PYROSETTA_INTERFACE_DESCRIPTORS = [
+    PYROSETTA_DDG,
+    PYROSETTA_CMS,
+    PYROSETTA_SAP_SCORE,
+    PYROSETTA_BUNS,
+    PYROSETTA_BUNS_PERCENT,
+    PYROSETTA_HBONDS_INT,
+    PYROSETTA_INTERFACE_SC,
+]
 
 DESCRIPTORS = [v for v in globals().values() if isinstance(v, Descriptor)]
 

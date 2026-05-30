@@ -19,6 +19,7 @@ import argparse
 import multiprocessing
 import json
 import sys
+import site
 
 from pyrosetta import *
 from rosetta.protocols.rosetta_scripts import *
@@ -38,10 +39,17 @@ p.add_argument("--out-pdb", help="Save PDB structures to this directory after ap
 p.add_argument("--debug", action="store_true", default=False, help="Exit on error")
 args = p.parse_args()
 
-# TODO include "-holes:dalphaball /software/rosetta/DAlphaBall.gcc"
-# As in https://github.com/RosettaCommons/RFDesign/blob/main/scripts/get_interface_metrics.py
-# To enable BuriedUnsatHbonds in interface_metrics_rfpeptides.xml
-init("-corrections::beta_nov16 -detect_disulf false -run:preserve_header true")
+# Resolve DAlphaBall.gcc from the current Python environment's bin directory (sys.prefix/bin).
+# In conda: set by main.nf after building from source and copying into $BIN.
+# In Docker: pre-installed into /usr/local/bin at image build time (sys.prefix == /usr/local).
+dalphaball_path = "/opt/DAlphaBall.gcc"
+if not os.path.isfile(dalphaball_path):
+    dalphaball_path = os.path.join(site.getsitepackages()[0], "DAlphaBall", "src", "DAlphaBall.gcc")
+if not os.path.isfile(dalphaball_path):
+    raise FileNotFoundError(
+        "DAlphaBall.gcc not found in expected locations. Please ensure DAlphaBall is installed and DAlphaBall.gcc is /opt/ or python site-packages/DAlphaBall/src/."
+    )
+init(f"-corrections::beta_nov16 -detect_disulf false -run:preserve_header true -holes:dalphaball {dalphaball_path}")
 parser = RosettaScriptsParser()
 protocol_path = script_dir + "/interface_metrics_rfdesign.xml"
 
@@ -73,6 +81,7 @@ def calculate(pdb_path):
         print("SCORES", pose.scores)
         for k, v in pose.scores.items():
             row[k] = float(v)
+        row["buns_percent"] = (row["buns_heavy_ball_1.1D"] / row["nres_int"]) * 100
     except Exception as e:
         row["error"] = f"{e} ({type(e).__name__})"
         print(f"ERROR processing {basename}: {row['error']}")

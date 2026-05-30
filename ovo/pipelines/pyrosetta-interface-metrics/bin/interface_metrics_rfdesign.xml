@@ -55,8 +55,32 @@ Taken from: https://github.com/RosettaCommons/RFDesign/blob/98f7435944068f0b8a86
                 <Chain number="2" chi="true" bb="false" />
                 <Jump number="1" setting="true" />
             </MoveMap>
-        </FastRelax>
-    </MOVERS>
+        </FastRelax>        
+        
+        <!-- TODO not all these InterfaceAnalyzer metrics are externalised. Some are redudant with filters below (and may be less accurate).
+            InterfaceAnalyzer generates the following metrics:
+            - dSASA_int: Solvent accessible surface area buried at the interface (Angstroms^2)
+            - dG_separated: Binding energy calculated by separating and optionally repacking the chains
+            - dG_separated/dSASAx100: Separated binding energy per unit interface area * 100
+            - delta_unsatHbonds: Number of buried, unsatisfied hydrogen bonds at the interface
+            - packstat: Packing statistic score for the interface (0=bad, 1=perfect)
+            - dG_cross: Binding energy calculated with cross-interface energy terms (less accurate)
+            - dG_cross/dSASAx100: Cross-interface binding energy per unit interface area * 100
+            - cen_dG: Binding energy using centroid mode and score3 score function
+            - nres_int: Number of residues at the interface
+            - per_residue_energy_int: Average energy of each residue at the interface
+            - side1_score: Energy of one side of the interface
+            - side2_score: Energy of the other side of the interface
+            - nres_all: Total number of residues in the entire complex
+            - side1_normalized: Average per-residue energy on one side of the interface
+            - side2_normalized: Average per-residue energy on the other side of the interface
+            - complex_normalized: Average energy of a residue in the entire complex
+            - hbonds_int: Total cross-interface hydrogen bonds found
+            - hbond_E_fraction: Amount of interface energy (dG_separated) accounted for by cross-interface H-bonds
+        -->
+        <InterfaceAnalyzerMover name="interface_analyzer" scorefxn="sfxn" pack_separated="false" pack_input="false" tracer="false" />
+		    
+	</MOVERS>
 	<FILTERS>
 
 		<ResidueCount name="res_count_all" max_residue_count="9999" confidence="0"/>
@@ -122,10 +146,8 @@ Taken from: https://github.com/RosettaCommons/RFDesign/blob/98f7435944068f0b8a86
         <ContactMolecularSurface name="contact_molecular_surface_apap_binder" distance_weight="0.5" target_selector="apolar_A" binder_selector="chainB" confidence="0" apolar_target="true" />
         <ContactMolecularSurface name="contact_molec_sq5_apap_binder" distance_weight="0.5" target_selector="apolar_A" binder_selector="chainB" confidence="0" near_squared_size="5" apolar_target="true" />
 
-		<!--
-			TODO requires
-	        <BuriedUnsatHbonds name="buns_heavy_ball_1.1D" use_reporter_behavior="true" report_all_heavy_atom_unsats="true" scorefxn="sfxn" residue_selector="AB_interface" ignore_surface_res="false" print_out_info_to_pdb="true" confidence="0" use_ddG_style="true" burial_cutoff="0.01" dalphaball_sasa="true" probe_radius="1.1" max_hbond_energy="1.5" burial_cutoff_apo="0.2" />
-		-->
+
+		<BuriedUnsatHbonds name="buns_heavy_ball_1.1D" use_reporter_behavior="true" report_all_heavy_atom_unsats="true" scorefxn="sfxn" residue_selector="AB_interface" ignore_surface_res="false" print_out_info_to_pdb="true" confidence="0" use_ddG_style="true" burial_cutoff="0.01" dalphaball_sasa="true" probe_radius="1.1" max_hbond_energy="1.5" burial_cutoff_apo="0.2" />
 
         <Ddg name="ddg"  threshold="-10" jump="1" repeats="5" repack="1" relax_mover="min" confidence="0" scorefxn="sfxn" extreme_value_removal="1" />
 
@@ -181,10 +203,9 @@ Taken from: https://github.com/RosettaCommons/RFDesign/blob/98f7435944068f0b8a86
         <Add metrics="binder_blocked_sap" />
         <Add metrics="target_blocked_sap" />
         <Add filter="ddg" />
-        <!--
-        	TODO requires dalphaball
-        	<Add filter="buns_heavy_ball_1.1D" />
-		-->
+       	<Add filter="buns_heavy_ball_1.1D" />
+       	<Add mover="interface_analyzer" />
+
 	</PROTOCOLS>
 	<OUTPUT />
 </ROSETTASCRIPTS>

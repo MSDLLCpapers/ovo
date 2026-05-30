@@ -33,4 +33,4 @@ nextflow run ../../main.nf \
   --publish_dir $OUTPUT_DIR \
   $@
 
-head batch1/*
+head batch1/*.jsonl

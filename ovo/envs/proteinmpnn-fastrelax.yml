@@ -4,6 +4,10 @@ channels:
   - https://conda.rosettacommons.org
 dependencies:
   - python = 3.11
+  - gmp                    # required for DAlphaBall compilation
+  - gfortran               # required for DAlphaBall compilation (FC=gfortran)
+  - gcc                    # required for DAlphaBall compilation (CC=gcc)
+  - make
   - openmm
   - pdbfixer
   - numpy==1.26.4
