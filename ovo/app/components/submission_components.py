@@ -227,11 +227,8 @@ def submit_workflow_dialog(page_key: str, workflow: Workflow, round_id: str, poo
 @st.dialog("Create new round of designs")
 def create_new_round_dialog():
     project_id = st.session_state.project.id
-    last_round = list(get_or_create_project_rounds(project_id=project_id).values())[-1]
-    next_name = None
-    if last_round.name.split()[-1].isnumeric():
-        last_number = int(last_round.name.split()[-1])
-        next_name = f"Round {last_number + 1}"
+    last_round_name = list(get_or_create_project_rounds(project_id=project_id).values())[-1].name
+    next_name = get_next_round_name(last_round_name)
     round_name = st.text_input("Round name", value=next_name, key="round_name")
 
     if st.button("Create round", disabled=not round_name, key="create_round"):
@@ -239,6 +236,14 @@ def create_new_round_dialog():
         db.save(project_round)
         st.session_state.new_round_id = project_round.id
         st.rerun()
+
+
+def get_next_round_name(last_round_name: str) -> str | None:
+    next_name = None
+    parts = last_round_name.rsplit(maxsplit=1)
+    if len(parts) == 2 and parts[-1].isnumeric():
+        next_name = f"{parts[0]} {int(parts[-1]) + 1}"
+    return next_name
 
 
 def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):

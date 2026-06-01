@@ -5,7 +5,9 @@ import traceback
 import streamlit as st
 
 from ovo import get_username, config, db
-from ovo.core.database.models import Pool
+from ovo.app.components.navigation import ROUND_IDS_QUERY_PARAM
+from ovo.app.components.submission_components import get_next_round_name
+from ovo.core.database.models import Pool, Round
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 from ovo.core.logic.design_logic import create_designs_from_structure_files, create_designs_from_dataframe
@@ -22,14 +24,29 @@ def create_new_pool():
 
         rounds_by_id = get_or_create_project_rounds(project_id=project_id)
         round_ids = list(rounds_by_id.keys())
-        round_id = st.selectbox(
-            "Project Round",
-            options=round_ids,
-            format_func=lambda i: rounds_by_id[i].name,
-            key="custom_pool_round_selectbox",
-            index=len(round_ids) - 1,
-            width=300,
-        )
+        options = round_ids + ["__new__"]
+
+        col1, col2, _ = st.columns([1, 1, 1])
+
+        with col1:
+            round_id = st.selectbox(
+                "Project Round",
+                options=options,
+                format_func=lambda i: rounds_by_id[i].name if i != "__new__" else "+ Create new round",
+                # Use len(round_ids) in key to refresh widget after creation of a new round
+                key=f"custom_pool_round_selectbox_{len(round_ids)}",
+                index=len(round_ids) - 1 if round_ids else 0,
+            )
+
+        new_round_name = None
+        if round_id == "__new__":
+            with col2:
+                new_round_name = st.text_input(
+                    "New round name",
+                    value=get_next_round_name(rounds_by_id[round_ids[-1]].name),
+                    placeholder="Enter round name",
+                    key="new_round_name",
+                )
 
         files = st.file_uploader(
             "Structures or sequences",
@@ -203,6 +220,13 @@ def create_new_pool():
         elif not chains:
             error = "Please enter chain IDs to analyze"
 
+        if round_id == "__new__":
+            if not new_round_name.strip():
+                error = "Please enter a name for the new round"
+            else:
+                if db.count(Round, project_id=project_id, name=new_round_name.strip()):
+                    error = "A round with this name already exists in this project. Please choose a different name."
+
         with st.columns([3, 1])[1]:
             submit = st.button(
                 "Upload pool",
@@ -220,6 +244,11 @@ def create_new_pool():
         content.empty()
 
         username = get_username()
+        new_round = None
+
+        if round_id == "__new__":
+            new_round = Round(project_id=project_id, name=new_round_name.strip(), author=username)
+            round_id = new_round.id
 
         # Create pool
         pool = Pool(id=Pool.generate_id(), author=username, round_id=round_id, name=name, description=description)
@@ -259,8 +288,7 @@ def create_new_pool():
         if len(designs) > 1:
             st.text(f"Saving {len(designs):,} designs to DB...")
 
-        # Save designs to db because we load them from db when submitting the proteinqc job
-        db.save_all(designs + [pool])
+        db.save_all(designs + ([new_round] if new_round else []) + [pool])
 
         # Trigger sequence composition computation with local conda scheduler
         try:
@@ -279,6 +307,10 @@ def create_new_pool():
             traceback.print_exc()
             st.warning(f"Error submitting descriptor workflow: {e}")
             time.sleep(1)
+
+        # Activate the selected round and pool
+        st.query_params[ROUND_IDS_QUERY_PARAM] = round_id
+        st.query_params["pool_ids"] = pool.id
 
         st.session_state.files = None
         st.text("✅ Done")
