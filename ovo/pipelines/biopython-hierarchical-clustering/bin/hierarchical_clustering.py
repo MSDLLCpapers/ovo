@@ -35,7 +35,9 @@ if __name__ == "__main__":
     # Handle case with 1 entry
     if similarity_matrix.shape[0] == 1:
         print("Only one entry found in similarity matrix, assigning it to cluster 1")
-        output_df = pd.DataFrame({"ID": similarity_df.index, "Cluster": [1]})
+        output_df = pd.DataFrame(
+            {"ID": similarity_df.index, "Cluster": [1], "Representative_ID": [similarity_df.index[0]]}
+        )
         output_df.to_csv(args.output_csv, index=False)
         exit(0)
 

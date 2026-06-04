@@ -113,8 +113,12 @@ def get_umap_embeddings_from_matrix(
     Returns:
         DataFrame with UMAP coordinates
     """
+
+    if n_neighbors >= len(distance_matrix):
+        print(f"N_neighbors {n_neighbors} exceeds number of samples, setting to {len(distance_matrix) - 1}")
+
     mapper = umap.UMAP(
-        n_neighbors=n_neighbors,
+        n_neighbors=min(n_neighbors, len(distance_matrix) - 1),
         n_components=n_components,
         metric="precomputed",
         init="random",
@@ -126,13 +130,9 @@ def get_umap_embeddings_from_matrix(
     return df_embedding
 
 
-def validate_neighbors_value(n_unique_queries: int, n_neighbors: str) -> list[str]:
+def validate_neighbors_value(n_neighbors: str) -> list[str]:
     """Validate there are enough neighbors for UMAP embedding and that n_neighbors is a valid integer."""
     errors = []
-
-    # Validate the number of input structures
-    if n_unique_queries < 2:
-        errors.append(f"Not enough unique queries passed (must be more than 2 - currently {n_unique_queries})")
 
     # Validate n_neighbors type
     if not n_neighbors.isdigit():
@@ -144,8 +144,6 @@ def validate_neighbors_value(n_unique_queries: int, n_neighbors: str) -> list[st
     # Validate the n_neighbors value
     if n_neighbors_int < 2:
         errors.append("N_neighbors must be greater than 1")
-    elif n_neighbors_int > n_unique_queries:
-        errors.append(f"N_neighbors ({n_neighbors_int}) exceeding possible neighbors ({n_unique_queries}).")
 
     return errors
 
@@ -381,7 +379,7 @@ if __name__ == "__main__":
             names=names_spec,
         )
     else:
-        raise ValueError("Please use either 'long' or 'matrix'format")
+        raise ValueError("Please use either 'long' or 'matrix' format")
 
     # Read cluster file with or without header
     cluster_df = pd.read_csv(
@@ -415,17 +413,21 @@ if __name__ == "__main__":
 
     # Get number of unique queries
     if options.similarity_format == "matrix":
-        n_unique_queries = len(similarity_data)
+        empty_index = similarity_data.index
     elif options.similarity_format == "long":
         if not similarity_index_column:
             raise ValueError("query_column is required for long format")
-        n_unique_queries = similarity_data[similarity_index_column].nunique()
+        empty_index = similarity_data[similarity_index_column].unique()
+    else:
+        raise ValueError("Please use either 'long' or 'matrix' format")
 
     # Compute embedding for each n_neighbor, handle failures without exceptions
     query_embeddings = []
     all_errors = []
     for n_neighbors in options.n_neighbors.split(","):
-        error_messages = validate_neighbors_value(n_unique_queries, n_neighbors)
+        error_messages = validate_neighbors_value(n_neighbors)
+        all_errors.extend(error_messages)
+
         embedding_df = None
 
         if not error_messages:
@@ -451,16 +453,17 @@ if __name__ == "__main__":
                         n_neighbors=int(n_neighbors),
                         is_similarity=is_similarity,
                     )
+
             except Exception as e:
                 traceback.print_exc()
                 error_messages = [str(e)]
 
         if embedding_df is None:
             nan_data = {
-                f"umap_x_{n_neighbors}": [np.nan] * len(similarity_data.index),
-                f"umap_y_{n_neighbors}": [np.nan] * len(similarity_data.index),
+                f"umap_x_{n_neighbors}": [np.nan] * len(empty_index),
+                f"umap_y_{n_neighbors}": [np.nan] * len(empty_index),
             }
-            embedding_df = pd.DataFrame(nan_data, index=similarity_data.index)
+            embedding_df = pd.DataFrame(nan_data, index=empty_index)
         query_embeddings.append(embedding_df)
         all_errors.extend(error_messages)
 

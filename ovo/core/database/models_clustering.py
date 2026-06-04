@@ -130,7 +130,6 @@ class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
         )
 
-        db.save_all(descriptor_values + [job])
         return descriptor_values + [job]
 
     def validate(self):
@@ -165,7 +164,6 @@ class BaseHierarchicalClusteringWorkflow(ProteinClusteringWorkflow):
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
         )
 
-        db.save_all(descriptor_values + [job])
         return descriptor_values + [job]
 
     def validate(self):
