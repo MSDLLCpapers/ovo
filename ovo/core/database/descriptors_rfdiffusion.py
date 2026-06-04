@@ -103,43 +103,6 @@ BACKBONE_METRICS = [
 BACKBONE_METRIC_FIELD_NAMES = [d.key.removeprefix("rfd_ee|backbone_metrics|") for d in BACKBONE_METRICS]
 
 
-# AVERAGE_DISTANCE_BINDER_TO_TARGET_INTERFACE = NumericGlobalDescriptor(
-#     name='Binder-interface average distance',
-#     description='Mean distance of binder CA-atoms to the target interface CA atoms',
-#     tool='Backbone metrics',
-#     key='rfd_ee|backbone_metrics|average_dist_binder_to_target_interface',
-#     min_value=0,
-#     comparison='does_not_apply'
-# )
-#
-# AVERAGE_DISTANCE_BINDER_TO_TARGET_INTERFACE_CONTACTS = NumericGlobalDescriptor(
-#     name='Binder-interface contacts average distance',
-#     description='Mean distance of binder CA-atoms to the target interface CA atoms which contact binder CA atoms (<8A)',
-#     tool='Backbone metrics',
-#     key='rfd_ee|backbone_metrics|average_dist_binder_to_target_interface_contacts',
-#     min_value=0,
-#     comparison='does_not_apply'
-# )
-#
-# AVERAGE_DISTANCE_BINDER_TO_HOTSPOTS = NumericGlobalDescriptor(
-#     name='Binder-hotspots average distance',
-#     description='Mean distance of binder CA-atoms to the target hotspot CA atoms',
-#     tool='Backbone metrics',
-#     key='rfd_ee|backbone_metrics|average_dist_binder_to_hotspots',
-#     min_value=0,
-#     comparison='does_not_apply'
-# )
-#
-# AVERAGE_DISTANCE_BINDER_TO_HOTSPOT_CONTACTS = NumericGlobalDescriptor(
-#     name='Binder-hotspots contacts average distance',
-#     description='Mean distance of binder CA-atoms to the target hotspot CA atoms which contact binder CA atoms (<8A)',
-#     tool='Backbone metrics',
-#     key='rfd_ee|backbone_metrics|average_dist_binder_to_hotspots_contacts',
-#     min_value=0,
-#     comparison='does_not_apply'
-# )
-
-
 CUSTOM_BACKBONE_STRUCTURE_PATH = StructureFileDescriptor(
     name="Custom backbone design",
     description="Custom backbone structure input, without any side-chains, with Glycine residues at designed positions",

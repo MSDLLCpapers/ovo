@@ -49,14 +49,8 @@ def get_all_metrics(
         glycosolated_target_residues = None
         glycosolated_binder_residues = None
 
-        distances_interface_df = None
-        average_interface_dist = None
-        average_dist_interface_only_contacts = None
         N_contact_interface = 0
 
-        distances_hotspots_df = None
-        average_hotspots_dist = None
-        average_dist_hotspots_only_contacts = None
         N_contact_hotspots = 0
 
         # Calculate all metrics
@@ -95,24 +89,19 @@ def get_all_metrics(
                 if target_interfaces_str
                 else []
             )
-            # binder_interface_residues = [int(res_str.split('_')[1]) for res_str in binder_interfaces_str.split(',')] \
-            #     if binder_interfaces_str else None
-            binder_residues = (
-                [int(res_str.split("_")[1]) for res_str in binder_res_str.split(",")] if binder_interfaces_str else []
+            binder_interface_residues = (
+                [int(res_str.split("_")[1]) for res_str in binder_interfaces_str.split(",")]
+                if binder_interfaces_str
+                else []
             )
 
-            if target_interface_residues and binder_residues:
-                (
-                    distances_interface_df,
-                    average_interface_dist,
-                    average_dist_interface_only_contacts,
-                    N_contact_interface,
-                ) = distance_matrix_binder_target_interface(
+            if target_interface_residues and binder_interface_residues:
+                N_contact_interface = get_num_contacts(
                     pdb,
                     target_chain=target_chain,
                     binder_chain=binder_chain,
                     target_interface_residues=target_interface_residues,
-                    binder_interface_residues=binder_residues,
+                    binder_interface_residues=binder_interface_residues,
                     only_CA=only_CA,
                 )
 
@@ -120,27 +109,19 @@ def get_all_metrics(
                 {
                     "glycosolated_target_residues": glycosolated_target_residues,
                     "interface_target_residues": ",".join([f"{target_chain}{r}" for r in target_interface_residues]),
-                    "interface_binder_residues": ",".join([f"{binder_chain}{r}" for r in binder_residues]),
+                    "interface_binder_residues": ",".join([f"{binder_chain}{r}" for r in binder_interface_residues]),
                     "N_contact_interface": N_contact_interface,
-                    # "distances_binder_interface_against_target_interface": distances_interface_df,
-                    # "average_dist_binder_to_target_interface": average_interface_dist,
-                    # "average_dist_binder_to_target_interface_contacts": average_dist_interface_only_contacts,
                 }
             )
 
             if hotspots:
-                if binder_residues:
-                    (
-                        distances_hotspots_df,
-                        average_hotspots_dist,
-                        average_dist_hotspots_only_contacts,
-                        N_contact_hotspots,
-                    ) = distance_matrix_binder_target_interface(
+                if binder_interface_residues:
+                    N_contact_hotspots = get_num_contacts(
                         pdb,
                         target_chain=target_chain,
                         binder_chain=binder_chain,
                         target_interface_residues=hotspots,
-                        binder_interface_residues=binder_residues,
+                        binder_interface_residues=binder_interface_residues,
                         only_CA=only_CA,
                     )
                 hotspots_on_interface = (
@@ -150,12 +131,9 @@ def get_all_metrics(
                 )
                 scores[pdb_name].update(
                     {
-                        # "average_dist_binder_to_hotspots_contacts": average_dist_hotspots_only_contacts,
-                        # "distances_binder_interface_against_hotspots": distances_hotspots_df,
                         "interface_target_hotspot_residues": ",".join(
                             [f"{target_chain}{r}" for r in hotspots_on_interface]
                         ),
-                        "average_dist_binder_to_hotspots": average_hotspots_dist,
                         "N_hotspots_on_interface": len(hotspots_on_interface),
                         "N_contact_hotspots": N_contact_hotspots,
                     }
@@ -415,15 +393,15 @@ def get_interface(
     return target_interfaces_str, binder_interfaces_str, binder_str
 
 
-def distance_matrix_binder_target_interface(
+def get_num_contacts(
     complex_pdb_file,
     target_chain: str,  # used in pandas query
     binder_chain: str,  # used in pandas query
     target_interface_residues: list[int],
     binder_interface_residues: list[int],
     only_CA: bool = True,
-) -> tuple[pd.DataFrame | None, float | None, float | None, int | None]:
-    """Calculate the distance matrix between the target and binder interfaces in a PDB file (complex).
+) -> int:
+    """Get number of pairwise contacts between the target and binder interfaces in a PDB file (complex).
 
     :parameter:
         complex_pdb_file (str): Path to the PDB file.
@@ -433,7 +411,7 @@ def distance_matrix_binder_target_interface(
         binder_chain: ID of the binder chain (usually A).
         only_CA (bool): Use only CA atoms. Default: True.
     :returns:
-        Tuple with the distance matrix, average distance, average distance and number of contacts.
+        number of pairwise contacts
     """
 
     ppdb = PandasPdb().read_pdb(complex_pdb_file)
@@ -460,27 +438,15 @@ def distance_matrix_binder_target_interface(
     coords_binder_interface = get_coords_from_ppdb(binder_interface)
 
     if coords_target_interface is None or coords_binder_interface is None:
-        return None, None, None, 0
+        return 0
 
     # Calculate pairwise distances
     distances = distance.cdist(coords_target_interface, coords_binder_interface, metric="euclidean")
 
-    index_target = target_interface.apply(
-        lambda row: "_".join([row.residue_name, str(row.residue_number), row.atom_name, str(row.atom_number)]), axis=1
-    )
-    index_binder = binder_interface.apply(
-        lambda row: "_".join([row.residue_name, str(row.residue_number), row.atom_name, str(row.atom_number)]), axis=1
-    )
-
-    distances_df = pd.DataFrame(distances, index=index_target, columns=index_binder)
-
-    average_dist = distances_df.mean().mean()
     contact_distance = BACKBONE_CONTACT_DISTANCE if only_CA else SIDECHAIN_CONTACT_DISTANCE
     N_contacts = (distances < contact_distance).sum() if len(distances) else 0
 
-    average_dist_only_contacts = distances[distances < contact_distance].mean() if N_contacts else None
-
-    return distances_df, average_dist, average_dist_only_contacts, N_contacts
+    return N_contacts
 
 
 def pydssp_assign(pdb_path, chain_id: str | None, cyclic=False, tail_residues=5) -> str:

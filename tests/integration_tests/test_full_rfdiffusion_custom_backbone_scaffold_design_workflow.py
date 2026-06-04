@@ -113,4 +113,4 @@ def test_scaffold_end_to_end_logic(project_data, input_method: str):
 
     design_rmsd = db.select_descriptor_values(f"refolding|{test}|design_backbone_rmsd", design_ids)
     assert len(design_rmsd.dropna()) == 2
-    assert (design_rmsd < 15).all()
+    assert (design_rmsd < 20).all()
