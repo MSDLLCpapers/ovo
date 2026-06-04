@@ -26,7 +26,7 @@ nextflow run ../../main.nf \
   --shared_modules "ovo:$OVO_MODULE_PATH" \
   --num_designs 1 \
   --contig "A25-35/0 10-15" \
-  --input_pdb "$INPUT_DIR/5ELI.pdb" \
+  --input_structure_path "$INPUT_DIR/5ELI.pdb" \
   --publish_dir $OUTPUT_DIR \
   --reference_files_dir "$MODELS_DIR" \
   --hotspot "A31,A33" \
