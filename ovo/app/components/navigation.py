@@ -58,7 +58,6 @@ def show_buttons(
     show_title: bool = False,
     glow: bool = False,
 ):
-
     with st.container(key="navigation_buttons_" + key_suffix):
         left, middle, right = st.columns([6, 1, 2] if current_index == 0 else [2, 3, 2], vertical_alignment="top")
         with left:
