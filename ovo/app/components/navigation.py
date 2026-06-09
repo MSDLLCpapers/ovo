@@ -18,20 +18,27 @@ def show_prev_next_sections(key: str, title: str, sections: dict[str, callable])
     current_index = st.session_state.get(session_key, 0)
     section_labels = list(sections.keys())
 
-    # Top buttons with title and glow
-    show_buttons(
-        session_key,
-        current_index,
-        section_labels,
-        key_suffix="top",
-        title=title,
-        show_title=True,
-        glow=current_index == 0,
-    )
+    top_buttons_container = st.empty()
+    with top_buttons_container:
+        # Empty spacer for loading state
+        st.write("&nbsp;")
 
     # Section content
     current_section_fragment = list(sections.values())[current_index]
     current_section_fragment()
+
+    # Top buttons with title
+    # NOTE: we run this code below the content fragment to avoid ignoring user's last input on next button click
+    with top_buttons_container:
+        show_buttons(
+            session_key,
+            current_index,
+            section_labels,
+            key_suffix="top",
+            title=title,
+            show_title=True,
+            glow=current_index == 0,
+        )
 
     # Bottom buttons
     st.markdown("#")  # Empty spacer
@@ -51,23 +58,19 @@ def show_buttons(
     show_title: bool = False,
     glow: bool = False,
 ):
-    def prev_section():
-        st.session_state[session_key] = st.session_state.get(session_key, 0) - 1
-
-    def next_section():
-        st.session_state[session_key] = st.session_state.get(session_key, 0) + 1
 
     with st.container(key="navigation_buttons_" + key_suffix):
         left, middle, right = st.columns([6, 1, 2] if current_index == 0 else [2, 3, 2], vertical_alignment="top")
         with left:
             if current_index > 0:
                 # Show back button on all but first section
-                st.button(
+                if st.button(
                     f"Back to {section_labels[current_index - 1]}",
                     icon=":material/arrow_back_ios:",
-                    on_click=prev_section,
                     key="back_button_" + key_suffix,
-                )
+                ):
+                    st.session_state[session_key] = st.session_state.get(session_key, 0) - 1
+                    st.rerun(scope="app")
             elif show_title:
                 # Show title instead of back button on first section
                 st.title(title)
@@ -85,12 +88,13 @@ def show_buttons(
             with st.container(key="glow" if glow else None, horizontal=True, horizontal_alignment="right"):
                 if current_index < len(section_labels) - 1:
                     # Show next button on all but last section
-                    st.button(
+                    if st.button(
                         f"Next to {section_labels[current_index + 1]}",
                         icon=":material/arrow_forward_ios:",
-                        on_click=next_section,
                         key="next_button_" + key_suffix,
-                    )
+                    ):
+                        st.session_state[session_key] = st.session_state.get(session_key, 0) + 1
+                        st.rerun(scope="app")
                 else:
                     # Empty space to align back button to the left
                     st.markdown(" ")
