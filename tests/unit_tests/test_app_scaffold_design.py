@@ -7,7 +7,7 @@ from ovo.core.database.models_rfdiffusion import ProteinMPNNParams
 from tests.unit_tests.utils import asserts
 from tests.unit_tests.utils.constants import TIMEOUT, SCAFFOLD_DESIGN_FILE
 from tests.unit_tests.utils.mocking import mock_molstar
-from tests.unit_tests.utils.rfdiffusion_utils import settings_tab, review_and_submit_tab
+from tests.unit_tests.utils.rfdiffusion_utils import click_nav_button, settings_tab, review_and_submit_tab
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class TestScaffoldDesign:
         at.run(timeout=TIMEOUT)
 
         # Intro tab — skip
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
 
         # Input tab
         at.text_input("input_pdb_code").set_value("1myj").run(timeout=TIMEOUT)
@@ -39,7 +39,7 @@ class TestScaffoldDesign:
         asserts.assert_no_error_on_page(at, "input tab")
 
         # Selection tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         with mock_molstar(
             {
                 "sequenceSelections": [{"chainId": "A", "residues": list(range(3, 17 + 1)) + list(range(59, 77 + 1))}],
@@ -52,7 +52,7 @@ class TestScaffoldDesign:
             assert workflow.selected_segments == ["A3-17", "A59-77"]
 
         # Preview tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         workflow = at.session_state.workflows[page_key]
         contig = workflow.rfdiffusion_params.contig
         assert contig == "A3-17/A59-77"
@@ -63,7 +63,8 @@ class TestScaffoldDesign:
         )
 
         # Inpainting tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
+        at.run()
         with mock_molstar(
             {
                 "sequenceSelections": [{"chainId": "A", "residues": list(range(5, 7 + 1)) + list(range(61, 65 + 1))}],
@@ -76,7 +77,7 @@ class TestScaffoldDesign:
             assert workflow.rfdiffusion_params.inpaint_seq == "A5-7/A61-65"
 
         # Settings tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         pool_name = "test scaffold design default values"
         settings_tab(at, page_key, pool_name, contig=contig)
 
@@ -84,5 +85,5 @@ class TestScaffoldDesign:
         assert num_sequences.value == ProteinMPNNParams().num_sequences  # as per ProteinMPNNParams default
 
         # Confirmation tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         review_and_submit_tab(at, mock_scheduler, pool_name)

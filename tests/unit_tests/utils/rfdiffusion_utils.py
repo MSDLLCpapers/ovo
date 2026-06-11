@@ -3,6 +3,7 @@ import time
 from typing import Callable
 
 from streamlit.testing.v1 import AppTest
+from streamlit.testing.v1.element_tree import Block, Widget
 
 from ovo.app.utils.testing import hide_test_dialog, show_test_dialog
 from ovo.core.logic.round_logic import get_or_create_project_rounds
@@ -11,6 +12,29 @@ from tests.unit_tests.utils.asserts import assert_no_error_on_page
 from tests.unit_tests.utils.constants import TIMEOUT
 
 logger = logging.getLogger(__name__)
+
+
+def click_nav_button(at: AppTest, key: str = "next_button_top", timeout: int = TIMEOUT) -> None:
+    """
+    Click a section navigation button (Next/Back) and run the app.
+
+    The navigation buttons change the section inside the same script run via ``st.rerun()``.
+    AppTest accumulates the forward-message queue across the two passes of that run, so widgets
+    from the previous section that the new section never overwrites are left behind as orphan
+    nodes with no session state. The next ``run()`` would then raise a ``KeyError`` while reading
+    their widget state, so we drop those orphans after navigating.
+    """
+    at.button(key).click().run(timeout=timeout)
+    state = at.session_state._state
+
+    def prune(block: Block) -> None:
+        for idx, child in list(block.children.items()):
+            if isinstance(child, Widget) and child.id not in state:
+                del block.children[idx]
+            elif isinstance(child, Block):
+                prune(child)
+
+    prune(at._tree)
 
 
 def wait_for(
@@ -97,7 +121,7 @@ def trim_tab(
     )
     asserts.assert_no_error_on_page(at, "trim tab")
     if go_to_next:
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
     return target_chain, start, end
 
 
@@ -124,7 +148,7 @@ def preview_tab_binder_design(
         hotspot_residues = at.text_input("hotspots").value
     asserts.assert_no_error_on_page(at, "preview tab")
     if go_to_next:
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
     return binder_length, hotspot_residues
 
 

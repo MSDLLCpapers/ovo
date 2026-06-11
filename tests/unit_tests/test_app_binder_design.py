@@ -8,6 +8,7 @@ from tests.unit_tests.utils import asserts
 from tests.unit_tests.utils.constants import TIMEOUT, BINDER_DESIGN_FILE
 from tests.unit_tests.utils.mocking import mock_molstar
 from tests.unit_tests.utils.rfdiffusion_utils import (
+    click_nav_button,
     trim_tab,
     preview_tab_binder_design,
     get_contig,
@@ -39,7 +40,7 @@ class TestBinderDesign:
         at.run(timeout=TIMEOUT)
 
         # Intro tab — skip
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
 
         # Input tab
         logger.info("Testing input tab...")
@@ -52,7 +53,7 @@ class TestBinderDesign:
         asserts.assert_no_error_on_page(at, "input tab")
 
         # Selection tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         with mock_molstar(
             {
                 "sequenceSelections": [{"chainId": "A", "residues": [11, 12, 13]}],
@@ -66,7 +67,7 @@ class TestBinderDesign:
             assert workflow.rfdiffusion_params.hotspots == "A11,A12,A13"
 
         # Trim tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         logger.info("Testing trim tab...")
         at.selectbox("target_chain").set_value("A").run()
         assert at.number_input(f"start_trim_residue_A").value == 1
@@ -78,14 +79,14 @@ class TestBinderDesign:
         asserts.assert_no_error_on_page(at, "trim tab")
 
         # Preview tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         assert at.text_input("hotspots").value == "A11,A12,A13"
         at.text_input("binder_length").set_value("20-40").run()
         assert at.text_input("binder_length").value == "20-40"
         asserts.assert_no_error_on_page(at, "preview tab")
 
         # Submission tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         pool_name = "test binder design default values"
         settings_tab(
             at,
@@ -111,7 +112,7 @@ class TestBinderDesign:
         )
 
         # Confirmation tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         review_and_submit_tab(at, mock_scheduler, pool_name)
 
     @pytest.mark.parametrize(
@@ -131,7 +132,7 @@ class TestBinderDesign:
         at.run(timeout=TIMEOUT)
 
         # Intro tab — skip
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
 
         # Input tab
         logger.info("Testing input tab...")
@@ -144,7 +145,7 @@ class TestBinderDesign:
         asserts.assert_no_error_on_page(at, "input tab")
 
         # Selection tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         with mock_molstar(
             {
                 "sequenceSelections": [{"chainId": "D", "residues": [75, 76, 77, 78, 79, 80]}],
@@ -158,7 +159,7 @@ class TestBinderDesign:
             assert workflow.rfdiffusion_params.hotspots == "D75,D76,D77,D78,D79,D80"
 
         # Trim tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         start = 70
         end = 85
         target_chain = "D"
@@ -181,7 +182,7 @@ class TestBinderDesign:
         )
 
         # Confirmation tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         review_and_submit_tab(at, mock_scheduler, pool_name)
 
     @pytest.mark.parametrize(
@@ -200,7 +201,7 @@ class TestBinderDesign:
         at.run(timeout=TIMEOUT)
 
         # Intro tab — skip
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
 
         # Input tab
         logger.info("Testing input tab...")
@@ -213,7 +214,7 @@ class TestBinderDesign:
         asserts.assert_no_error_on_page(at, "input tab")
 
         # Selection tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         with mock_molstar(
             {
                 "sequenceSelections": [{"chainId": "A", "residues": [11, 12, 13]}],
@@ -227,7 +228,7 @@ class TestBinderDesign:
             assert workflow.rfdiffusion_params.hotspots == "A11,A12,A13"
 
         # Trim tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         for start, end in [(10, 20), (3, 2), (150, 140)]:
             try:
                 trim_tab(at, start=start, end=end, go_to_next=False)
@@ -259,7 +260,7 @@ class TestBinderDesign:
         at.run(timeout=TIMEOUT)
 
         # Intro tab — skip
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
 
         # Input tab
         logger.info("Testing input tab...")
@@ -272,7 +273,7 @@ class TestBinderDesign:
         asserts.assert_no_error_on_page(at, "input tab")
 
         # Selection tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         with mock_molstar(
             {
                 "sequenceSelections": [{"chainId": "A", "residues": [10, 11, 12, 13, 14, 15, 16, 17]}],
@@ -286,11 +287,11 @@ class TestBinderDesign:
             assert workflow.rfdiffusion_params.hotspots == "A10,A11,A12,A13,A14,A15,A16,A17"
 
         # Trim tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         trim_tab(at)
         preview_tab_binder_design(at)
-        at.button("back_button_top").click().run()
-        at.button("back_button_top").click().run()
+        click_nav_button(at, "back_button_top")
+        click_nav_button(at, "back_button_top")
         start = 3
         end = 77
         target_chain, _, _ = trim_tab(at, start=start, end=end)
@@ -314,5 +315,5 @@ class TestBinderDesign:
         )
 
         # Confirmation tab
-        at.button("next_button_top").click().run(timeout=TIMEOUT)
+        click_nav_button(at)
         review_and_submit_tab(at, mock_scheduler, pool_name)
