@@ -6,7 +6,7 @@ process DistanceMatrix {
   container "${ workflow.containerEngine in ['singularity', 'apptainer']
     ? params.ovo_container_dir + '/ovo-' + containerName
     : params.docker_repository + 'ovo-' + containerName }"
-  label = 'distance-matrix'
+  label = 'distance_matrix'
 
   publishDir { params.publish_dir }
   input:
@@ -47,7 +47,7 @@ process HierarchicalClustering {
   container "${ workflow.containerEngine in ['singularity', 'apptainer']
     ? params.ovo_container_dir + '/ovo-' + containerName
     : params.docker_repository + 'ovo-' + containerName }"
-  label = 'hierarchical-clustering'
+  label = 'hierarchical_clustering'
 
   publishDir { params.publish_dir }
   input:
