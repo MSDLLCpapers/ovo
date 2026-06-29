@@ -1,0 +1,7 @@
+name: Test Workflow
+on: [push]
+jobs:
+  test:
+    runs-on: linux-x64-small
+    steps:
+      - run: echo "It works!"
