@@ -81,7 +81,7 @@ def calculate(pdb_path):
         print("SCORES", pose.scores)
         for k, v in pose.scores.items():
             row[k] = float(v)
-        row["buns_percent"] = (row["buns_heavy_ball_1.1D"] / row["nres_int"]) * 100
+        row["buns_percent"] = (row["buns_heavy_ball_1.1D"] / row["nres_int"]) * 100 if row["nres_int"] else float("NaN")
     except Exception as e:
         row["error"] = f"{e} ({type(e).__name__})"
         print(f"ERROR processing {basename}: {row['error']}")

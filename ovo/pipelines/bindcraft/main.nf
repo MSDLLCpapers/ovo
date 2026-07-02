@@ -63,7 +63,8 @@ process BindCraft {
 
     stub:
     """
-    unzip "${moduleDir}/local/mock-output.zip"
+    # unzip example output data (with python, since zip is not installed in our container)
+    python -c 'import zipfile; zipfile.ZipFile("${moduleDir}/local/mock-output.zip").extractall(".")'
     """
 }
 
