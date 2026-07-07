@@ -69,8 +69,8 @@ if selected_design_ids is not None:
     relevant_labels = get_cached_available_labels_for_design_ids(selected_design_ids)
 else:
     if clear_cache:
-        get_cached_available_labels_for_pool_ids.clear(selected_pool_ids, accepted=True)
-    relevant_labels = get_cached_available_labels_for_pool_ids(selected_pool_ids, accepted=True)
+        get_cached_available_labels_for_pool_ids.clear(selected_pool_ids)
+    relevant_labels = get_cached_available_labels_for_pool_ids(selected_pool_ids)
 
 # Display labels that are relevant to the currently selected designs/pools/rounds
 if relevant_labels:

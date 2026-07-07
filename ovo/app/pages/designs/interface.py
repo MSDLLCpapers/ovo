@@ -384,6 +384,6 @@ def interface_design_visualization_fragment(
         selected_design_ids, key="interface_selected_design", fmt=labels_by_design_id
     )
 
-    design_labeling_fragment(design_id=design_id, key_suffix=f"interface_{design_id}")
+    design_labeling_fragment(design_id, key_suffix=f"interface_{design_id}")
 
     design_interface_detail(design_id, descriptors_df, interface_descriptors_by_key)

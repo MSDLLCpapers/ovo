@@ -60,7 +60,8 @@ def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
 
     selected_design_ids = descriptor_scatterplot_component(settings=scatterplot_settings, design_ids=design_ids)
 
-    # TODO: Could enable here labeling of the selected designs
+    if len(selected_design_ids) > 1:
+        design_labeling_fragment(selected_design_ids, key_suffix="explorer_bulk")
 
     st.subheader("Descriptors")
 
@@ -107,7 +108,7 @@ def design_visualization_fragment(selected_design_ids: list[str]):
     # Use the navigation selector component
     design_id = design_navigation_selector(selected_design_ids, key="selected_design")
 
-    design_labeling_fragment(design_id=design_id, key_suffix=f"explorer_{design_id}")
+    design_labeling_fragment(design_id, key_suffix=f"explorer_{design_id}")
 
     design = get_cached_design(design_id)
     pool = get_cached_pool(design.pool_id)

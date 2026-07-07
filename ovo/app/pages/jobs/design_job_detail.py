@@ -344,11 +344,13 @@ def show_all_designs(all_design_ids: list):
     )
 
     if len(displayed_design_ids) < len(all_design_ids):
-        st.header(
-            f"Showing {len(displayed_design_ids):,} {'design' if len(displayed_design_ids) == 1 else 'designs'} selected in scatterplot"
-        )
+        header = f"Showing {len(displayed_design_ids):,} {'design' if len(displayed_design_ids) == 1 else 'designs'} selected in scatterplot"
     else:
-        st.header(f"Showing all {len(displayed_design_ids):,} designs")
+        header = (
+            f"Showing all {len(displayed_design_ids):,} {'design' if len(displayed_design_ids) == 1 else 'designs'}"
+        )
+    if len(displayed_design_ids) > 1:
+        design_labeling_fragment(displayed_design_ids, key_suffix="jobs_bulk", show_header=True, header=header)
     return displayed_design_ids
 
 
@@ -372,7 +374,7 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
             )
             return
     else:
-        design_labeling_fragment(design_id=design_id, key_suffix=f"job_detail_{design_id}")
+        design_labeling_fragment(design_id, key_suffix=f"job_detail_{design_id}")
         show_design(design_id, shared_workflow_name=shared_workflow_name)
 
 

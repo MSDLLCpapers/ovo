@@ -283,9 +283,11 @@ def get_cached_all_available_labels_unique() -> list[str]:
 
 @clear_when_modified(Labeling, DesignLabeling)
 @st.cache_data(ttl="5m")
-def get_cached_design_ids_with_labels(label_names: list[str], design_ids: list[str], any=False) -> list[str]:
+def get_cached_design_ids_with_labels(
+    label_names: list[str], design_ids: list[str], any=False, author: str = None
+) -> list[str]:
     if any:
-        return db.get_designs_with_any_labels(label_names, design_ids)
+        return db.get_designs_with_any_labels(label_names, design_ids, author=author)
     else:
         return db.get_designs_with_all_labels(label_names, design_ids)
 
@@ -305,8 +307,20 @@ def get_cached_labeling_explanations_by_label_name(label_name: str) -> list[str]
 @clear_when_modified(Labeling, DesignLabeling)
 @st.cache_data(ttl="5m")
 def get_cached_available_labels_for_design_ids(design_ids: list[str]) -> list[str]:
-    """Get unique labels available for the given design IDs."""
+    """Get unique labels available for the given design IDs (union)."""
     return db.get_available_labels_for_design_ids(design_ids)
+
+
+@clear_when_modified(Labeling, DesignLabeling)
+@st.cache_data(ttl="5m")
+def get_cached_available_shared_labels_for_design_ids(design_ids: list[str], author: str = None) -> list[str]:
+    """Get labels that are present on ALL of the given design IDs (intersection).
+
+    Args:
+        design_ids: List of design IDs
+        author: Optional author filter - only return labels from this author
+    """
+    return db.get_available_shared_labels_for_design_ids(design_ids, author=author)
 
 
 @clear_when_modified(Labeling, DesignLabeling, Design)

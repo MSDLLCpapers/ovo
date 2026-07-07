@@ -250,7 +250,7 @@ def display_ranking_results(job: DescriptorJob, selected_design_is: list[str]):
         design = designs_by_id[selected_design_id]
         rank = descriptors_df[rank_column_name][selected_design_id]
 
-        design_labeling_fragment(design.id, header_prefix=f"#{rank}:")
+        design_labeling_fragment(design.id, header=f"#{rank}: {design.id}")
 
         st.write("Ranking metrics:")
         workflow.show_design_header(design)

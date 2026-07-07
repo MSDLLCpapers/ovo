@@ -606,8 +606,16 @@ class SqlDBEngine(CacheClearingEngine):
 
             return [row[0] for row in query.all()]
 
-    def get_designs_with_any_labels(self, label_names: list[str], design_ids: list[str] = None) -> list[str]:
-        """Get design IDs that have ANY of the specified labels using a single optimized query."""
+    def get_designs_with_any_labels(
+        self, label_names: list[str], design_ids: list[str] = None, author: str = None
+    ) -> list[str]:
+        """Get design IDs that have ANY of the specified labels using a single optimized query.
+
+        Args:
+            label_names: List of label names that designs can have (ANY of them)
+            design_ids: Optional list of design_ids to filter within (if None, searches all designs)
+            author: Optional author filter - only consider labels from this author
+        """
         if not label_names:
             return design_ids or []
 
@@ -617,12 +625,17 @@ class SqlDBEngine(CacheClearingEngine):
                 session.query(DesignLabeling.design_id)
                 .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
                 .filter(Labeling.label.in_(label_names))
-                .distinct()
             )
 
             # If design_ids filter is provided, apply it
             if design_ids:
                 query = query.filter(DesignLabeling.design_id.in_(design_ids))
+
+            # If author filter is provided, apply it
+            if author:
+                query = query.filter(Labeling.author == author)
+
+            query = query.distinct()
 
             return [row[0] for row in query.all()]
 
@@ -641,7 +654,7 @@ class SqlDBEngine(CacheClearingEngine):
             return query.all()
 
     def get_available_labels_for_design_ids(self, design_ids: list[str]) -> list[str]:
-        """Get unique labels available for the given design IDs."""
+        """Get unique labels available for the given design IDs (union)."""
         if not design_ids:
             return []
 
@@ -651,6 +664,31 @@ class SqlDBEngine(CacheClearingEngine):
                 .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
                 .filter(DesignLabeling.design_id.in_(design_ids))
                 .distinct()
+            )
+            return sorted([row[0] for row in query.all()])
+
+    def get_available_shared_labels_for_design_ids(self, design_ids: list[str], author: str = None) -> list[str]:
+        """Get labels that are present on ALL of the given design IDs (intersection).
+
+        Args:
+            design_ids: List of design IDs
+            author: Optional author filter - only return labels from this author
+        """
+        if not design_ids:
+            return []
+
+        design_ids = list(set(design_ids))
+
+        with self._create_session() as session:
+            query = (
+                session.query(Labeling.label)
+                .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
+                .filter(DesignLabeling.design_id.in_(design_ids))
+            )
+            if author:
+                query = query.filter(Labeling.author == author)
+            query = query.group_by(Labeling.label).having(
+                func.count(func.distinct(DesignLabeling.design_id)) == len(design_ids)
             )
             return sorted([row[0] for row in query.all()])
 

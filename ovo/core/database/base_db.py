@@ -142,12 +142,15 @@ class DBEngine(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_designs_with_any_labels(self, label_names: list[str], design_ids: list[str] = None) -> list[str]:
+    def get_designs_with_any_labels(
+        self, label_names: list[str], design_ids: list[str] = None, author: str = None
+    ) -> list[str]:
         """Get design IDs that have ANY of the specified labels.
 
         Args:
             label_names: List of label names that designs can have (ANY of them)
             design_ids: Optional list of design_ids to filter within (if None, searches all designs)
+            author: Optional author filter - only consider labels from this author
 
         Returns:
             List of design_ids that have at least one of the specified labels
@@ -161,7 +164,17 @@ class DBEngine(ABC):
 
     @abstractmethod
     def get_available_labels_for_design_ids(self, design_ids: list[str]) -> list[str]:
-        """Get unique labels available for the given design IDs."""
+        """Get unique labels available for the given design IDs (union)."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_available_shared_labels_for_design_ids(self, design_ids: list[str], author: str = None) -> list[str]:
+        """Get labels that are present on ALL of the given design IDs (intersection).
+
+        Args:
+            design_ids: List of design IDs
+            author: Optional author filter - only return labels from this author
+        """
         raise NotImplementedError()
 
     @abstractmethod
