@@ -554,10 +554,11 @@ class Storage:
         storage_rel_path = os.path.join(self.get_project_path(project_id, input_bytes=file_bytes), filename)
         return self.store_file_bytes(file_bytes, storage_rel_path)
 
-    def create_zip(self, storage_paths_by_dir: dict[str, list[str]] | list[str]) -> bytes:
+    def create_zip(self, storage_paths_by_dir: dict[str, list[str]] | list[str], flatten: bool = False) -> bytes:
         """Create zip file
         :param storage_paths_by_dir: dictionary with the storage paths by directory ("" or None for root)
                                      or flat list of storage paths (will be stored in the root of the zip)
+        :param flatten: if True, store all files in the root of the zip, add subdirectories as filename prefixes instead
         :return: zip content with the stored files
         """
         if isinstance(storage_paths_by_dir, list):
@@ -591,7 +592,13 @@ class Storage:
                     file_data = future.result()  # this will raise exception if any
                     # Write the file to the zip with the desired structure
                     if file_data and filename:
-                        arcname = f"{subdir}/{filename}" if subdir else filename
+                        if subdir:
+                            if flatten:
+                                arcname = f"{subdir.replace('/', '_')}_{filename}"
+                            else:
+                                arcname = f"{subdir}/{filename}"
+                        else:
+                            arcname = filename
                         zip_file.writestr(arcname, file_data)
         zip_buffer.seek(0)
         return zip_buffer.read()

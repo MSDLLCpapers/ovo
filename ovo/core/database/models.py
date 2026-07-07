@@ -5,7 +5,7 @@ from copy import copy
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from datetime import timezone
-from typing import Callable, List, Literal, Union, Any
+from typing import Callable, List, Literal, Union, Any, Self
 
 import pandas as pd
 from sqlalchemy import String, Boolean, DateTime, func, Integer, UniqueConstraint, JSON
@@ -227,12 +227,21 @@ class WorkflowTypes:
         return cls._registry[workflow_name]
 
     @classmethod
-    def get_subclass_names(cls, workflow_name) -> list[str]:
+    def get_subclass_names(cls, workflow_name_or_cls: str | type) -> list[str]:
         """Get list of registered workflow names that are subclasses of the given workflow name (including itself)"""
-        BaseWorkflowType = WorkflowTypes.get(workflow_name)
-        workflow_names = [workflow_name]
+        if isinstance(workflow_name_or_cls, str):
+            BaseWorkflowType = WorkflowTypes.get(workflow_name_or_cls)
+        elif isinstance(workflow_name_or_cls, type):
+            BaseWorkflowType = workflow_name_or_cls
+        else:
+            raise ValueError(
+                f"Expected workflow_name_or_cls to be str or type, got {workflow_name_or_cls} ({type(workflow_name_or_cls).__name__})"
+            )
+        workflow_names = []
+        if hasattr(BaseWorkflowType, "name") and BaseWorkflowType.name in cls._registry:
+            workflow_names.append(BaseWorkflowType.name)
         for n, WorkflowType in WorkflowTypes._registry.items():
-            if n == workflow_name:
+            if n == getattr(BaseWorkflowType, "name", None):
                 # workflow_name is already included at the start of the list
                 continue
             if WorkflowType.is_subclass(BaseWorkflowType):
@@ -362,14 +371,15 @@ class Workflow:
     def get_time_estimate(self, scheduler: Scheduler) -> str:
         return "Time estimate: No time estimate available for this workflow"
 
-    @abstractmethod
     def get_pipeline_name(self) -> str:
         """Get name (for example ovo.rfdiffusion-end-to-end) or github URL of pipeline to be submitted for this workflow"""
-        raise NotImplementedError()
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_pipeline_name() method, cannot be submitted to scheduler"
+        )
 
     @abstractmethod
     def prepare_params(self, workdir: str) -> dict:
-        """Submit the workflow to the scheduler and return the job id"""
+        """Stage any files into the scheduler workdir and prepare a dictionary of parameters for workflow execution"""
         raise NotImplementedError()
 
     @abstractmethod
@@ -378,10 +388,20 @@ class Workflow:
         create and return objects to be saved such as Designs and DescriptorValues"""
         raise NotImplementedError()
 
+    def run(self, execdir: str, scheduler: "Scheduler") -> None:
+        """Execute workflow as a task (for TaskScheduler workflows).
+
+        :param execdir: Execution directory for storing outputs and temp files
+        :param scheduler: TaskScheduler instance
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement run() method. This workflow cannot be executed as a task."
+        )
+
     @classmethod
     def get_download_fields(cls):
         return {
-            "pdb files": (Design, "structure_path"),
+            "Design structure": (Design, "structure_path"),
         }
 
 
@@ -400,6 +420,23 @@ class DescriptorWorkflow(Workflow, ABC):
             )
         if not self.design_ids:
             raise ValueError("No design IDs provided")
+
+    @classmethod
+    def from_ui(cls, design_ids: list[str]) -> list[Self]:
+        """Create workflow instances from UI inputs.
+
+        This method should display Streamlit widgets and return a list of configured
+        workflow instances (sometimes a single one). Called inside the submission dialog.
+
+        When some inputs are missing or errors happen, this method should show warnings and return an empty list.
+
+        Args:
+            design_ids: Design IDs to use
+
+        Returns:
+            Configured workflow instances ready for submission
+        """
+        raise NotImplementedError()
 
 
 @WorkflowTypes.register("Design Descriptor Workflow")
@@ -493,6 +530,28 @@ class DesignWorkflow(Workflow):
         return list(self.acceptance_thresholds.keys())
 
 
+class WorkflowTask(Workflow, ABC):
+    """Base class for workflows that run as tasks.
+
+    Provides common task scheduling infrastructure. Child classes must implement run() method.
+    """
+
+    def get_pipeline_name(self) -> str:
+        """Return the generic task pipeline name."""
+        return "ovo.core.scheduler.task_scheduler.run_workflow()"
+
+    def prepare_params(self, workdir: str) -> dict:
+        """Prepare parameters for task submission."""
+        from dataclasses import asdict
+
+        return {"workflow_dict": asdict(self)}
+
+    @abstractmethod
+    def run(self, execdir: str, scheduler) -> None:
+        """Execute workflow as a task. Must be implemented by child classes."""
+        raise NotImplementedError()
+
+
 @WorkflowTypes.register("Unknown Workflow")
 class UnknownWorkflow(DesignWorkflow, DescriptorWorkflow):
     """Unknown workflow type, used when the workflow type is not recognized or not registered
@@ -514,6 +573,14 @@ class UnknownWorkflow(DesignWorkflow, DescriptorWorkflow):
         self.acceptance_thresholds = {}
         self.chains = []
         self.design_ids = []
+
+    def run(self, execdir: str, scheduler: "Scheduler") -> None:
+        """Execute workflow as a task (for TaskScheduler workflows).
+
+        :param execdir: Execution directory for storing outputs and temp files
+        :param scheduler: TaskScheduler instance
+        """
+        raise NotImplementedError(f"Workflow failed to load: {self.error}.")
 
 
 class DesignJob(Base, MetadataMixin, JobMixin):
@@ -1005,6 +1072,7 @@ __all__ = [
     "DescriptorWorkflow",
     "DesignDescriptorWorkflow",
     "DesignWorkflow",
+    "WorkflowTask",
     "UnknownWorkflow",
     "DesignJob",
     "Pool",

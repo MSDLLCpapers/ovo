@@ -29,10 +29,10 @@ def show_explanation_input(label: str, input_label: str = "Explanation for this 
 
 
 @st.fragment
-def design_labeling_fragment(design_id: str, key_suffix: str = "", show_header=True):
+def design_labeling_fragment(design_id: str, key_suffix: str = "", show_header=True, header_prefix=None):
     with st.container(horizontal=True, vertical_alignment="top"):
         if show_header:
-            st.subheader(design_id, width="content")
+            st.subheader(f"{header_prefix} {design_id}" if header_prefix else design_id, width="content")
 
         labelings = get_cached_labelings_for_design(design_id)
 

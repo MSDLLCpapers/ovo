@@ -79,7 +79,7 @@ def create_new_pool():
             try:
                 df = parse_tabular_file(tabular_files[0], header=header)
                 header_container.write(f"**Preview of {tabular_files[0].name}** ({len(df)} rows)")
-                st.dataframe(df.head(5), use_container_width=True, hide_index=True)
+                st.dataframe(df.head(5), hide_index=True)
 
                 columns = df.columns.tolist()
 

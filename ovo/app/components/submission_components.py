@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 
 import pandas as pd
 import streamlit as st
@@ -182,10 +183,29 @@ def submit_workflow_dialog(page_key: str, workflow: Workflow, round_id: str, poo
     # Create "empty" element to enable clearing the contents after submitting
     content = st.empty()
     with content.container():
+        # Get pipeline name from workflow
+        try:
+            pipeline_name = workflow.get_pipeline_name()
+        except Exception:
+            traceback.print_exc()
+            st.error("Unable to determine pipeline name for this workflow.")
+            return
+
+        # Filter schedulers to only those that support this pipeline
+        compatible_scheduler_keys = [
+            key for key, scheduler in schedulers.items() if scheduler.supports_pipeline_name(pipeline_name)
+        ]
+
+        if not compatible_scheduler_keys:
+            st.error("No compatible schedulers found for this workflow type.")
+            return
+
         # Scheduler dropdown
         with st.columns(2)[0]:
             scheduler_key = st.selectbox(
-                "Scheduler", options=schedulers.keys(), format_func=lambda k: schedulers[k].name
+                "Scheduler",
+                options=compatible_scheduler_keys,
+                format_func=lambda k: schedulers[k].name,
             )
 
         # Time estimate

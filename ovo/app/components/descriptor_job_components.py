@@ -3,13 +3,24 @@ import streamlit as st
 from ovo import db, get_scheduler
 from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.job_components import job_status_fragment
-from ovo.core.database.models import DescriptorJob
+from ovo.core.database.models import DescriptorJob, WorkflowTypes
 from ovo.core.logic.descriptor_logic import update_and_process_descriptors
 from ovo.app.utils.cached_db import get_cached_descriptor_jobs_for_design_ids
 
 
-def refresh_descriptors(design_ids: list[str] | set[str], workflow_names: list[str] = None):
+def refresh_descriptors(design_ids: list[str] | set[str], workflow_names: list[str] | str = None):
     """Update and process all descriptor jobs results and display a Refresh button and log output if any errors occurred."""
+
+    if workflow_names:
+        if isinstance(workflow_names, str):
+            workflow_names = [workflow_names]
+        expanded_workflow_names = list(workflow_names)
+        for workflow_name in list(workflow_names):
+            # Include all subclasses of the given workflow names
+            for subclass_name in WorkflowTypes.get_subclass_names(workflow_name):
+                if subclass_name not in expanded_workflow_names:
+                    expanded_workflow_names.append(subclass_name)
+        workflow_names = expanded_workflow_names
 
     with st.spinner("Updating descriptor job status..."):
         pending_or_failed_jobs = db.select(
@@ -26,8 +37,6 @@ def refresh_descriptors(design_ids: list[str] | set[str], workflow_names: list[s
 
         # Only consider certain workflow classes
         if workflow_names:
-            if isinstance(workflow_names, str):
-                workflow_names = [workflow_names]
             pending_or_failed_jobs = [
                 j for j in pending_or_failed_jobs if j.workflow and j.workflow.name in workflow_names
             ]

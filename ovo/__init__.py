@@ -86,8 +86,20 @@ try:
     if not config.local_scheduler or config.local_scheduler not in schedulers:
         raise ValueError(f"local_scheduler '{config.local_scheduler}' not found, please check your config file.")
 
+    if not config.task_scheduler or config.task_scheduler not in schedulers:
+        # Initialize task_scheduler if not present in config
+        from ovo.core.scheduler.task_scheduler import SyncTaskScheduler
+
+        sync_task_scheduler = SyncTaskScheduler(name="Synchronous Task Scheduler", workdir="./workdir")
+        schedulers["sync_task_scheduler"] = sync_task_scheduler
+        config.task_scheduler = "sync_task_scheduler"
+        # TODO enable this warning once we have some interesting TaskScheduler settings that the user can configure
+        # console.print(
+        #     f"[yellow]Warning: 'task_scheduler' not found in config, initialized default SyncTaskScheduler.[/yellow]"
+        # )
     default_scheduler = schedulers[config.default_scheduler]
     local_scheduler = schedulers[config.local_scheduler]
+    task_scheduler = schedulers[config.task_scheduler]
 
     def get_scheduler(scheduler_key: str) -> Scheduler:
         if scheduler_key not in schedulers:

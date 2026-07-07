@@ -52,20 +52,12 @@ class HealthOmicsScheduler(Scheduler):
             raise RuntimeError("Job submission is disabled")
 
         submission_args = {**self.submission_args, **(submission_args or {})}
-        workflow_name_prefix = submission_args.pop("workflow_name_prefix", "")
         role_arn = submission_args.pop("role_arn", "")
 
-        if re.fullmatch(r"https?://.*", pipeline_name):
-            raise NotImplementedError("GitHub URL pipeline names are not supported yet with HealthOmicsScheduler")
-        elif "/" in pipeline_name or pipeline_name == "." or pipeline_name.endswith(".nf"):
-            raise NotImplementedError("Local path pipeline names are not supported with HealthOmicsScheduler")
-        elif "." in pipeline_name:  # custom workflow path (python_module_name.my_workflow)
-            module_name, workflow_subpath = pipeline_name.split(".")
-        else:
-            module_name = "ovo"
-            workflow_subpath = pipeline_name
-
-        omics_workflow_name = workflow_name_prefix + module_name + "_" + workflow_subpath
+        workflow_name_prefix = submission_args.pop("workflow_name_prefix", "")
+        omics_workflow_name, workflow_subpath = self._get_omics_workflow_name_and_subpath(
+            pipeline_name, workflow_name_prefix
+        )
         workflow_id = self.aws.get_latest_workflow_id(workflow_name=omics_workflow_name)
 
         if submission_args:
@@ -96,6 +88,21 @@ class HealthOmicsScheduler(Scheduler):
         )
 
         return response["id"]
+
+    def _get_omics_workflow_name_and_subpath(self, pipeline_name: str, workflow_name_prefix: str) -> tuple[str, str]:
+        if re.fullmatch(r"https?://.*", pipeline_name):
+            raise NotImplementedError("GitHub URL pipeline names are not supported yet with HealthOmicsScheduler")
+        elif pipeline_name.endswith("()"):
+            raise NotImplementedError("Function call pipeline names are not supported with HealthOmicsScheduler")
+        elif "/" in pipeline_name or pipeline_name == "." or pipeline_name.endswith(".nf"):
+            raise NotImplementedError("Local path pipeline names are not supported with HealthOmicsScheduler")
+        elif "." in pipeline_name:  # custom workflow path (python_module_name.my_workflow)
+            module_name, workflow_subpath = pipeline_name.split(".")
+        else:
+            module_name = "ovo"
+            workflow_subpath = pipeline_name
+
+        return workflow_name_prefix + module_name + "_" + workflow_subpath, workflow_subpath
 
     def get_status_label(self, job_id: str) -> str:
         """Get human-readable job status label. Should NOT be used to determine job status.
@@ -210,8 +217,7 @@ class HealthOmicsScheduler(Scheduler):
 
     def cancel(self, job_id):
         """Cancel job execution"""
-        # TODO implement cancelling HealthOmics job
-        raise NotImplementedError()
+        self.aws.omics.cancel_run(id=job_id)
 
     def get_output_dir(self, job_id: str) -> str:
         """Get job output path"""
@@ -272,3 +278,19 @@ class HealthOmicsScheduler(Scheduler):
         else:
             tasks["duration_seconds"] = None
         return tasks
+
+    def supports_pipeline_name(self, pipeline_name: str) -> bool:
+        """Check if this scheduler supports the given pipeline.
+
+        Args:
+            pipeline_name: Pipeline name to check (e.g., "ovo.rfdiffusion-end-to-end", "ovo_my_plugin.my_workflow")
+
+        Returns:
+            True if pipeline can run on HealthOmics
+        """
+        try:
+            workflow_name_prefix = self.submission_args.pop("workflow_name_prefix", "")
+            self._get_omics_workflow_name_and_subpath(pipeline_name, workflow_name_prefix)
+            return True
+        except NotImplementedError:
+            return False

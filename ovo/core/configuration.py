@@ -118,6 +118,8 @@ class OVOConfig(BaseConfigModel):
     default_scheduler: str | None = None
     # Key of the local scheduler to use for local job submissions like RFdiffusion preview
     local_scheduler: str | None = None
+    # Key of the task scheduler to use for task-based workflows
+    task_scheduler: str | None = None
     # Dictionary of scheduler instances (scheduler key -> instance) that enable scheduling jobs
     schedulers: dict[str, SchedulerConfig] = field(default_factory=dict)
     # Nextflow home directory
@@ -194,6 +196,7 @@ props:
 {props_rows}
 default_scheduler: {default_scheduler_key}
 local_scheduler: {default_scheduler_key}
+task_scheduler: sync_task_scheduler
 schedulers:
   {default_scheduler_key}:
     name: Local with {default_profile}
@@ -203,6 +206,10 @@ schedulers:
       profile: {default_profile},cpu_env
       max_memory: 8GB
       config: ./nextflow_local.config
+    workdir: ./workdir
+  sync_task_scheduler:
+    name: Synchronous Task Scheduler
+    type: SyncTaskScheduler
     workdir: ./workdir
 # Plugin-specific configuration can go here, for example:
 # plugins:

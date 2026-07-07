@@ -8,12 +8,14 @@ from ovo.core.database.models import (
     DescriptorValue,
     Descriptor,
     Pool,
+    ProjectArtifact,
     Round,
     Design,
     DesignJob,
     DescriptorJob,
     Labeling,
     DesignLabeling,
+    WorkflowTypes,
 )
 import streamlit as st
 
@@ -73,6 +75,16 @@ def get_cached_descriptor_jobs_for_design_ids(
         job_result=True,
         order_by="-created_date_utc",
     )
+
+    if workflow_names:
+        # Include all subclasses of the given workflow names
+        expanded_workflow_names = list(workflow_names)
+        for workflow_name in list(workflow_names):
+            for subclass_name in WorkflowTypes.get_subclass_names(workflow_name):
+                if subclass_name not in expanded_workflow_names:
+                    expanded_workflow_names.append(subclass_name)
+        workflow_names = expanded_workflow_names
+
     finished_jobs = [
         j
         for j in finished_jobs
@@ -80,6 +92,7 @@ def get_cached_descriptor_jobs_for_design_ids(
         and (workflow_names is None or j.workflow.name in workflow_names)
         and len(set(design_ids).intersection(set(j.workflow.design_ids))) > 0
     ]
+
     # Only consider jobs with a Workflow that consists only of provided design_ids and workflow names
     if only_exact_design_ids:
         finished_jobs = [j for j in finished_jobs if set(design_ids) == set(j.workflow.design_ids)]

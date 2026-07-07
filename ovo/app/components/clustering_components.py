@@ -5,12 +5,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly import express as px
 
-from ovo.app.components.custom_elements import wrapped_columns, confirm_download_button
+from ovo.app.components.custom_elements import wrapped_columns
 from ovo.app.utils.cached_db import (
     get_cached_design,
     get_cached_pools,
     get_cached_descriptor_values,
-    get_cached_available_descriptors,
 )
 from ovo.core.database.descriptors_clustering import (
     CLUSTER_INFO_REFERENCES,
@@ -588,56 +587,6 @@ def display_clustering_job_params(job: DescriptorJob):
                 if param_description:
                     param_str += f" :grey[({param_description})]"
                 st.write(param_str)
-
-
-def download_descriptors_from_job(design_ids: list[str], job_descriptor_keys: list[str], job: DescriptorJob):
-    """Provide download button for descriptor table from descriptor job, including all other available descriptors"""
-    workflow_name = job.workflow.name.replace(" ", "_").lower()
-    filename = f"{workflow_name}_{job.id}_descriptors"
-
-    available_descriptors_by_key = get_cached_available_descriptors(design_ids)
-
-    if st.button(
-        "Download full descriptor table",
-        key="prepare_descriptors_download_descriptor_job_descriptors",
-        width="content",
-    ):
-        with st.spinner("Preparing descriptor table..."):
-            # Fetch job descriptors with job_id filter to get correct results from this specific job
-            df_job = get_wide_descriptor_table(
-                design_ids=design_ids,
-                descriptor_keys=job_descriptor_keys,
-                descriptor_job_id=job.id,
-                nested=False,
-                human_readable=False,
-            )
-            # Fetch all other descriptors without job_id filter
-            if available_descriptors_by_key:
-                df_other = get_wide_descriptor_table(
-                    design_ids=design_ids,
-                    descriptor_keys=available_descriptors_by_key.keys(),
-                    descriptor_job_id=None,
-                    nested=False,
-                    human_readable=False,
-                )
-                # Drop sequence and labels columns as they are already retrieved in df_job
-                sequence_cols = [col for col in df_other.columns if "sequence_" in col.lower()]
-                label_cols = [col for col in df_other.columns if "label" in col.lower()]
-                cols_to_drop = sequence_cols + label_cols
-                df_other = df_other.drop(columns=cols_to_drop)
-                # Merge the two tables
-                df_combined = pd.merge(df_job, df_other, left_index=True, right_index=True)
-            else:
-                df_combined = df_job
-
-            excel_bytes = export_design_descriptors_excel(df_combined)
-
-        confirm_download_button(
-            data=excel_bytes.getvalue(),
-            file_name=f"{filename}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_descriptors_download_descriptor_job_descriptors",
-        )
 
 
 def display_clustering_metrics(df_descriptor_values: pd.DataFrame, job: DescriptorJob):

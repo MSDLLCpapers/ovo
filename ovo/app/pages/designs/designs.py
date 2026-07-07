@@ -132,6 +132,7 @@ views = {
     "🔁 Refolding": "ovo.app.pages.designs.refolding:refolding_fragment",
     "📉 Regression": "ovo.app.pages.designs.regression:regression_fragment",
     "🫧 Clustering": "ovo.app.pages.designs.clustering:clustering_fragment",
+    "🏆 Ranking": "ovo.app.pages.designs.ranking:ranking_fragment",
 }
 
 # Update functions from plugins

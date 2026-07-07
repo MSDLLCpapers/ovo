@@ -4,12 +4,14 @@ import pandas as pd
 from collections import Counter
 
 from ovo.app.components.descriptor_job_components import refresh_descriptors
+from ovo.app.components.download_component import download_descriptor_table, download_job_designs_component
 from ovo.app.components.submission_components import chain_ids_input
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors_per_job,
     get_cached_descriptor_jobs_for_design_ids,
     get_cached_design,
+    get_cached_pools,
 )
 from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING
 from ovo.core.utils.formatting import datetime_from_utc_to_local
@@ -36,7 +38,6 @@ from ovo.app.components.clustering_components import (
     umap_scatterplot_component,
     cluster_representatives_tiles,
     inspect_clusters,
-    download_descriptors_from_job,
     display_clustering_metrics,
     interface_clustering_table,
 )
@@ -276,8 +277,22 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     )
     if isinstance(job.workflow, SecondaryStructureHierarchicalClusteringWorkflow):
         df_descriptor_values[PYDSSP_STRING.key] = get_cached_descriptor_values(PYDSSP_STRING.key, design_ids)
-    # Download descriptors for current job
-    download_descriptors_from_job(design_ids, [d.key for d in descriptors], job)
+
+    pools = get_cached_pools(pool_ids)
+    # TODO how to get clustering descriptors in a more reliable way
+    cluster_id_descriptors = [d for d in descriptors if "Cluster ID" in d.name]
+    if not cluster_id_descriptors:
+        st.error("No clustering descriptor found")
+        return
+
+    cluster_id_descriptor = cluster_id_descriptors[0]
+    download_job_designs_component(
+        design_ids,
+        pools,
+        descriptor_job_id={job.id: [d.key for d in descriptors]},
+        group_by=cluster_id_descriptor.key,
+        group_by_fmt="cluster_{}",
+    )
 
     # Identify which clustering tool was used and get cluster descriptor for id
     # this is neccessary when other clustering algorithms used and columns descriptors named differently

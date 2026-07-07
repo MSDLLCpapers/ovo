@@ -4,8 +4,9 @@ import pandas as pd
 import streamlit as st
 from streamlit.elements.metric import DeltaColor
 
-from ovo import db, storage, Threshold
+from ovo import db, storage, Threshold, UnknownWorkflow, WorkflowTypes, DesignWorkflow
 from ovo.app.components.custom_elements import wrapped_columns
+from ovo.app.components.download_component import download_job_designs_component
 from ovo.core.database import (
     Design,
     descriptors,
@@ -91,6 +92,32 @@ def show_design_metrics(
             delta_description=delta_description,
         )
     return descriptor_values
+
+
+def show_design(design_id: str, shared_workflow_name: str = None):
+    design = get_cached_design(design_id)
+    pool = get_cached_pool(design.pool_id)
+    design_job = get_cached_design_job(pool.design_job_id)
+    if not shared_workflow_name and pool.design_job_id:
+        shared_workflow_name = design_job.workflow.name if design_job and design_job.workflow else None
+
+    if design_job.workflow and design_job.workflow.is_instance(UnknownWorkflow):
+        st.warning(f"Workflow metadata failed to load: {design_job.workflow.error}")
+
+    WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow
+
+    try:
+        WorkflowType.visualize_single_design_structures(design_id)
+    except Exception as e:
+        st.error(f"Error visualizing structure: {e}")
+
+    st.write("### Sequence")
+
+    WorkflowType.visualize_single_design_sequences(design_id)
+
+    st.write(f"### Download single design: {design_id}")
+
+    download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")
 
 
 def select_structure_prediction_descriptor(paths: dict[str, str]) -> StructureFileDescriptor | None:

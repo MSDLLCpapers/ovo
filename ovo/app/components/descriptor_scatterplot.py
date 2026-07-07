@@ -373,8 +373,11 @@ def descriptor_scatterplot_component(
         return selected_design_ids
 
 
-def format_descriptor_name(descriptor: Descriptor) -> str:
-    return f"{descriptor.name} ({descriptor.tool})" if descriptor.tool else descriptor.name
+def format_descriptor_name(descriptor: Descriptor, with_description: bool = False) -> str:
+    description = f"{descriptor.name} ({descriptor.tool})" if descriptor.tool else descriptor.name
+    if with_description:
+        description += f": {descriptor.description}"
+    return description
 
 
 def get_trimmed_min_max(box_selection, descriptor):

@@ -17,14 +17,12 @@ from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.job_components import job_status_fragment
 from ovo.app.components.navigation import design_navigation_selector
+from ovo.app.components.workflow_visualization_components import show_design
 from ovo.app.utils.cached_db import (
     get_cached_pools,
-    get_cached_pool,
-    get_cached_design,
-    get_cached_design_job,
     get_cached_design_jobs_table,
 )
-from ovo.core.database import DesignJob, UnknownWorkflow
+from ovo.core.database import DesignJob
 from ovo.core.logic.design_logic import process_results
 from ovo.core.logic.job_logic import update_job_status
 
@@ -375,30 +373,7 @@ def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str 
             return
     else:
         design_labeling_fragment(design_id=design_id, key_suffix=f"job_detail_{design_id}")
-
-        design = get_cached_design(design_id)
-        pool = get_cached_pool(design.pool_id)
-        design_job = get_cached_design_job(pool.design_job_id)
-        if not shared_workflow_name and pool.design_job_id:
-            shared_workflow_name = design_job.workflow.name if design_job and design_job.workflow else None
-
-        if design_job.workflow and design_job.workflow.is_instance(UnknownWorkflow):
-            st.warning(f"Workflow metadata failed to load: {design_job.workflow.error}")
-
-        WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow
-
-        try:
-            WorkflowType.visualize_single_design_structures(design_id)
-        except Exception as e:
-            st.error(f"Error visualizing structure: {e}")
-
-        st.write("### Sequence")
-
-        WorkflowType.visualize_single_design_sequences(design_id)
-
-        st.write(f"### Download single design: {design_id}")
-
-        download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")
+        show_design(design_id, shared_workflow_name=shared_workflow_name)
 
 
 def show_workflow_summary(jobs: list[DesignJob]):

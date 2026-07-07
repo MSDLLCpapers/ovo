@@ -17,7 +17,8 @@ def get_descriptor_column_config(descriptor: Descriptor):
         return st.column_config.TextColumn(
             label=descriptor.name, help=f"**{descriptor.name}**: {descriptor.description}", width="small"
         )
-    if descriptor.name == "Sequence length":
+    # TODO could we use descriptor.format(value) here?
+    if descriptor.name == "Sequence length" or descriptor.name == "Rank":
         format = "%.0f"
     elif "%" in descriptor.name:
         format = "%.2f %%"

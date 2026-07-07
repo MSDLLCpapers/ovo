@@ -314,6 +314,8 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
                 info_data = run_nextflow(["info", url, "-o", "json"])
             info = json.loads(info_data)
             pipeline_dir = info["localPath"]
+        elif pipeline_name.endswith("()"):
+            raise NotImplementedError("Function call pipeline names are not supported with NextflowScheduler")
         elif "/" in pipeline_name or pipeline_name == ".":
             if not os.path.exists(pipeline_name):
                 raise FileNotFoundError(f"Workflow path not found: {pipeline_name}")
@@ -605,6 +607,26 @@ class NextflowScheduler(Scheduler, SimpleQueueMixin):
             assert "allOf" in schema, f"Invalid schema, missing properties and allOf in {schema_path}"
             schema = flatten_schema(schema)
         return schema
+
+    def supports_pipeline_name(self, pipeline_name: str) -> bool:
+        """Check if this scheduler supports the given pipeline.
+
+        Returns True if the pipeline directory exists with a main.nf file.
+        Returns False for task-based pipelines and other non-supported tasks.
+
+        Args:
+            pipeline_name: Pipeline name to check (e.g., "ovo.rfdiffusion-end-to-end")
+
+        Returns:
+            True if pipeline exists and can run on Nextflow
+        """
+        try:
+            # Try to get pipeline directory - if it exists, we can run it
+            self._get_pipeline_dir(pipeline_name)
+            return True
+        except (FileNotFoundError, NotImplementedError):
+            # Any error means the pipeline can't run on this scheduler
+            return False
 
     def get_failed_message(self, job_id):
         return (

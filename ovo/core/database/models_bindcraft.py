@@ -139,6 +139,7 @@ class BindCraftBinderDesignWorkflow(DesignWorkflow, RefoldingSupportedDesignWork
     @classmethod
     def get_download_fields(cls):
         return {
+            **super().get_download_fields(),
             "BindCraft Input PDB": (BindCraftBinderDesignWorkflow, "bindcraft_params.input_pdb_path"),
             "BindCraft design": (Design, "structure_path"),
         }

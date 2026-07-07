@@ -420,6 +420,7 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
     @classmethod
     def get_download_fields(cls):
         return {
+            **super().get_download_fields(),
             "RFdiffusion Input PDB": (RFdiffusionWorkflow, "rfdiffusion_params.input_pdb_paths"),
         }
 

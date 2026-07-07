@@ -3,6 +3,7 @@ import sys
 import traceback
 import warnings
 import zipfile
+from collections import defaultdict
 
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -451,9 +452,19 @@ def set_designs_accepted(
         design.accepted = design.id in accepted_design_ids
 
 
-def collect_storage_paths(download_fields: dict[str, tuple[Base, str]], design_ids: list) -> list[str]:
-    """Collect storage paths from designs based on fields returned by DesignWorkflow.get_download_fields()."""
-    storage_paths = []
+def collect_storage_paths(
+    download_fields: dict[str, tuple[Base, str]],
+    design_ids: list,
+    descriptor_job_id: str | dict[str, list[str]] | None = None,
+) -> dict[str | None, list[str]]:
+    """Collect storage paths from designs based on fields returned by DesignWorkflow.get_download_fields().
+
+    :param download_fields: Fields returned by DesignWorkflow.get_download_fields()
+    :param design_ids: List of design IDs to collect storage paths for
+    :param descriptor_job_id: Optional dict mapping job ID to list of its descriptor keys that should be included (used for descriptors that require a job id)
+    :return: Dict of {design_id (or None if input): list of storage paths}
+    """
+    storage_paths = defaultdict(list)
     for label, (Model, field_name) in download_fields.items():
         if "." in field_name:
             # Allow nesting like rfdiffusion_params.input_pdb_path
@@ -463,40 +474,61 @@ def collect_storage_paths(download_fields: dict[str, tuple[Base, str]], design_i
             # Regular field like structure_path
             subfield_name = None
 
+        descriptor_job_filter = {}
+        if isinstance(descriptor_job_id, dict):
+            for job_id, keys in descriptor_job_id.items():
+                if field_name in keys:
+                    descriptor_job_filter["descriptor_job_id"] = job_id
+                    break
+        elif isinstance(descriptor_job_id, str):
+            descriptor_job_filter["descriptor_job_id"] = descriptor_job_id
+
         if issubclass(Model, Design):
             # Get field values from Design objects
-            field_values = db.select_unique_values(Model, field_name, id__in=design_ids)
+            paths_and_ids = db.select_dict(Model, field_name, "id", id__in=design_ids)
         elif issubclass(Model, DesignWorkflow):
             # Get field values from DesignWorkflow objects via the DesignJob associated with each Pool
             pool_ids = db.select_unique_values(Design, "pool_id", id__in=design_ids)
             pools = db.select(Pool, id__in=pool_ids)
             design_job_ids = [pool.design_job_id for pool in pools if pool.design_job_id]
-            field_values = [
-                getattr(workflow, field_name)
-                for workflow in db.select_values(DesignJob, "workflow", id__in=design_job_ids)
-                if isinstance(workflow, Model)
-            ]
+            paths_and_ids = {}
+            for workflow in db.select_values(DesignJob, "workflow", id__in=design_job_ids):
+                if isinstance(workflow, Model):
+                    value = getattr(workflow, field_name)
+                    path = value if subfield_name is None else getattr(value, subfield_name)
+                    if isinstance(path, list):
+                        path = tuple(path)
+                    paths_and_ids[path] = None
         elif issubclass(Model, DescriptorValue):
-            field_values = db.select_unique_values(Model, "value", descriptor_key=field_name, design_id__in=design_ids)
+            paths_and_ids = db.select_dict(
+                Model,
+                "value",
+                "design_id",
+                descriptor_key=field_name,
+                design_id__in=design_ids,
+                **descriptor_job_filter,
+            )
         else:
             raise ValueError(
                 f"Unsupported model {Model.__name__} for download, use a subclass of Design or DesignWorkflow"
             )
 
-        for field_value in field_values:
-            if not field_value:
-                continue
-            path = field_value if subfield_name is None else getattr(field_value, subfield_name)
+        for path, design_id in paths_and_ids.items():
             if not path:
                 continue
             elif isinstance(path, str):
-                storage_paths.append(path)
-            elif isinstance(path, list):
-                storage_paths.extend(path)
+                storage_paths[design_id].append(path)
+            elif isinstance(path, list) or isinstance(path, tuple):
+                storage_paths[design_id].extend(path)
             else:
                 raise ValueError(
                     f"Unexpected field type {type(path)} for {field_name}.{subfield_name}, expected str or list"
                 )
+
+    # make sure paths are unique
+    for design_id in storage_paths:
+        storage_paths[design_id] = list(set(storage_paths[design_id]))
+
     return storage_paths
 
 

@@ -385,8 +385,20 @@ class SqlDBEngine(CacheClearingEngine):
             return series.reindex(descriptor_keys)
 
     def select_wide_descriptor_table(
-        self, design_ids: list[str], descriptor_keys: list[str], descriptor_job_id: str | None = None, **kwargs
+        self,
+        design_ids: list[str],
+        descriptor_keys: list[str],
+        descriptor_job_id: str | dict[str, list[str]] | None = None,
+        **kwargs,
     ) -> pd.DataFrame:
+        """Select values of multiple descriptors for multiple designs, returning a wide table with design_id as index and descriptor_keys as columns.
+
+        :param design_ids: List of design IDs to select descriptors for
+        :param descriptor_keys: List of descriptor keys to select
+        :param descriptor_job_id: Optional descriptor job ID to filter by, or a dict mapping job ID to list of its descriptor keys that should be filtered by that job (if present in descriptor_keys).
+
+        :return: A pandas DataFrame with design_id as index and descriptor_keys as columns, containing the descriptor values.
+        """
         # TODO this does not handle the case when a descriptor was computed multiple times for the same design and descriptor_job_id is not provided
         #  this can happen when we implement multiple descriptor jobs with different settings.
         #  To solve this, some descriptor job key could be incorporated in the column name or used as a filter.
@@ -404,24 +416,41 @@ class SqlDBEngine(CacheClearingEngine):
             )
             results = []
             for batch in batches:
-                cases = [
-                    func.max(case((DescriptorValue.descriptor_key == key, DescriptorValue.value), else_=None)).label(
-                        key
-                    )
-                    for key in descriptor_keys
-                ]
+                if isinstance(descriptor_job_id, dict):
+                    # Different descriptor keys are filtered by different descriptor_job_ids
+                    # create mapping: descriptor key -> job id
+                    job_id_by_descriptor_key = {}
+                    for job_id, keys in descriptor_job_id.items():
+                        if isinstance(keys, str):
+                            keys = [keys]
+                        for key in keys:
+                            assert isinstance(key, str), (
+                                f"Expected descriptor key string, got {type(key).__name__}: {key}"
+                            )
+                            job_id_by_descriptor_key[key] = job_id
+                    # create mapping: job id (or None) -> list of descriptor keys
+                    descriptor_keys_by_job_id = {}
+                    for descriptor_key in descriptor_keys:
+                        job_id = job_id_by_descriptor_key.get(descriptor_key)
+                        if job_id not in descriptor_keys_by_job_id:
+                            descriptor_keys_by_job_id[job_id] = []
+                        descriptor_keys_by_job_id[job_id].append(descriptor_key)
 
-                query = (
-                    session.query(DescriptorValue.design_id, *cases)
-                    .filter(*self._create_filters(DescriptorValue, dict(design_id__in=batch)))
-                    .filter(*self._create_filters(DescriptorValue, kwargs))
-                    .group_by(DescriptorValue.design_id)
-                )
-                if descriptor_job_id is not None:
-                    query = query.filter(DescriptorValue.descriptor_job_id == descriptor_job_id)
-                results += query.all()
+                    merged_result = None
+                    for job_id, keys in descriptor_keys_by_job_id.items():
+                        query = self._create_descriptor_query(session, batch, keys, job_id, **kwargs)
+                        result = pd.DataFrame(query.all())
+                        if merged_result is None:
+                            merged_result = result
+                        else:
+                            merged_result = pd.merge(merged_result, result, on="design_id", how="outer")
+                    merged_result = merged_result[["design_id"] + descriptor_keys]
+                    results.append(merged_result)
+                else:
+                    query = self._create_descriptor_query(session, batch, descriptor_keys, descriptor_job_id, **kwargs)
+                    results.append(pd.DataFrame(query.all()))
             session.close()
-            df = pd.DataFrame(results)
+            df = pd.concat(results) if results else pd.DataFrame([])
             if not df.empty:
                 df = df.set_index("design_id")
             # remove columns with no values
@@ -435,6 +464,24 @@ class SqlDBEngine(CacheClearingEngine):
                 except (ValueError, TypeError):
                     pass
             return df.reindex(design_ids)
+
+    def _create_descriptor_query(
+        self, session, design_ids: list[str], descriptor_keys: list[str], descriptor_job_id: str = None, **kwargs
+    ):
+        cases = [
+            func.max(case((DescriptorValue.descriptor_key == key, DescriptorValue.value), else_=None)).label(key)
+            for key in descriptor_keys
+        ]
+        query = (
+            session.query(DescriptorValue.design_id, *cases)
+            .filter(*self._create_filters(DescriptorValue, dict(design_id__in=design_ids)))
+            .filter(*self._create_filters(DescriptorValue, kwargs))
+            .group_by(DescriptorValue.design_id)
+        )
+        if descriptor_job_id is not None:
+            # All descriptors are filtered by the same descriptor_job_id
+            query = query.filter(DescriptorValue.descriptor_job_id == descriptor_job_id)
+        return query
 
     def get_design_accepted_values(self, design_ids: list[str]):
         with self._create_session() as session:

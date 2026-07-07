@@ -77,12 +77,20 @@ def get_wide_descriptor_table(
     descriptor_keys: Collection[str] = None,
     human_readable=True,
     nested=False,
-    descriptor_job_id: str = None,
+    descriptor_job_id: str | dict[str, list[str]] | None = None,
     **filters,
 ) -> pd.DataFrame:
     """
     Return a wide descriptor table for the given design ids.
     The table will have design ids as index and human-readable descriptor names (or keys if human_readable=False) as columns.
+
+    :param pool_ids: Optional list of pool ids to filter designs by. If provided, design_ids will be ignored.
+    :param design_ids: Optional list of design ids to filter by. If not provided, will be inferred from pool_ids.
+    :param descriptor_keys: Optional list of descriptor keys to include. If not provided, all possible descriptors will be included (including those not available for any of the selected designs!)
+    :param human_readable: If True, use human-readable descriptor names as columns. If False, use descriptor keys.
+    :param nested: If True, use a MultiIndex for columns with (tool, name) tuples. If False, use flat column names.
+    :param descriptor_job_id: Optional descriptor job ID to filter by, or a dict mapping job ID to list of its descriptor keys that should be filtered by that job (if present in descriptor_keys).
+
     """
     if design_ids is None:
         if pool_ids is None:

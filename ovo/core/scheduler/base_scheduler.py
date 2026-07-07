@@ -123,6 +123,17 @@ class Scheduler(ABC):
     def get_failed_message(self, job_id):
         return f"Job {job_id} has failed."
 
+    def supports_pipeline_name(self, pipeline_name: str) -> bool:
+        """Check if this scheduler supports the given pipeline.
+
+        Args:
+            pipeline_name: Pipeline name to check (e.g., "run_workflow", "ovo.rfdiffusion-end-to-end")
+
+        Returns:
+            True if this scheduler can run the pipeline, False otherwise
+        """
+        raise NotImplementedError()
+
     def supports_resume(self, job_id) -> bool:
         return False
 

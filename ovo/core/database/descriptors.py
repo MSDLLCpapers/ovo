@@ -13,6 +13,7 @@ for descriptor_path in [
     "ovo.core.database.descriptors_bindcraft",
     "ovo.core.database.descriptors_proteinqc",
     "ovo.core.database.descriptors_clustering",
+    "ovo.core.database.descriptors_ranking",
 ] + get_extension_points("ovo.descriptors", str):
     assert isinstance(descriptor_path, str), (
         f"Expected descriptor path to be a string (my_module.descriptor_submodule), got {descriptor_path}"

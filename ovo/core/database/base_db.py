@@ -68,7 +68,21 @@ class DBEngine(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def select_wide_descriptor_table(self, design_ids: list[str], descriptor_keys: list[str], **kwargs) -> pd.DataFrame:
+    def select_wide_descriptor_table(
+        self,
+        design_ids: list[str],
+        descriptor_keys: list[str],
+        descriptor_job_id: str | dict[str, list[str]] | None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Select values of multiple descriptors for multiple designs, returning a wide table with design_id as index and descriptor_keys as columns.
+
+        :param design_ids: List of design IDs to select descriptors for
+        :param descriptor_keys: List of descriptor keys to select
+        :param descriptor_job_id: Optional descriptor job ID to filter by, or a dict mapping job ID to list of its descriptor keys that should be filtered by that job (if present in descriptor_keys).
+
+        :return: A pandas DataFrame with design_id as index and descriptor_keys as columns, containing the descriptor values.
+        """
         raise NotImplementedError()
 
     def __getattr__(self, name: str) -> DBProxy:
