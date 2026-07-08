@@ -10,7 +10,7 @@ from ovo.app.components.descriptor_scatterplot import (
     descriptor_scatterplot_component,
     descriptor_scatterplot_input_component,
 )
-from ovo.app.components.navigation import design_navigation_selector
+from ovo.app.components.navigation import design_navigation_selector, get_jobs_url
 from ovo.app.utils.cached_db import (
     get_cached_design,
     get_cached_pool,
@@ -120,6 +120,13 @@ def design_visualization_fragment(selected_design_ids: list[str]):
             f"Falling back to basic structure and sequence visualization, "
             f"failed to load workflow information: {design_job.workflow.error}"
         )
+
+    st.markdown(
+        f'**Pool:** {pool.name} <a href="{get_jobs_url(st.session_state.project.id, pool.id)}">↑ Show job</a>',
+        unsafe_allow_html=True,
+    )
+    if pool.description:
+        st.write(f"**Pool description:** {pool.description}")
 
     try:
         WorkflowType.visualize_single_design_structures(design_id)

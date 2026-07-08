@@ -230,6 +230,10 @@ def project_round_selector(
     return (selected_round_ids, None) if allow_design_input else selected_round_ids
 
 
+def get_jobs_url(project_id: str, pool_id: str) -> str:
+    return f"./jobs?pool_ids={pool_id}&project_id={project_id}"
+
+
 def pool_selector_table(pools_table: pd.DataFrame, project_id: str) -> list[str]:
     key = "_".join(pools_table["ID"])
 
@@ -253,7 +257,7 @@ def pool_selector_table(pools_table: pd.DataFrame, project_id: str) -> list[str]
         st.session_state[default_selection_key] = default_selection
     pools_table.insert(0, "Selected", [pool_id in default_selection for pool_id in pools_table["ID"]])
     pools_table["Job ID"] = [
-        f"./jobs?pool_ids={pool_id}&project_id={project_id}" if not pd.isna(job_id) else None
+        get_jobs_url(project_id, pool_id) if not pd.isna(job_id) else None
         for pool_id, job_id in pools_table.set_index("ID")["Job ID"].items()
     ]
 
@@ -327,47 +331,61 @@ def design_navigation_selector(
     num_designs = len(design_ids)
     if allow_all:
         design_ids = ["ALL"] + list(design_ids)
-    # Get current index from query params
-    if key in st.query_params and st.query_params[key] in design_ids:
-        idx = design_ids.index(st.query_params[key])
-        element_key = f"{key}_selectbox_{idx}"
-        if element_key in st.session_state and st.session_state[element_key] in design_ids:
-            idx = design_ids.index(st.session_state[element_key])
-    elif allow_all:
-        idx = 0 if default_all else 1
-    else:
-        idx = 0
-    # force forgetting idx when design_ids change (since the idx doesn't make sense anymore)
     ids_hash = get_hash_of_bytes(",".join(design_ids).encode())
-    element_key = f"{key}_{ids_hash}_selectbox_{idx}"
+    element_key_prefix = f"{key}_{ids_hash}_selectbox"
+
+    # Try getting current value from session state (we need to find the key based on the prefix)
+    idx = None
+    prev_element_keys = [k for k in st.session_state if k and k.startswith(element_key_prefix)]
+    if prev_element_keys:
+        prev_element_key = prev_element_keys[0]
+        design_id = st.session_state[prev_element_key]
+        if design_id in design_ids:
+            idx = design_ids.index(design_id)
+
+    if idx is None:
+        if key in st.query_params and st.query_params[key] in design_ids:
+            # Get current index from query params
+            idx = design_ids.index(st.query_params[key])
+        elif allow_all:
+            idx = 0 if default_all else 1
+        else:
+            idx = 0
 
     with st.container(horizontal=True, gap="small", vertical_alignment="center"):
-        if st.button(
+        prev_button_key = f"previous_design_btn_{key}"
+        next_button_key = f"next_design_btn_{key}"
+
+        # Check if prev/next buttons were pressed through session state
+        # so that we can set the current value and the button disabled state correctly
+        pressed_prev = st.session_state.get(prev_button_key)
+        pressed_next = st.session_state.get(next_button_key)
+        if pressed_prev:
+            idx = previous_design_idx(idx)
+        if pressed_next:
+            idx = next_design_idx(idx, len(design_ids) - 1)
+
+        st.button(
             ":material/arrow_back_ios:",
             key=f"previous_design_btn_{key}",
             width="content",
             disabled=idx == 0,
-        ):
-            idx = previous_design_idx(idx)
-            element_key = f"{key}_selectbox_{idx}"
+        )
 
-        count_container = st.container(width=75, horizontal_alignment="center")
-
-        if st.button(
-            ":material/arrow_forward_ios:",
-            key=f"next_design_btn_{key}",
-            width="content",
-            disabled=idx == len(design_ids) - 1,
-        ):
-            idx = next_design_idx(idx, len(design_ids) - 1)
-            element_key = f"{key}_selectbox_{idx}"
-
-        with count_container:
-            # Write count later so that the idx is at the most recent value
+        with st.container(width=75, horizontal_alignment="center"):
             curr = "All" if design_ids[idx] == "ALL" else (idx if allow_all else idx + 1)
             st.html(
                 f'<div style="text-align: center">{curr} / {num_designs:,}</div>',
             )
+
+        st.button(
+            ":material/arrow_forward_ios:",
+            key=f"next_design_btn_{key}",
+            width="content",
+            disabled=idx == len(design_ids) - 1,
+        )
+
+        design_indexes = {design_id: i for i, design_id in enumerate(design_ids, start=1)}
 
         def format_func(design_id):
             if design_id == "ALL":
@@ -376,7 +394,10 @@ def design_navigation_selector(
                 label = fmt.get(design_id, "") if isinstance(fmt, dict) else fmt(design_id)
             else:
                 label = ""
-            return f"{design_id}" + (f" | {label}" if label else "")
+            return f"{design_indexes[design_id]} | {design_id}" + (f" | {label}" if label else "")
+
+        # force forgetting idx when design_ids change (since the idx doesn't make sense anymore)
+        element_key = element_key_prefix + f"_{idx}"
 
         design_id = st.selectbox(
             "Select a design",
@@ -388,5 +409,11 @@ def design_navigation_selector(
             width="stretch",
         )
         st.query_params[key] = design_id
+
+        if design_id != "ALL":
+            url = f"./designs?project_id={st.session_state.project.id}&design={design_id}"
+            if design_view := st.query_params.get("design_view"):
+                url += f"&design_view={design_view}"
+            st.link_button(":material/open_in_new: Detail page", url)
 
     return None if design_id == "ALL" else design_id

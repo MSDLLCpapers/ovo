@@ -7,6 +7,7 @@ import streamlit as st
 
 from ovo import db, storage, DesignJob, Pool
 from ovo import viz
+from ovo.app.components.navigation import get_jobs_url
 from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_rounds,
@@ -380,7 +381,7 @@ def get_subjob_table(
                 "Total": total_designs,
                 "% Accepted": f"{accepted_designs / total_designs if total_designs else 0:.2%}",
                 "Pool name": pool.name,
-                "Link": f"[Job ↑](./jobs?pool_ids={pool.id}&project_id={project_rounds_by_id[pool.round_id].project_id})",
+                "Link": f"[Job ↑]({get_jobs_url(project_rounds_by_id[pool.round_id].project_id, pool.id)})",
             }
         )
 

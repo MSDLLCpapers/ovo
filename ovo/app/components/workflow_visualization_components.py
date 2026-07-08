@@ -144,7 +144,7 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     design: Design = get_cached_design(design_id)
 
     chain_contigs = [c.contig for c in design.spec.chains]
-    st.write(f"Contig: **{' '.join(chain_contigs)}**")
+    st.write(f"**Contig:** {' '.join(chain_contigs)}")
 
     pool = get_cached_pool(design.pool_id)
     design_job = get_cached_design_job(pool.design_job_id)

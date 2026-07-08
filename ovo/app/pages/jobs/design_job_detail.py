@@ -251,6 +251,14 @@ def show_accepted_designs_and_thresholds(
         st.header(
             f"Showing {len(accepted_design_ids)} accepted {'designs' if len(accepted_design_ids) > 1 else 'design'}"
         )
+
+        st.write(
+            f"""
+                This section enables adjusting acceptance thresholds and visualizing the accepted designs. 
+                Visit the [Designs](./designs?project_id={st.session_state.project.id}) page 
+                for in-depth analysis of accepted designs.
+                """
+        )
     else:
         st.header("No accepted designs")
         st.warning(
