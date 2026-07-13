@@ -289,7 +289,7 @@ class HealthOmicsScheduler(Scheduler):
             True if pipeline can run on HealthOmics
         """
         try:
-            workflow_name_prefix = self.submission_args.pop("workflow_name_prefix", "")
+            workflow_name_prefix = self.submission_args.get("workflow_name_prefix", "")
             self._get_omics_workflow_name_and_subpath(pipeline_name, workflow_name_prefix)
             return True
         except NotImplementedError:
