@@ -14,7 +14,7 @@ from ovo.core.database.models_rfdiffusion import (
 )
 from ovo.app.components.acceptance_thresholds_components import thresholds_input_component
 from ovo.app.components.navigation import open_first_section
-from ovo.app.utils.bindcraft_utils import load_json_from_file, get_dict_diff, merge_dictionaries
+from ovo.core.utils.advanced_parameters import load_json_from_file, get_dict_diff, merge_dictionaries
 from ovo.app.utils.cached_db import get_cached_round, get_cached_common_chain_ids
 from ovo.app.utils.testing import is_test_dialog_shown
 from ovo.core.auth import get_username

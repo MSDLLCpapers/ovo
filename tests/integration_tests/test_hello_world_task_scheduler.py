@@ -431,7 +431,7 @@ def test_sync_task_scheduler_error_handling():
 
     try:
         # Submit failing task (use full module path)
-        task_name = f"{__name__}.failing_task"
+        task_name = f"{__name__}.failing_task()"
         job_id = scheduler.submit(task_name, params={})
 
         # Job should exist but be marked as failed

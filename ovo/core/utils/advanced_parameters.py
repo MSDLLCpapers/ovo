@@ -1,4 +1,3 @@
-import streamlit as st
 import json
 import collections.abc
 
@@ -8,14 +7,14 @@ def load_json_from_file(filepath):
         with open(filepath, "r") as f:
             return json.load(f)
     except FileNotFoundError:
-        st.error(f"Error: The file '{filepath}' was not found.")
-        return None
+        print(f"Error: The file '{filepath}' was not found.")
+        raise
     except json.JSONDecodeError:
-        st.error(f"Error: The file '{filepath}' is not a valid JSON file.")
-        return None
+        print(f"Error: The file '{filepath}' is not a valid JSON file.")
+        raise
     except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
-        return None
+        print(f"An unexpected error occurred: {e}")
+        raise
 
 
 def get_dict_diff(default: dict, custom: dict):

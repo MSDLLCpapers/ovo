@@ -8,7 +8,7 @@ import pandas as pd
 from ovo import storage, Pool, Round, db, get_scheduler
 from ovo.core.database import DesignJob, DesignSpec, Design, Base
 from ovo.core.database.models_bindcraft import BindCraftBinderDesignWorkflow
-from ovo.app.utils.bindcraft_utils import load_json_from_file, merge_dictionaries
+from ovo.core.utils.advanced_parameters import load_json_from_file, merge_dictionaries
 from ovo.core.logic.descriptor_logic import read_descriptor_file_values, save_descriptor_job_for_design_job
 
 from ovo.core.database.descriptors_bindcraft import DESCRIPTORS

@@ -4,6 +4,17 @@ channels:
 dependencies:
   - python = 3.11
   - pip
+  # ProDy is installed from conda-forge rather than pip. On osx-arm64 there is no
+  # ProDy wheel, so pip builds it from source and that build fails with
+  # "'cmath' file not found" (conda's -isystem include dir shadows the macOS SDK's
+  # libc++ headers). conda-forge ships a prebuilt ProDy 2.4.1 (noarch) that avoids
+  # the compile entirely. On Linux/GPU the final resolved versions are unchanged.
+  #
+  # conda-forge prody 2.4.1 requires numpy>=1.24.4, so numpy is requested at 1.26.4
+  # for the conda solve. The pip block below then re-pins numpy to 1.23.5 (the
+  # version ligandmpnn/torch expect), which is the version that ends up installed.
+  - numpy = 1.26.4
+  - prody = 2.4.1
   - pip:
       - setuptools==81.0.0 # required by ligandmpnn==0.1.2 due to pkg_resources dependency
       - numpy==1.23.5
@@ -11,7 +22,6 @@ dependencies:
       - biopython==1.79
       - ml-collections
       - dm-tree
-      - ProDy==2.4.1
       - torch==2.2.1
       - ligandmpnn==0.1.2
 
