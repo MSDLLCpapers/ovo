@@ -17,6 +17,8 @@ export type ContigSegment = {
     start_label: string | null;
     middle_label: string | null;
     end_label: string | null;
+    hide_labels: boolean | null;
+    show_lines: boolean | null;
 };
 
 export type SequenceSelection = {

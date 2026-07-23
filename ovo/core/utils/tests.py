@@ -56,6 +56,10 @@ def assert_similar_sequence(a: str, b: str, min_identity: float):
 def create_test_project_data(prefix="OVO", test_input_filename: str = "examples/inputs/5ELI_A.pdb"):
     from ovo import db, storage, Design, Pool
 
+    prefix_env_var = os.getenv("OVO_TEST_PREFIX")
+    if prefix_env_var:
+        prefix = prefix + " " + prefix_env_var
+
     round_name = prefix + " " + datetime.datetime.now().strftime("%a %d %b %Y")
 
     if not db.Project.count(name=TEST_PROJECT_NAME):

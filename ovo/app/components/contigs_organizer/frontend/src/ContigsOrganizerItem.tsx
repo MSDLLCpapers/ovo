@@ -15,19 +15,19 @@ interface Props {
     getFixedSegmentDescription: (contig: string) => string;
     updateContigPart: (index: number, newContent: string | null) => void;
     getColor: (item: ContigPartInfo) => string;
+    hideAddButtons?: boolean;
 }
 
 function ContigsOrganizerItem(props: Props) {
-    const { idx, isGeneratedSegment, contigParts, handleAddContigPart, generatedSegmentConnection, item, getFixedSegmentDescription, updateContigPart, getColor } = props;
+    const { idx, isGeneratedSegment, contigParts, handleAddContigPart, generatedSegmentConnection, item, getFixedSegmentDescription, updateContigPart, getColor, hideAddButtons } = props;
 
-    const spanText = isGeneratedSegment(item.content) ? generatedSegmentConnection(idx!, false, item.content) : getFixedSegmentDescription(item.content);
+    const isFixed = !isGeneratedSegment(item.content);
+    const baseDescription = isFixed ? getFixedSegmentDescription(item.content) : generatedSegmentConnection(idx!, false, item.content);
     let spanColor = "inherit";
-    if (typeof spanText === "string" && spanText.toLowerCase().includes("invalid")) spanColor = "red";
+    if (typeof baseDescription === "string" && baseDescription.toLowerCase().includes("invalid")) spanColor = "red";
 
-    // This component renders both the "add segment" buttons as well as the draggable components.
     return <>
-        {/* this will get rendered only for the top element */}
-        {props.idx === 0 && <AddSegmentButton index={props.idx} handleAddContigPart={handleAddContigPart}
+        {!hideAddButtons && props.idx === 0 && <AddSegmentButton index={props.idx} handleAddContigPart={handleAddContigPart}
             contigParts={contigParts} isGeneratedSegment={isGeneratedSegment} upperButton={true}
             generatedSegmentConnection={generatedSegmentConnection}
         />}
@@ -36,19 +36,19 @@ function ContigsOrganizerItem(props: Props) {
             <div className="contigRowColumn1" style={{ display: "block" }}>
                 <SortableList.Item id={item.id} color={getColor(item)}>
                     <ContigPart contigPart={item.content} index={idx!} updateContigPart={updateContigPart} />
-                    {!isGeneratedSegment(item.content) && <SortableList.DragHandle />}
+                    {isFixed && <SortableList.DragHandle />}
                 </SortableList.Item>
             </div>
             {idx !== undefined && (
                 <div className="contigRowColumn2">
                     <span style={{ color: spanColor }}>
-                        {spanText}
+                        {baseDescription}
                     </span>
                 </div>
             )}
         </div>
 
-        {(idx !== undefined && idx < contigParts.length) &&
+        {!hideAddButtons && idx !== undefined && idx < contigParts.length &&
             <AddSegmentButton index={idx!} handleAddContigPart={handleAddContigPart}
                 contigParts={contigParts} isGeneratedSegment={isGeneratedSegment} upperButton={false}
                 generatedSegmentConnection={generatedSegmentConnection}

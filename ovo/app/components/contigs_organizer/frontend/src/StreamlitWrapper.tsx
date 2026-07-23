@@ -43,13 +43,16 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
         const contigs: string = this.props.args["contigs"];
         const pdb: string = this.props.args["pdb"];
         const colors: Map<string, string> = new Map(Object.entries(JSON.parse(this.props.args["colors"])));
+        const unindexedSegments: Set<string> = new Set(JSON.parse(this.props.args["unindexed_segments"] ?? "[]"));
 
-        if (!contigs || contigs.trim() === "") {
+        const hasContigs = contigs && contigs.trim() !== "";
+        if (!hasContigs && unindexedSegments.size === 0) {
             return "No contigs provided.";
         }
 
         return (
-            <ContigsOrganizer contigs={contigs} pdb={pdb} colors={colors}
+            <ContigsOrganizer contigs={contigs ?? ""} pdb={pdb} colors={colors}
+                unindexedSegments={unindexedSegments}
                 updateStreamlitComponentValue={this.updateStreamlitComponentValue} />
         );
     };

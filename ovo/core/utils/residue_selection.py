@@ -115,8 +115,9 @@ def from_hotspots_to_segments(hotspots: str) -> list[str] | None:
 
     result = []
     for chain, hotspot_nums in hotspots_by_chain.items():
-        hotspot_nums.sort()
-        result.extend(from_residues_to_segments(chain, hotspot_nums))
+        # dedupe: duplicate residues would otherwise split a run into overlapping segments (A140-141/A141-142/...)
+        unique_nums = sorted(set(hotspot_nums))
+        result.extend(from_residues_to_segments(chain, unique_nums))
 
     return result
 
@@ -246,6 +247,8 @@ class ContigSegment:
     :param start_label: Label to show at the start of the segment, optional.
     :param middle_label: Label to show in the middle of the segment, optional.
     :param end_label: Label to show at the end of the segment, optional.
+    :param hide_labels: Whether to skip adding labels for this segment, optional.
+    :param show_lines: Whether to show a connecting line between this segment and the next segment, optional.
     """
 
     start: int
@@ -255,6 +258,8 @@ class ContigSegment:
     start_label: str = None
     middle_label: str = None
     end_label: str = None
+    hide_labels: bool = False
+    show_lines: bool = False
 
 
 @dataclass

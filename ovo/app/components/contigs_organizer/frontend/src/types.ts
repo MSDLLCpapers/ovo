@@ -1,6 +1,7 @@
 export type ContigPartInfo = {
     id: string;
     content: string;
+    unindexed?: boolean;
 };
 
 export type CoordinateData = {
@@ -22,4 +23,5 @@ export type CoordinateData = {
 
 export type StreamlitComponentValue = {
     contig: string;
+    unindexedSegments: string[];
 };

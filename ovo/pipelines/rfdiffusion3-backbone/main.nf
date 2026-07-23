@@ -60,7 +60,6 @@ process RFdiffusion3 {
         inputs=input_spec.json \
         ckpt_path="\$CKPT_PATH" \
         n_batches=${num_designs} \
-        diffusion_batch_size=1 \
         dump_trajectories=${dump_trajectories} \
         global_prefix=${batch_name} \
         skip_existing=False \

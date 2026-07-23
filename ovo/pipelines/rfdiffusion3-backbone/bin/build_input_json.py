@@ -12,10 +12,17 @@ import os
 
 def convert_contig_v1_to_v3(contig_v1: str) -> str:
     # split contig into list of lists of segments
-    subcontigs: list[list[str]] = [
-        subcontig.removesuffix("/0").split("/") for subcontig in contig_v1.replace("/0", "/0 ").split() if subcontig
-    ]
-    # move fixed subcontigs to the end
+    subcontigs: list[list[str]] = []
+    for subcontig in contig_v1.replace("/0", "/0 ").split():
+        if not subcontig:
+            continue
+        # split subcontig into a list of segments
+        subcontig = subcontig.removesuffix("/0").split("/")
+        # replace 50 with 50-50
+        subcontig = [f"{segment}-{segment}" if segment.isnumeric() else segment for segment in subcontig]
+        subcontigs.append(subcontig)
+
+    # move fixed subcontigs (target chains) to the end
     subcontigs = sorted(subcontigs, key=lambda segments: all(s[0].isalpha() for s in segments))
     # create RFD3 contig
     return ",/0,".join(",".join(segments) for segments in subcontigs)

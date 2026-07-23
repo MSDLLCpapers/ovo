@@ -62,6 +62,12 @@ class TestScaffoldDesign:
             "Verify that displayed contig is equal to contig in workflow parameters.",
         )
 
+        # Add a generated region (RFdiffusion requires at least one)
+        contig = "A3-17/10/A59-77"
+        at.text_input("input_contig").set_value(contig).run(timeout=TIMEOUT)
+        workflow = at.session_state.workflows[page_key]
+        assert workflow.rfdiffusion_params.contig == contig
+
         # Inpainting tab
         click_nav_button(at)
         at.run()

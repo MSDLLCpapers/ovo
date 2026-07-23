@@ -23,7 +23,6 @@ from ovo.core.database import (
 )
 from ovo.core.database.descriptors_refolding import REFOLDING_TESTS_BY_TYPE
 from ovo.core.database.models_rfdiffusion import RFdiffusionBinderDesignWorkflow, RFdiffusionScaffoldDesignWorkflow
-from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models import Pool, Round, Workflow
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
@@ -325,7 +324,7 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
             workflow.protein_mpnn_params.fastrelax_cycles = 0
         with st.columns([1, 2])[0]:
             workflow.protein_mpnn_params.num_sequences = st.number_input(
-                f"Number of sequence designs per backbone",
+                "Number of sequence designs per backbone",
                 min_value=1,
                 max_value=config.props.mpnn_sequences_limit,
                 value=workflow.protein_mpnn_params.num_sequences,
@@ -334,14 +333,16 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
 
 
 TIMESTEPS_INPUT_KEY = "timesteps"
+RFD1_DEFAULT_TIMESTEPS = 50
+RFD3_DEFAULT_TIMESTEPS = 200
 
 
 def show_backbone_generation_settings(workflow: RFdiffusionWorkflow):
     def _on_backbone_generator_change():
         new_gen = st.session_state["backbone_generator"]
-        # Clear previous preview (only compatible with RFdiffusion v1)
+        # clear previous preview (only compatible with RFdiffusion v1)
         workflow.preview_job_id = None
-        default_timesteps = 200 if new_gen == "rfdiffusion3" else 50
+        default_timesteps = RFD3_DEFAULT_TIMESTEPS if new_gen == "rfdiffusion3" else RFD1_DEFAULT_TIMESTEPS
         workflow.rfdiffusion_params.timesteps = default_timesteps
         st.session_state[TIMESTEPS_INPUT_KEY] = default_timesteps
 
@@ -486,9 +487,9 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 key="batch_size",
             )
 
-        st.markdown("#### RFdiffusion")
-
         is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
+
+        st.markdown("#### RFdiffusion3" if is_rfd3 else "#### RFdiffusion")
 
         if is_rfd3:
             timestep_label = "Number of timesteps (inference_sampler.num_timesteps)"
@@ -498,7 +499,10 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
             timestep_help = "Number of diffusion steps. Default is 50; use 10–20 for fast testing."
 
         if TIMESTEPS_INPUT_KEY not in st.session_state:
-            st.session_state[TIMESTEPS_INPUT_KEY] = workflow.rfdiffusion_params.timesteps
+            # RFdiffusionParams default is RFD1's; RFD3 wants more steps
+            st.session_state[TIMESTEPS_INPUT_KEY] = (
+                RFD3_DEFAULT_TIMESTEPS if is_rfd3 else workflow.rfdiffusion_params.timesteps
+            )
 
         workflow.rfdiffusion_params.timesteps = st.number_input(
             timestep_label,
@@ -575,6 +579,30 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
             st.warning("Additional parameters can override previously selected parameters.")
 
         if is_rfd3:
+            with st.columns([1, 2])[0]:
+                workflow.rfdiffusion_params.rfd3_inner_batch_size = st.number_input(
+                    "Inner batch size (diffusion_batch_size)",
+                    min_value=1,
+                    value=workflow.rfdiffusion_params.rfd3_inner_batch_size,
+                    key="rfd3_inner_batch_size",
+                    help="Number of designs generated in parallel within each RFD3 inference call. "
+                    "Higher values use more GPU memory but speed up generation significantly.",
+                )
+            st.caption(
+                ":material/info: Controls how many designs RFD3 runs in parallel per batch on the GPU. "
+                "The default (1) is safe for all GPU types. Increase for faster generation on high-VRAM GPUs. "
+                "If your job crashes with CUDA out-of-memory, reduce this value."
+            )
+            if workflow.rfdiffusion_params.rfd3_inner_batch_size > 1:
+                total = workflow.rfdiffusion_params.num_designs * workflow.rfdiffusion_params.rfd3_inner_batch_size
+                st.warning(
+                    f"Total backbone designs will be **{total}** "
+                    f"(num_designs={workflow.rfdiffusion_params.num_designs} "
+                    f"× inner_batch_size={workflow.rfdiffusion_params.rfd3_inner_batch_size}).\n\n"
+                    f"Total designs will be **{total * workflow.protein_mpnn_params.num_sequences}** "
+                    f"(total_backbones={total} × seq_designs={workflow.protein_mpnn_params.num_sequences})."
+                )
+
             st.markdown("**InputSpec overrides (RFdiffusion3)**")
             col1, col2 = st.columns(2)
             with col1:

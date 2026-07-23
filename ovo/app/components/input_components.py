@@ -148,6 +148,7 @@ def sequence_selection_fragment(
         representation_types = {
             "cartoon": "Cartoon",
             "cartoon+ball-and-stick": "Cartoon + Side chains",
+            "cartoon+ball-and-stick+label": "Cartoon + Side chains + Label",
             "molecular-surface": "Molecular Surface",
         }
         representation_type = st.selectbox(

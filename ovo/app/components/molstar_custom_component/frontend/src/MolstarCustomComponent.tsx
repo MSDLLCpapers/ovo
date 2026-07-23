@@ -46,9 +46,11 @@ const innerProps: InnerProps = { plugin: null, structures: [], representations: 
 
 const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
-// improve performance for gaussian surface representation on mobile by disabling GPU usage, which can cause freezes/crashes due to memory issues
-const typeParamsFor = (repType: string): Record<string, unknown> | undefined => {
+const typeParamsFor = (repType: string, color: string, colorParams: ColorParameters | null): Record<string, unknown> | undefined => {
+  // improve performance for gaussian surface representation on mobile by disabling GPU usage, which can cause freezes/crashes due to memory issues
   if (isMobile && repType === "gaussian-surface") return { tryUseGpu: false };
+  // use white border color for all labels
+  if (repType === "label") return { borderColor: Color(0xffffff), sizeFactor: 0.8 };
   return undefined;
 };
 
@@ -303,7 +305,11 @@ function MolstarCustomComponent(props: Props) {
     return pdb.startsWith("http://") || pdb.startsWith("https://");
   };
 
-  const getColorParameters = (color: string, colorParams: ColorParameters | null, plugin: PluginUIContext) => {
+  const getColorParameters = (repType: string, color: string, colorParams: ColorParameters | null, plugin: PluginUIContext) => {
+    if (repType === "label" && (color === "chain-id" || color === "uniform" && !colorParams?.value)) {
+      // use black color for labels when no color is provided or when chain-id representation is used
+      return { color: "uniform", colorParams: { value: Color(0x000000) }};
+    }
     if (color === "uniform") {
       return {
         color,
@@ -511,13 +517,13 @@ function MolstarCustomComponent(props: Props) {
       const repTypes = structureToLoad.representation_type.split("+") as string[];
       for (const repType of repTypes) {
         const isCartoon = repType === "cartoon";
-        const extraTypeParams = typeParamsFor(repType);
+        const extraTypeParams = typeParamsFor(repType, structureToLoad.color, structureToLoad.color_params);
         // @ts-ignore - here we are using the getColorParameters which raises an error but is in fact correct
         const representation: StateObjectSelector = await plugin.builders.structure.representation.addRepresentation(polymer, {
           type: repType as any,
           size: isCartoon ? "uniform" : "physical",
           ...(extraTypeParams ? { typeParams: extraTypeParams as any } : {}),
-          ...getColorParameters(structureToLoad.color, structureToLoad.color_params, plugin),
+          ...getColorParameters(repType, structureToLoad.color, structureToLoad.color_params, plugin),
         });
 
         innerProps.representations[structureIdx].push(representation);
@@ -596,8 +602,8 @@ function MolstarCustomComponent(props: Props) {
     const segments = props.contigs[structureIdx].filter(e => e.start);
     const arrays: number[] = segments.flatMap((e: ContigSegment) => [e.start, e.end]);
     const labels: string[] = segments.flatMap((e: ContigSegment) => [
-      e.start_label || "",
-      e.end_label || ""
+      e.hide_labels ? "" : e.start_label || "",
+      e.hide_labels ? "" : e.end_label || ""
     ]);
     const chains: string[] = segments.flatMap((e: ContigSegment) => [e.chain, e.chain]);
     const textColors: Color[] = segments.flatMap((e: ContigSegment) => [Color.fromHexString(e.color!.replace("#", "0x")), Color(0xffffff)]);
@@ -633,7 +639,7 @@ function MolstarCustomComponent(props: Props) {
     if (!innerProps.plugin) return;
 
     // keep just the first and last elements of the array
-    const segments = props.contigs[structureIdx].filter((e) => e.start);
+    const segments = props.contigs[structureIdx].filter((e) => e.start && e.show_lines);
     const arrays: number[] = segments.flatMap((e: ContigSegment) => [e.start, e.end]);
     const chains: string[] = segments.flatMap((e: ContigSegment) => [e.chain, e.chain]);
     const colors: Color[] = segments.flatMap((e: ContigSegment) => [
@@ -678,7 +684,7 @@ function MolstarCustomComponent(props: Props) {
   const addContigLabelsInMiddle = (structureIdx: number) => {
     if (!innerProps.plugin) return;
 
-    const segments = props.contigs[structureIdx].filter((segment) => segment.middle_label);
+    const segments = props.contigs[structureIdx].filter((segment) => segment.middle_label && !segment.hide_labels);
 
     // we need to connect array 1 with 2, 2 with 3, and so on...
     // so, first, let's transform the original arrays
@@ -876,13 +882,13 @@ function MolstarCustomComponent(props: Props) {
       const repSelectors: StateObjectSelector[] = [];
       for (const repType of repTypes) {
         const isCartoon = repType === "cartoon";
-        const extraTypeParams = typeParamsFor(repType);
+        const extraTypeParams = typeParamsFor(repType, rep.color, rep.color_params);
         // @ts-ignore - here we are using the getColorParameters which raises an error but is in fact correct
         const repSelector = selection.apply(StateTransforms.Representation.StructureRepresentation3D, createStructureRepresentationParams(innerProps.plugin, innerProps.structures[structureIdx].data, {
           type: repType as any,
           size: isCartoon ? "uniform" : "physical",
           ...(extraTypeParams ? { typeParams: extraTypeParams as any } : {}),
-          ...getColorParameters(rep.color, rep.color_params, innerProps.plugin),
+          ...getColorParameters(repType, rep.color, rep.color_params, innerProps.plugin),
         }));
         repSelectors.push(repSelector as any);
       }

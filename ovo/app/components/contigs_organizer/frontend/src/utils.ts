@@ -1,11 +1,11 @@
 import { ContigPartInfo, CoordinateData } from "./types";
 
-export const hexToRgba = (hexColor: string, alpha: number = 1.0) => {
-    // remove # if present
-    hexColor = hexColor.replace(/^#/, '');
+export const hexToRgba = (hexColor: string | null | undefined, alpha: number = 1.0) => {
+    // remove # if present, fall back to neutral grey for missing/invalid input
+    hexColor = (hexColor ?? "#6d6d6d").replace(/^#/, '');
 
     if (hexColor.length !== 6) {
-        throw new Error('Invalid hex color format. Use #RRGGBB format.');
+        hexColor = "6d6d6d";
     }
 
     const r = parseInt(hexColor.substring(0, 2), 16);

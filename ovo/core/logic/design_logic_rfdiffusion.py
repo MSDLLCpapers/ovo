@@ -41,9 +41,13 @@ def submit_rfdiffusion_preview(
     scheduler = get_scheduler(scheduler_key or config.local_scheduler)
     input_path = storage.prepare_workflow_input(workflow.get_input_pdb_path(), workdir=scheduler.workdir)
 
+    input_param_key = "input_pdb"
+    if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+        input_param_key = "input_structure_path"
+
     params = {
         "contig": contig,
-        "input_pdb": os.path.abspath(input_path),
+        input_param_key: os.path.abspath(input_path),
         "num_designs": 1,
         "hotspot": hotspots,
         "run_parameters": get_rfdiffusion_run_parameters(
@@ -52,6 +56,9 @@ def submit_rfdiffusion_preview(
             timesteps=timesteps,
         ),
     }
+
+    if workflow.rfdiffusion_params.rfd3_unindex:
+        params["spec_overrides"] = json.dumps({"unindex": workflow.rfdiffusion_params.rfd3_unindex})
 
     if workflow.get_cyclic_offset():
         params["cyclic"] = True
@@ -109,26 +116,34 @@ def process_workflow_results(
     else:
         # Get backbone pdb paths based on our RFdiffusion output structure
         num_contigs = len(workflow.rfdiffusion_params.contigs)
+
         backbone_descriptor_key = descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key
+        # RFD3 runs diffusion_batch_size designs in parallel per batch, producing
+        # inner_batch_size models per RFD3 batch. v1 RFdiffusion always produces one.
+        inner_batch_size = 1
+        if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+            backbone_descriptor_key = descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key
+            inner_batch_size = workflow.rfdiffusion_params.rfd3_inner_batch_size
         for contig_idx in range(num_contigs):
+            backbone_number = 0  # 1-based design counter, resets per contig
             for total_idx_backbone in range(workflow.rfdiffusion_params.num_designs):
                 batch_idx_backbone = total_idx_backbone % batch_size
                 batch_number = (total_idx_backbone // batch_size) + 1
-                backbone_number = total_idx_backbone + 1
                 batch_name = f"contig{contig_idx + 1}_batch{batch_number}"
-                if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion":
-                    source_backbone_path = (
-                        f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
-                    )
-                elif workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
-                    # RFD3 has also an internal batching logic, but we do batch size 1 in the NF pipeline
-                    # semantics: design_<0..num_batches-1>_model_<0...batch_size-1>_standardized.pdb
-                    source_backbone_path = f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_{batch_idx_backbone}_model_0_standardized.pdb"
-                else:
-                    raise ValueError(
-                        f"Unsupported backbone generator: {workflow.rfdiffusion_params.backbone_generator}"
-                    )
-                source_backbone_paths.append((contig_idx, batch_name, backbone_number, source_backbone_path))
+                for model_idx in range(inner_batch_size):
+                    backbone_number += 1
+                    if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion":
+                        source_backbone_path = f"{batch_name}/rfdiffusion_standardized_pdb/{batch_name}_{batch_idx_backbone}_standardized.pdb"
+                    elif workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+                        # RFD3 has its own batching: n_batches RFD3 batches, each producing
+                        # inner_batch_size models. semantics:
+                        # design_<0..n_batches-1>_model_<0..inner_batch_size-1>_standardized.pdb
+                        source_backbone_path = f"{batch_name}/rfdiffusion3_standardized_pdb/{batch_name}design_{batch_idx_backbone}_model_{model_idx}_standardized.pdb"
+                    else:
+                        raise ValueError(
+                            f"Unsupported backbone generator: {workflow.rfdiffusion_params.backbone_generator}"
+                        )
+                    source_backbone_paths.append((contig_idx, batch_name, backbone_number, source_backbone_path))
 
     designs = []
     design_id_mapping = {}
@@ -261,24 +276,25 @@ def process_rfdiffusion_design(
     rfdiffusion_backbone_trb_path = None
     rfd3_all_atom_cif_path = None
     if backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key:
-        if "rfdiffusion3" not in source_backbone_path:
-            source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
-            source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
-            rfdiffusion_backbone_trb_path = storage.store_file_path(
-                source_abs_path=f"{source_dir}/{source_trb_path}",
-                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
-                overwrite=False,
-            )
-        else:
-            # Store compressed cif file, all-atom generated structure from RFD3
-            source_all_atom_cif_path = source_backbone_path.replace("_standardized_pdb/", "_cif/").replace(
-                "_standardized.pdb", ".cif.gz"
-            )
-            rfd3_all_atom_cif_path = storage.store_file_path(
-                source_abs_path=f"{source_dir}/{source_all_atom_cif_path}",
-                storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_all_atom.cif.gz",
-                overwrite=False,
-            )
+        source_trb_path = source_backbone_path.removesuffix(".pdb").removesuffix("_standardized") + ".trb"
+        source_trb_path = source_trb_path.replace("rfdiffusion_standardized_pdb", "rfdiffusion_trb")
+        rfdiffusion_backbone_trb_path = storage.store_file_path(
+            source_abs_path=f"{source_dir}/{source_trb_path}",
+            storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_backbone.trb",
+            overwrite=False,
+        )
+    elif backbone_descriptor_key == descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key:
+        # Store compressed cif file, all-atom generated structure from RFD3
+        source_all_atom_cif_path = source_backbone_path.replace("_standardized_pdb/", "_cif/").replace(
+            "_standardized.pdb", ".cif.gz"
+        )
+        rfd3_all_atom_cif_path = storage.store_file_path(
+            source_abs_path=f"{source_dir}/{source_all_atom_cif_path}",
+            storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_all_atom.cif.gz",
+            overwrite=False,
+        )
+    else:
+        raise ValueError(f"Unsupported backbone descriptor key: {backbone_descriptor_key}")
 
     backbone_pdb_path = storage.store_file_path(
         source_abs_path=f"{source_dir}/{source_backbone_path}",
@@ -370,7 +386,7 @@ def process_rfdiffusion_design(
         if rfd3_all_atom_cif_path:
             descriptor_values.append(
                 DescriptorValue(
-                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key,
+                    descriptor_key=descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH_COMPRESSED_CIF.key,
                     value=rfd3_all_atom_cif_path,
                     **shared_args,
                 )
@@ -495,7 +511,9 @@ def get_rfdiffusion_run_parameters(
 ) -> str:
     args = ""
     if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
-        args += f" inference_sampler.num_timesteps={workflow.rfdiffusion_params.timesteps} "
+        args += f" inference_sampler.num_timesteps={timesteps or workflow.rfdiffusion_params.timesteps} "
+        # number of designs RFD3 generates in parallel per batch (GPU speedup)
+        args += f" diffusion_batch_size={workflow.rfdiffusion_params.rfd3_inner_batch_size} "
     else:
         if partial_diffusion or workflow.rfdiffusion_params.partial_diffusion:
             args += f" diffuser.partial_T={timesteps or workflow.rfdiffusion_params.timesteps} "

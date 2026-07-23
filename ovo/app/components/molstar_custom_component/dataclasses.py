@@ -23,6 +23,7 @@ RepresentationType = Literal[
     "ball-and-stick",
     "interactions",
     "cartoon+ball-and-stick+interactions",
+    "cartoon+ball-and-stick+label",
 ]
 
 StructureFormat = Literal["pdb", "mmcif", "bcif", "gro", "mol", "sdf", "mol2", "xyz"]

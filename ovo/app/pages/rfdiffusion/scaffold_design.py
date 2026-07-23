@@ -287,14 +287,33 @@ def inpainting_step():
         st.error("Please provide a contig in the previous step.")
         return
 
+    if workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+        # TODO we could support redesigning these residues with ProteinMPNN,
+        #  but this would need to be passed to RFD3 as a parameter and preserved in the standardized PDB,
+        #  so that it can be picked up by ProteinMPNN later.
+        # st.warning("When RFdiffusion3 model is used, residues selected here will be kept in the structure "
+        #            "and redesigned by ProteinMPNN (same as in RFD1 protocol), "
+        #            "but their residue identity will not be masked at backbone design stage, "
+        #            "since RFdiffusion3 does not support sequence inpainting. ")
+        st.write("Sequence inpainting is not supported by RFdiffusion3, please continue to the next step.")
+        return
+
     fixed_segments = parse_contig_for_input_structure(workflow.rfdiffusion_params.contig)
+    unindexed_residues = (
+        workflow.rfdiffusion_params.rfd3_unindex.split(",") if workflow.rfdiffusion_params.rfd3_unindex else []
+    )
+    unindexed_segments = parse_contig_for_input_structure("/".join(unindexed_residues))
+
+    for seg in fixed_segments + unindexed_segments:
+        seg.hide_labels = True
 
     sequence_selection_fragment(
         __file__,
         workflow.input_name,
-        fixed_segments=fixed_segments,
+        fixed_segments=fixed_segments + unindexed_segments,
         selection_help="Select input structure residues that will be kept in the structure but redesigned with ProteinMPNN. This step is optional.",
         selection_label="Residues to be inpainted (redesigned)",
+        representation_type="cartoon+ball-and-stick+label",
         inpainting=True,
     )
 

@@ -5,5 +5,5 @@ dependencies:
   - python = 3.12
   - pip
   - pip:
-      - rc-foundry[all]
+      - rc-foundry[all]==0.2.0
       - gemmi==0.7.5

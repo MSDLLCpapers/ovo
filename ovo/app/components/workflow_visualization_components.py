@@ -211,10 +211,15 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
     with middle:
         st.write(f"##### {backbone_design_descriptor.name}")
 
+        representation = "cartoon"
+        if "RFdiffusion3" in backbone_design_descriptor.tool:
+            representation = "cartoon+ball-and-stick"
+
         viz.molstar(
             viz.StructureVisualization(
                 data=storage.read_file_str(paths[backbone_design_descriptor.key]),
                 contigs=output_segments,
+                representation=representation,
             ),
             key="rfdiff_contig_segments",
             height=350,
@@ -460,6 +465,10 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     with left:
         st.write(f"##### {backbone_design_descriptor.name}")
 
+        binder_representation = "cartoon"
+        if "RFdiffusion3" in backbone_design_descriptor.tool:
+            binder_representation = "cartoon+ball-and-stick"
+
         viz.molstar(
             viz.StructureVisualization(
                 data=storage.read_file_str(paths[backbone_design_descriptor.key]),
@@ -467,7 +476,7 @@ def rfdiffusion_binder_design_visualization(design_id: str):
                 representations=[
                     viz.Representation(
                         "A",
-                        "cartoon",
+                        binder_representation,
                         color=get_color_from_str(design.id, "seaborn:tab10_light"),
                         label=f"{backbone_design_descriptor.name} {design.id}",
                     ),

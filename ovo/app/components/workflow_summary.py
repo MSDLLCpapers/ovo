@@ -41,9 +41,17 @@ def rfdiffusion_scaffold_workflow_summary(jobs: list[DesignJob]):
         contig = job.workflow.get_contig(contig_index=contig_index)
         contig_segments = parse_contig_for_input_structure(contig)
         fixed_segments = "/".join([f"{s.chain}{s.start}-{s.end}" for s in contig_segments if s.chain])
+        unfixed_segments = "/".join((job.workflow.rfdiffusion_params.rfd3_unindex or "").split(","))
+        segments = f"{fixed_segments}/{unfixed_segments}".strip("/")
+
+        # this is checked in parameter validation
+        assert segments, (
+            f"Expected at least one fixed contig segment or unindexed residue, got: {contig=}, {job.workflow.rfdiffusion_params.rfd3_unindex=}"
+        )
+
         return (
             input_path if not job.workflow.rfdiffusion_params.partial_diffusion else "partial",
-            fixed_segments,
+            segments,
         )
 
     accepted_designs_by_pool, total_designs_by_pool = get_cached_pool_stats(

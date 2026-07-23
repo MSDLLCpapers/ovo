@@ -37,6 +37,8 @@ def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: 
             chain = chr(ord(chain) + 1)
             verify_positions[chain] = {}
         elif pos[0].isnumeric():
+            # Remove modality suffix if present (P = protein, R = RNA, D = DNA)
+            pos = pos.removesuffix("P").removesuffix("R").removesuffix("D")
             chain_lengths[-1] += int(pos)
         else:
             assert pos[0].isalpha() and "-" not in pos, f"Expected format 123 or A123, got: {pos} in {sampled_contig}"

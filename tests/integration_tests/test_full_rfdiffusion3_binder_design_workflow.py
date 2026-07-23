@@ -11,7 +11,8 @@ from ovo.core.database import (
 )
 from ovo.core.utils.residue_selection import get_chains_and_contigs
 from ovo.core.utils.resources import RESOURCES_DIR
-from ovo.core.utils.tests import TEST_SCHEDULER_KEY
+from ovo.core.utils.tests import TEST_SCHEDULER_KEY, create_test_project_data
+import pytest
 
 
 def test_binder_end_to_end_logic(project_data):
@@ -24,7 +25,7 @@ def test_binder_end_to_end_logic(project_data):
             hotspots="A78,A79",
             num_designs=1,
             backbone_generator="rfdiffusion3",
-            timesteps=10,  # reduced from 200 for faster testing
+            timesteps=70,  # reduced from 200 for faster testing
             rfd3_select_hotspots='{"A78": "CA,CB", "A79": "CA,CB"}',
             rfd3_is_non_loopy=True,
             rfd3_spec_overrides='{"plddt_enhanced": true, "is_non_loopy": false}',
@@ -48,6 +49,8 @@ def test_binder_end_to_end_logic(project_data):
         scheduler_key=TEST_SCHEDULER_KEY,
         round_id=project_round.id,
     )
+    print(f"{design_job.id=}")
+    print(f"{pool.id=}")
 
     jobs = design_logic.get_design_jobs_table(id=pool.id)
     print(jobs)
@@ -64,10 +67,19 @@ def test_binder_end_to_end_logic(project_data):
     assert design_ids[1].endswith("_seq2")
 
     # Backbone structure exists
-    backbone_pdbs = db.select_descriptor_values(descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key, design_ids)
+    backbone_pdbs = db.select_descriptor_values(
+        descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key, design_ids
+    )
     assert len(backbone_pdbs.dropna()) == 2
     assert backbone_pdbs.iloc[0].endswith(".pdb")
     assert "ATOM " in storage.read_file_str(backbone_pdbs.iloc[0])
+
+    # gzip compressed cif artifact exists (raw RFD3 output)
+    all_atom_cif_gz_path = db.select_descriptor_values(
+        descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH_COMPRESSED_CIF.key, design_ids
+    )
+    assert len(all_atom_cif_gz_path.dropna()) == 2
+    assert all_atom_cif_gz_path.iloc[0].endswith(".cif.gz")
 
     # TRB descriptor is absent for RFD3 (no .trb file produced)
     trb_paths = db.select_descriptor_values(descriptors_rfdiffusion.RFDIFFUSION_TRB_PATH.key, design_ids)

@@ -144,7 +144,9 @@ class StreamlitWrapper extends StreamlitComponentBase<State> {
                     if (labeledSegments.length > 0) return (
                         <div className="msp-layout-contig" style={{ color: "black", fontSize: "14px", cursor: "default" }} key={outerIdx}>
                             Segments: {labeledSegments.map((e, idx) => {
-                                const contigDescription = e.middle_label ? `${e.middle_label} ` : `${e.start_label}-${e.end_label} `;
+                                const contigDescription = e.middle_label ? `${e.middle_label} ` : (
+                                    e.start_label == e.end_label ? `${e.start_label} ` : `${e.start_label}-${e.end_label} `
+                                );
                                 return <span style={{ color: ensureReadableColor(e.color) }} onMouseOver={() => this.setHighlightedContig(e, outerIdx)} key={idx}>{contigDescription}</span>;
                             })}
                         </div>);

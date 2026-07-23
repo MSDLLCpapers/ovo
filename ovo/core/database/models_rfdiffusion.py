@@ -1,7 +1,7 @@
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable
 
 import pandas as pd
 
@@ -92,6 +92,9 @@ class RFdiffusionParams(WorkflowParams):
     rfd3_infer_ori_strategy: str | None = None  # override auto-derived infer_ori_strategy: "hotspots" or "com"
     rfd3_is_non_loopy: bool | None = None  # True = prefer helices/sheets, fewer loops. Default True for binder design.
     rfd3_ori_token: str | None = None  # explicit ORI token [x,y,z] e.g. "10.5,20.3,15.1"
+    # number of designs to run in parallel within each RFdiffusion3 batch,
+    # set to >1 for speedup when using GPU and generating many designs
+    rfd3_inner_batch_size: int = 1
     rfd3_spec_overrides: str | None = (
         None  # additional arbitrary JSON overrides for RFD3 InputSpec, applied on top of named params
     )
@@ -132,7 +135,11 @@ class RFdiffusionParams(WorkflowParams):
                     f'Spaces detected in contig specification, keep in mind that chain breaks are done by inserting "/0 ", found: "{contig}"'
                 )
             # verify that contig can be parsed
-            _ = parse_contig_for_input_structure(contig)
+            _parsed_contig = parse_contig_for_input_structure(contig)
+            if not (_parsed_contig or self.rfd3_unindex):
+                raise ValueError(
+                    f"Contig must contain at least one fixed segment or unindexed residues must be specified, got: '{contig=}' and '{self.rfd3_unindex=}'"
+                )
 
         if self.hotspots:
             assert isinstance(self.hotspots, str), f"Expected str for hotspots, got {type(self.hotspots).__name__}"
@@ -153,6 +160,12 @@ class RFdiffusionParams(WorkflowParams):
             return
         if not self.contig:
             raise ValueError("Please provide a contig")
+        for contig in self.contigs:
+            all_segments = parse_contig_for_input_structure(contig, include_generated=True)
+            if not any(s.start is None for s in all_segments):
+                raise ValueError(
+                    f"Contig must contain at least one generated region (e.g. '10' or '10-20'), got: '{contig}'"
+                )
         if self.contigmap_length:
             assert isinstance(self.contigmap_length, (int, str)), (
                 f"Expected int or str, got {self.contigmap_length} for contigmap_length"
@@ -169,6 +182,10 @@ class RFdiffusionParams(WorkflowParams):
             if not all(re.fullmatch("[A-Z][0-9]+(-[0-9]+)?", segment) for segment in self.inpaint_seq.split("/")):
                 raise ValueError(
                     f"Invalid inpaint_seq format, expected format 'A10-20/A22/B30-40', got: '{self.inpaint_seq}'"
+                )
+            if self.backbone_generator == "rfdiffusion3":
+                raise ValueError(
+                    "Inpainting is not supported by RFdiffusion3, please use RFdiffusion1 instead, or remove the inpaint_seq regions"
                 )
         if self.backbone_filters:
             assert isinstance(self.backbone_filters, str), (
@@ -190,6 +207,25 @@ class RFdiffusionParams(WorkflowParams):
                 f"backbone_generator must be 'rfdiffusion' or 'rfdiffusion3', got: '{self.backbone_generator}'"
             )
         if self.backbone_generator == "rfdiffusion3":
+            if self.rfd3_inner_batch_size < 1:
+                raise ValueError(f"rfd3_inner_batch_size must be >= 1, got: {self.rfd3_inner_batch_size}")
+            if self.rfd3_unindex:
+                unindex_residues = [r.strip() for r in self.rfd3_unindex.split(",") if r.strip()]
+                if not all(re.fullmatch("[A-Z][0-9]+", r) for r in unindex_residues):
+                    raise ValueError(
+                        f"Invalid rfd3_unindex format, expected 'A244,A274,A320', got: '{self.rfd3_unindex}'"
+                    )
+                for contig in self.contigs:
+                    fixed_residues: set[str] = set()
+                    for seg in parse_contig_for_input_structure(contig):
+                        for resnum in range(seg.start, seg.end + 1):
+                            fixed_residues.add(f"{seg.chain}{resnum}")
+                    overlap = sorted(set(unindex_residues) & fixed_residues)
+                    if overlap:
+                        raise ValueError(
+                            f"Unindexed residues {overlap} also appear inside the contig fixed segments. "
+                            f"Each residue must be either in the contig or in the unindexed list, not both."
+                        )
             if self.rfd3_select_hotspots:
                 try:
                     parsed_hotspots = json.loads(self.rfd3_select_hotspots)
@@ -315,6 +351,12 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
     def get_table_row(self, **kwargs) -> pd.Series:
         """Get all values of all param fields, skip fields with metadata.show_to_user=False, return pd.Series"""
         row = super().get_table_row(**kwargs)
+        if self.rfdiffusion_params.backbone_generator == "rfdiffusion":
+            # hide RFD3 params when using RFD1
+            row = row[row.index.map(lambda col: not str(col[1]).startswith("rfd3_"))]
+        if self.rfdiffusion_params.backbone_generator == "rfdiffusion3":
+            # hide RFD1 params when using RFD3
+            row = row[row.index.map(lambda col: col != ("RFdiffusion", "model_weights"))]
         return pd.concat(
             [
                 pd.Series(
