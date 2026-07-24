@@ -7,11 +7,17 @@ cd "$(dirname "$0")"
 
 INPUT_DIR=$(pwd)/test-input
 OUTPUT_DIR=$(pwd)/test-results
-# Override using HOTSPOT env var
-HOTSPOT=${HOTSPOT-B17,B237}
+
 WORK_DIR=${OVO_HOME:-~/ovo}/workdir/work
 DEFAULT_CONFIG=$(pwd)/../../nextflow_default.config
 OVO_MODULE_PATH=$(realpath "$PWD/../../../")
+WORKFLOW_ROOT=$(realpath "../../")
+
+# Nextflow configs
+DEFAULT_CONFIG=$OVO_MODULE_PATH/pipelines/nextflow_default.config
+WORKFLOW_CONFIG=$WORKFLOW_ROOT/biotite-interface-metrics/nextflow.config
+USER_CONFIG_DIR=$(python -c "from ovo import config; print(config.dir)")
+USER_CONFIG=$USER_CONFIG_DIR/nextflow_local.config
 
 # change to work dir
 mkdir -p "$OUTPUT_DIR"
@@ -19,18 +25,18 @@ cd "$OUTPUT_DIR"
 # clear previous result
 rm -rf "batch1"
 
-# If HOTSPOT is initialized, pass it to the pipeline
-if [ -n "$HOTSPOT" ]; then cmd_hotspot="--hotspot $HOTSPOT"; else cmd_hotspot=""; fi
-
 nextflow run ../../main.nf \
   -profile ${PROFILE:-conda,cpu_env} \
+  --ovo_path "$OVO_MODULE_PATH" \
   --pdb_dir $INPUT_DIR \
   -work-dir "$WORK_DIR" \
   -config "$DEFAULT_CONFIG" \
+  -config "$WORKFLOW_CONFIG" \
+  -config "$USER_CONFIG" \
   --shared_modules "ovo:$OVO_MODULE_PATH" \
   --publish_dir $OUTPUT_DIR \
   --output_dir batch1 \
-  --cyclic \
-  $cmd_hotspot
+  --binder_chain_id A \
+  --target_chain_id B \
 
-cat batch1/backbone_metrics.csv
+cat batch1/biotite_interface_metrics.csv

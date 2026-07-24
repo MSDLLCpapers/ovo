@@ -1,329 +1,372 @@
 from ovo.core.database.models import (
+    Descriptor,
     NumericGlobalDescriptor,
     ResidueNumberDescriptor,
     StringGlobalDescriptor,
 )
 
-DESCRIPTORS = [
-    NumericGlobalDescriptor(
-        name="Binder sequence length",
-        description="Number of amino acids in the designed binder sequence",
-        tool="BindCraft",
-        key="bindcraft|sequence|Length",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="MPNN score",
-        description="MPNN sequence score, generally not recommended for filtering as it depends on protein",
-        tool="BindCraft",
-        key="bindcraft|mpnn|MPNN_score",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="MPNN seq recovery",
-        description="MPNN sequence recovery of original trajectory",
-        tool="BindCraft",
-        key="bindcraft|mpnn|MPNN_seq_recovery",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 pLDDT",
-        description="pLDDT confidence score of AF2 complex prediction (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_pLDDT",
-        comparison="higher_is_better",
-        min_value=0,
-        color_scale="plddt",
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 pTM score",
-        description="pTM confidence score of AF2 complex prediction, 0 = worst, 1 = best (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_pTM",
-        comparison="higher_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Interface pTM score",
-        description="Interface pTM confidence score of AF2 complex prediction, 0 = worst, 1 = best (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_i_pTM",
-        comparison="higher_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 pAE",
-        description="Predicted alignment error of AF2 complex prediction, in Angstrom (average across AF2 models)",
-        unit="Å",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_pAE",
-        comparison="lower_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Interface PAE",
-        description="Predicted interface alignment error of AF2 complex prediction, in Angstrom (average across AF2 models)",
-        unit="Å",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_i_pAE",
-        comparison="lower_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Interface pLDDT",
-        description="Interface pLDDT confidence score of AF2 complex prediction (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_i_pLDDT",
-        comparison="higher_is_better",
-        min_value=0,
-        color_scale="plddt",
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Secondary Structure pLDDT",
-        description="Secondary structure pLDDT confidence score of AF2 complex prediction (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_ss_pLDDT",
-        comparison="higher_is_better",
-        min_value=0,
-        color_scale="plddt",
-    ),
-    NumericGlobalDescriptor(
-        name="Unrelaxed Clashes",
-        description="Number of interface clashes before relaxation (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_Unrelaxed_Clashes",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Relaxed Clashes",
-        description="Number of interface clashes after relaxation (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_Relaxed_Clashes",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="PyRosetta Binder Energy Score",
-        description="Rosetta energy score for binder alone (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_Binder_Energy_Score",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Surface Hydrophobicity",
-        description="Fraction of hydrophobic residues out of all surface-exposed residues (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_Surface_Hydrophobicity",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Shape Complementarity",
-        description="Interface shape complementarity (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_ShapeComplementarity",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="PackStat",
-        description="Interface packstat rosetta score (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_PackStat",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="PyRosetta Interface dG",
-        description="Interface rosetta dG (complex total residue energy - separated total energy) calculated with InterfaceAnalyzerMover default full-atom energy terms (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_dG",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Delta SASA",
-        description="Interface delta SASA (size) (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_dSASA",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="PyRosetta dG/dSASA",
-        description="Interface energy (complex total residue energy - separated total energy) divided by interface size (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_dG/dSASA",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Interface SASA %",
-        description="Fraction of binder surface covered by the interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_Interface_SASA_%",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Interface Hydrophobicity",
-        description="Interface hydrophobicity fraction of binder interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_Interface_Hydrophobicity",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Num Interface Residues",
-        description="Number of interface residues (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_n_InterfaceResidues",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Num Interface Hbonds",
-        description="Number of hydrogen bonds at the interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_n_InterfaceHbonds",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="Interface Hbonds %",
-        description="Number of hydrogen bonds compared to interface size (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_InterfaceHbondsPercentage",
-        comparison="does_not_apply",
-    ),
-    NumericGlobalDescriptor(
-        name="N Interface Unsat Hbonds",
-        description="Number of unsatisfied buried hydrogen bonds at the interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_n_InterfaceUnsatHbonds",
-        comparison="lower_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="Interface Unsat Hbonds %",
-        description="Number of unsatisfied buried hydrogen bonds compared to interface size (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|interface|Average_InterfaceUnsatHbondsPercentage",
-        comparison="lower_is_better",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="Interface Helix %",
-        description="Proportion of alfa helices at the interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|dssp|Average_Interface_Helix%",
-        comparison="does_not_apply",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="Interface Beta Sheet %",
-        description="Proportion of beta sheets at the interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|dssp|Average_Interface_BetaSheet%",
-        comparison="does_not_apply",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="Interface Loop %",
-        description="Proportion of loops at the interface (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|dssp|Average_Interface_Loop%",
-        comparison="does_not_apply",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="Binder Helix %",
-        description="Proportion of alfa helices in the binder structure (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|dssp|Average_Binder_Helix%",
-        comparison="does_not_apply",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="Binder BetaSheet %",
-        description="Proportion of beta sheets in the binder structure (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|dssp|Average_Binder_BetaSheet%",
-        comparison="does_not_apply",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="Binder Loop %",
-        description="proportion of loops in the binder structure (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|dssp|Average_Binder_Loop%",
-        comparison="does_not_apply",
-        min_value=0,
-        max_value=100,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Target-aligned Binder RMSD",
-        description='RMSD of binder aligned on target compared to original trajectory, in other words how far is binder in the repredicted complex from the original binding site. Called "AF2 Hotspot RMSD" in BindCraft. (average across AF2 models)',
-        unit="Å",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_Hotspot_RMSD",
-        comparison="lower_is_better",
-        min_value=0,
-        color_scale="rmsd",
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Target RMSD",
-        description="RMSD of target predicted in context of the designed binder compared to input PDB (average across AF2 models)",
-        unit="Å",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_Target_RMSD",
-        comparison="lower_is_better",
-        min_value=0,
-        color_scale="rmsd",
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Binder pLDDT",
-        description="pLDDT confidence score of binder predicted alone (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_Binder_pLDDT",
-        comparison="higher_is_better",
-        min_value=0,
-        color_scale="plddt",
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Binder pTM score",
-        description="pTM confidence score of binder predicted alone (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_Binder_pTM",
-        comparison="higher_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Binder pAE",
-        description="predicted alignment error of binder predicted alone (average across AF2 models)",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_Binder_pAE",
-        comparison="lower_is_better",
-        min_value=0,
-    ),
-    NumericGlobalDescriptor(
-        name="AF2 Binder-aligned Binder RMSD",
-        description="RMSD of binder predicted alone compared to original trajectory (average across AF2 models)",
-        unit="Å",
-        tool="BindCraft",
-        key="bindcraft|af2|Average_Binder_RMSD",
-        comparison="lower_is_better",
-        min_value=0,
-        color_scale="rmsd",
-    ),
-    ResidueNumberDescriptor(
-        name="Binder Interface Residues",
-        description="Comma-separated list of binder residue numbers on the interface",
-        tool="BindCraft",
-        key="bindcraft|interface|InterfaceResidues",
-    ),
-    StringGlobalDescriptor(
-        name="Design Variant",
-        description="String indicating the design variant classification, distinguishing between Accepted, Rejected, and Trajectory types (including Relaxed, LowConfidence, and Clashing variants).",
-        tool="BindCraft",
-        key="bindcraft|designs|DesignVariant",
-    ),
-]
+
+BINDER_SEQUENCE_LENGTH = NumericGlobalDescriptor(
+    name="Binder sequence length",
+    description="Number of amino acids in the designed binder sequence",
+    tool="BindCraft",
+    key="bindcraft|sequence|Length",
+    comparison="does_not_apply",
+)
+
+MPNN_SCORE = NumericGlobalDescriptor(
+    name="MPNN score",
+    description="MPNN sequence score, generally not recommended for filtering as it depends on protein",
+    tool="BindCraft",
+    key="bindcraft|mpnn|MPNN_score",
+    comparison="does_not_apply",
+)
+
+MPNN_SEQ_RECOVERY = NumericGlobalDescriptor(
+    name="MPNN seq recovery",
+    description="MPNN sequence recovery of original trajectory",
+    tool="BindCraft",
+    key="bindcraft|mpnn|MPNN_seq_recovery",
+    comparison="does_not_apply",
+)
+
+AF2_PLDDT = NumericGlobalDescriptor(
+    name="AF2 pLDDT",
+    description="pLDDT confidence score of AF2 complex prediction (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_pLDDT",
+    comparison="higher_is_better",
+    min_value=0,
+    color_scale="plddt",
+)
+
+AF2_PTM_SCORE = NumericGlobalDescriptor(
+    name="AF2 pTM score",
+    description="pTM confidence score of AF2 complex prediction, 0 = worst, 1 = best (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_pTM",
+    comparison="higher_is_better",
+    min_value=0,
+)
+
+AF2_IPTM_SCORE = NumericGlobalDescriptor(
+    name="AF2 Interface pTM score",
+    description="Interface pTM confidence score of AF2 complex prediction, 0 = worst, 1 = best (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_i_pTM",
+    comparison="higher_is_better",
+    min_value=0,
+)
+
+AF2_PAE = NumericGlobalDescriptor(
+    name="AF2 pAE",
+    description="Predicted alignment error of AF2 complex prediction, in Angstrom (average across AF2 models)",
+    unit="Å",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_pAE",
+    comparison="lower_is_better",
+    min_value=0,
+)
+
+AF2_IPAE = NumericGlobalDescriptor(
+    name="AF2 Interface PAE",
+    description="Predicted interface alignment error of AF2 complex prediction, in Angstrom (average across AF2 models)",
+    unit="Å",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_i_pAE",
+    comparison="lower_is_better",
+    min_value=0,
+)
+
+AF2_IPLDDT = NumericGlobalDescriptor(
+    name="AF2 Interface pLDDT",
+    description="Interface pLDDT confidence score of AF2 complex prediction (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_i_pLDDT",
+    comparison="higher_is_better",
+    min_value=0,
+    color_scale="plddt",
+)
+
+AF2_SECONDARY_STRUCTURE_PLDDT = NumericGlobalDescriptor(
+    name="AF2 Secondary Structure pLDDT",
+    description="Secondary structure pLDDT confidence score of AF2 complex prediction (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_ss_pLDDT",
+    comparison="higher_is_better",
+    min_value=0,
+    color_scale="plddt",
+)
+
+UNRELAXED_CLASHES = NumericGlobalDescriptor(
+    name="Unrelaxed Clashes",
+    description="Number of interface clashes before relaxation (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_Unrelaxed_Clashes",
+    comparison="does_not_apply",
+)
+
+RELAXED_CLASHES = NumericGlobalDescriptor(
+    name="Relaxed Clashes",
+    description="Number of interface clashes after relaxation (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_Relaxed_Clashes",
+    comparison="does_not_apply",
+)
+
+PYROSETTA_BINDER_ENERGY_SCORE = NumericGlobalDescriptor(
+    name="PyRosetta Binder Energy Score",
+    description="Rosetta energy score for binder alone (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_Binder_Energy_Score",
+    comparison="does_not_apply",
+)
+
+SURFACE_HYDROPHOBICITY = NumericGlobalDescriptor(
+    name="Surface Hydrophobicity",
+    description="Fraction of hydrophobic residues out of all surface-exposed residues (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_Surface_Hydrophobicity",
+    comparison="does_not_apply",
+)
+
+SHAPE_COMPLEMENTARITY = NumericGlobalDescriptor(
+    name="Shape Complementarity",
+    description="Interface shape complementarity (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_ShapeComplementarity",
+    comparison="does_not_apply",
+)
+
+PACKSTAT = NumericGlobalDescriptor(
+    name="PackStat",
+    description="Interface packstat rosetta score (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_PackStat",
+    comparison="does_not_apply",
+)
+
+PYROSETTA_INTERFACE_DG = NumericGlobalDescriptor(
+    name="PyRosetta Interface dG",
+    description="Interface rosetta dG (complex total residue energy - separated total energy) calculated with InterfaceAnalyzerMover default full-atom energy terms (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_dG",
+    comparison="does_not_apply",
+)
+
+DELTA_SASA = NumericGlobalDescriptor(
+    name="Delta SASA",
+    description="Interface delta SASA (size) (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_dSASA",
+    comparison="does_not_apply",
+)
+
+PYROSETTA_DG_DSASA = NumericGlobalDescriptor(
+    name="PyRosetta dG/dSASA",
+    description="Interface energy (complex total residue energy - separated total energy) divided by interface size (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_dG/dSASA",
+    comparison="does_not_apply",
+)
+
+INTERFACE_SASA_PERCENT = NumericGlobalDescriptor(
+    name="Interface SASA %",
+    description="Fraction of binder surface covered by the interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_Interface_SASA_%",
+    comparison="does_not_apply",
+)
+
+INTERFACE_HYDROPHOBICITY = NumericGlobalDescriptor(
+    name="Interface Hydrophobicity",
+    description="Interface hydrophobicity fraction of binder interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_Interface_Hydrophobicity",
+    comparison="does_not_apply",
+)
+
+NUM_INTERFACE_RESIDUES = NumericGlobalDescriptor(
+    name="Num Interface Residues",
+    description="Number of interface residues (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_n_InterfaceResidues",
+    comparison="does_not_apply",
+)
+
+NUM_INTERFACE_HBONDS = NumericGlobalDescriptor(
+    name="Num Interface Hbonds",
+    description="Number of hydrogen bonds at the interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_n_InterfaceHbonds",
+    comparison="does_not_apply",
+)
+
+INTERFACE_HBONDS_PERCENT = NumericGlobalDescriptor(
+    name="Interface Hbonds %",
+    description="Number of hydrogen bonds compared to interface size (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_InterfaceHbondsPercentage",
+    comparison="does_not_apply",
+)
+
+N_INTERFACE_UNSAT_HBONDS = NumericGlobalDescriptor(
+    name="N Interface Unsat Hbonds",
+    description="Number of unsatisfied buried hydrogen bonds at the interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_n_InterfaceUnsatHbonds",
+    comparison="lower_is_better",
+    min_value=0,
+)
+
+INTERFACE_UNSAT_HBONDS_PERCENT = NumericGlobalDescriptor(
+    name="Interface Unsat Hbonds %",
+    description="Number of unsatisfied buried hydrogen bonds compared to interface size (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|interface|Average_InterfaceUnsatHbondsPercentage",
+    comparison="lower_is_better",
+    min_value=0,
+    max_value=100,
+)
+
+INTERFACE_HELIX_PERCENT = NumericGlobalDescriptor(
+    name="Interface Helix %",
+    description="Proportion of alfa helices at the interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|dssp|Average_Interface_Helix%",
+    comparison="does_not_apply",
+    min_value=0,
+    max_value=100,
+)
+
+INTERFACE_BETA_SHEET_PERCENT = NumericGlobalDescriptor(
+    name="Interface Beta Sheet %",
+    description="Proportion of beta sheets at the interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|dssp|Average_Interface_BetaSheet%",
+    comparison="does_not_apply",
+    min_value=0,
+    max_value=100,
+)
+
+INTERFACE_LOOP_PERCENT = NumericGlobalDescriptor(
+    name="Interface Loop %",
+    description="Proportion of loops at the interface (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|dssp|Average_Interface_Loop%",
+    comparison="does_not_apply",
+    min_value=0,
+    max_value=100,
+)
+
+BINDER_HELIX_PERCENT = NumericGlobalDescriptor(
+    name="Binder Helix %",
+    description="Proportion of alfa helices in the binder structure (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|dssp|Average_Binder_Helix%",
+    comparison="does_not_apply",
+    min_value=0,
+    max_value=100,
+)
+
+BINDER_BETA_SHEET_PERCENT = NumericGlobalDescriptor(
+    name="Binder BetaSheet %",
+    description="Proportion of beta sheets in the binder structure (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|dssp|Average_Binder_BetaSheet%",
+    comparison="does_not_apply",
+    min_value=0,
+    max_value=100,
+)
+
+BINDER_LOOP_PERCENT = NumericGlobalDescriptor(
+    name="Binder Loop %",
+    description="proportion of loops in the binder structure (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|dssp|Average_Binder_Loop%",
+    comparison="does_not_apply",
+    min_value=0,
+    max_value=100,
+)
+
+AF2_TARGET_ALIGNED_BINDER_RMSD = NumericGlobalDescriptor(
+    name="AF2 Target-aligned Binder RMSD",
+    description='RMSD of binder aligned on target compared to original trajectory, in other words how far is binder in the repredicted complex from the original binding site. Called "AF2 Hotspot RMSD" in BindCraft. (average across AF2 models)',
+    unit="Å",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_Hotspot_RMSD",
+    comparison="lower_is_better",
+    min_value=0,
+    color_scale="rmsd",
+)
+
+AF2_TARGET_RMSD = NumericGlobalDescriptor(
+    name="AF2 Target RMSD",
+    description="RMSD of target predicted in context of the designed binder compared to input PDB (average across AF2 models)",
+    unit="Å",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_Target_RMSD",
+    comparison="lower_is_better",
+    min_value=0,
+    color_scale="rmsd",
+)
+
+AF2_BINDER_PLDDT = NumericGlobalDescriptor(
+    name="AF2 Binder pLDDT",
+    description="pLDDT confidence score of binder predicted alone (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_Binder_pLDDT",
+    comparison="higher_is_better",
+    min_value=0,
+    color_scale="plddt",
+)
+
+AF2_BINDER_PTM_SCORE = NumericGlobalDescriptor(
+    name="AF2 Binder pTM score",
+    description="pTM confidence score of binder predicted alone (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_Binder_pTM",
+    comparison="higher_is_better",
+    min_value=0,
+)
+
+AF2_BINDER_PAE = NumericGlobalDescriptor(
+    name="AF2 Binder pAE",
+    description="predicted alignment error of binder predicted alone (average across AF2 models)",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_Binder_pAE",
+    comparison="lower_is_better",
+    min_value=0,
+)
+
+AF2_BINDER_ALIGNED_BINDER_RMSD = NumericGlobalDescriptor(
+    name="AF2 Binder-aligned Binder RMSD",
+    description="RMSD of binder predicted alone compared to original trajectory (average across AF2 models)",
+    unit="Å",
+    tool="BindCraft",
+    key="bindcraft|af2|Average_Binder_RMSD",
+    comparison="lower_is_better",
+    min_value=0,
+    color_scale="rmsd",
+)
+
+BINDER_INTERFACE_RESIDUES = ResidueNumberDescriptor(
+    name="Binder Interface Residues",
+    description="Comma-separated list of binder residue numbers on the interface",
+    tool="BindCraft",
+    key="bindcraft|interface|InterfaceResidues",
+)
+
+DESIGN_VARIANT = StringGlobalDescriptor(
+    name="Design Variant",
+    description="String indicating the design variant classification, distinguishing between Accepted, Rejected, and Trajectory types (including Relaxed, LowConfidence, and Clashing variants).",
+    tool="BindCraft",
+    key="bindcraft|designs|DesignVariant",
+)
+
+
+DESCRIPTORS = [v for v in globals().values() if isinstance(v, Descriptor)]
+
 
 _descriptors_by_key = {desc.key: desc for desc in DESCRIPTORS}
 

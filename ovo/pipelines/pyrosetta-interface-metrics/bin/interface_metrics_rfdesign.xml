@@ -20,8 +20,8 @@ Taken from: https://github.com/RosettaCommons/RFDesign/blob/98f7435944068f0b8a86
 	</MOVERS>
 
     <RESIDUE_SELECTORS>
-        <Chain name="chainA" chains="A"/>
-        <Chain name="chainB" chains="B"/>
+        <Chain name="chainA" chains="%%binder_chain%%"/>
+        <Chain name="chainB" chains="%%target_chain%%"/>
         <Neighborhood name="interface_chA" selector="chainB" distance="10.0" />
         <Neighborhood name="interface_chB" selector="chainA" distance="10.0" />
         <And name="AB_interface" selectors="interface_chA,interface_chB" />

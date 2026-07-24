@@ -4,7 +4,7 @@ from ovo import schedulers
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.download_component import download_descriptor_table
-from ovo.app.components.submission_components import chain_ids_input
+from ovo.app.components.submission_components import chain_ids_input, scheduler_selectbox
 from ovo.app.utils.cached_db import get_cached_design_ids, get_cached_available_descriptors
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow, get_wide_descriptor_table
 from __MODULE_NAME__.models___MODULE_SUFFIX__ import __WORKFLOW_CLASS_NAME__
@@ -80,18 +80,14 @@ def __MODULE_NAME___submit_dialog(design_ids: list[str]):
         # TODO add any inputs for additional parameters for your workflow here
         # params["my_param"] = st.number_input("My parameter", value=1.0)
 
-        scheduler_key = st.selectbox(
-            "Scheduler",
-            options=list(schedulers.keys()),
-            format_func=lambda x: schedulers[x].name,
-            key="submit_scheduler",
-        )
+        workflow = __WORKFLOW_CLASS_NAME__(chains=list(chains), design_ids=design_ids, params=params)
+
+        scheduler_key = scheduler_selectbox(workflow)
         with st.columns(2)[-1]:
             submit = st.button("Submit", key="confirm_btn", type="primary", width="stretch")
 
     if submit:
         content.empty()
         st.write(f"Submitting job... 🚀")
-        workflow = __WORKFLOW_CLASS_NAME__(chains=list(chains), design_ids=design_ids, params=params)
         submit_descriptor_workflow(workflow, scheduler_key, st.session_state.project.id)
         st.rerun()

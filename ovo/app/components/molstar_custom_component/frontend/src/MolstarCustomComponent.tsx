@@ -18,7 +18,7 @@ import { PLDDTConfidenceColorThemeProvider } from "molstar/lib/extensions/model-
 import { getColorListFromName } from 'molstar/lib/mol-util/color/lists';
 
 import "./assets/style.css";
-import { ColorParameters, ContigSegment, SequenceSelection, StreamlitComponentValue, Representation, StructureVisualization } from "./types";
+import { ColorParameters, ContigSegment, SequenceSelection, StreamlitComponentValue, Representation, StructureVisualization, BondVisualization } from "./types";
 import { toBytesFloat64 } from "./utils";
 
 interface Props {
@@ -50,7 +50,7 @@ const typeParamsFor = (repType: string, color: string, colorParams: ColorParamet
   // improve performance for gaussian surface representation on mobile by disabling GPU usage, which can cause freezes/crashes due to memory issues
   if (isMobile && repType === "gaussian-surface") return { tryUseGpu: false };
   // use white border color for all labels
-  if (repType === "label") return { borderColor: Color(0xffffff), sizeFactor: 0.8 };
+  if (repType === "label") return { borderColor: Color(0xffffff), sizeFactor: 1.1 };
   return undefined;
 };
 
@@ -293,7 +293,10 @@ function MolstarCustomComponent(props: Props) {
           await addStructureRepresentations(structures[i].representations!, i);
         }
         if (structures[i].auto_zoom_chains) {
-          await autoZoomToChains(structures[i].auto_zoom_chains!, i);
+          await autoZoomToChains(structures[i].auto_zoom_chains!, structures[i].auto_zoom_extra_radius, i);
+        }
+        if ("bonds" in structures[i]) {
+          await addBondsVisualizations(structures[i].bonds, i);
         }
       }
     } finally {
@@ -303,6 +306,14 @@ function MolstarCustomComponent(props: Props) {
 
   const isUrl = (pdb: string) => {
     return pdb.startsWith("http://") || pdb.startsWith("https://");
+  };
+
+  const getSizeForRepType = (repType: string) => {
+      if (repType == "cartoon" || repType == "label") {
+          return "uniform";
+      } else {
+          return "physical";
+      }
   };
 
   const getColorParameters = (repType: string, color: string, colorParams: ColorParameters | null, plugin: PluginUIContext) => {
@@ -521,7 +532,7 @@ function MolstarCustomComponent(props: Props) {
         // @ts-ignore - here we are using the getColorParameters which raises an error but is in fact correct
         const representation: StateObjectSelector = await plugin.builders.structure.representation.addRepresentation(polymer, {
           type: repType as any,
-          size: isCartoon ? "uniform" : "physical",
+          size: getSizeForRepType(repType),
           ...(extraTypeParams ? { typeParams: extraTypeParams as any } : {}),
           ...getColorParameters(repType, structureToLoad.color, structureToLoad.color_params, plugin),
         });
@@ -743,6 +754,38 @@ function MolstarCustomComponent(props: Props) {
     return Script.getStructureSelection(query, plugin.managers.structure.hierarchy.current.structures[structureIdx].cell.obj!.data);
   };
 
+  const parseAtomId = (atomId: string) => {
+    const colonIdx = atomId.indexOf(':');
+    const residuePart = atomId.slice(0, colonIdx);
+    const atomName = atomId.slice(colonIdx + 1);
+    const chain = residuePart[0];
+    const m = residuePart.slice(1).match(/^(\d+)([A-Z]?)$/);
+    return { chain, resId: parseInt(m![1]), atomName };
+  };
+
+  const getAtomSelectionByIds = (plugin: PluginUIContext, atomIds: string[], structureIdx: number) => {
+    const queries = atomIds.map(id => {
+      const { chain, resId, atomName } = parseAtomId(id);
+      return MS.struct.generator.atomGroups({
+        'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), chain]),
+        'residue-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), resId]),
+        'atom-test': MS.core.rel.eq([MS.ammp('label_atom_id'), atomName]),
+      });
+    });
+    const query = queries.length === 1 ? queries[0] : MS.struct.combinator.merge(queries);
+    return Script.getStructureSelection(query, plugin.managers.structure.hierarchy.current.structures[structureIdx].cell.obj!.data);
+  };
+
+  const getResidueSelectionByAtomId = (plugin: PluginUIContext, atomId: string, structureIdx: number) => {
+    const { chain, resId } = parseAtomId(atomId);
+    const query = MS.struct.generator.atomGroups({
+      'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), chain]),
+      'residue-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), resId]),
+      'group-by': MS.struct.atomProperty.macromolecular.residueKey(),
+    });
+    return Script.getStructureSelection(query, plugin.managers.structure.hierarchy.current.structures[structureIdx].cell.obj!.data);
+  };
+
   const applyPositionalOverpaint = async (
     positions: Record<string, string>,
     structureIdx: number,
@@ -886,7 +929,7 @@ function MolstarCustomComponent(props: Props) {
         // @ts-ignore - here we are using the getColorParameters which raises an error but is in fact correct
         const repSelector = selection.apply(StateTransforms.Representation.StructureRepresentation3D, createStructureRepresentationParams(innerProps.plugin, innerProps.structures[structureIdx].data, {
           type: repType as any,
-          size: isCartoon ? "uniform" : "physical",
+          size: getSizeForRepType(repType),
           ...(extraTypeParams ? { typeParams: extraTypeParams as any } : {}),
           ...getColorParameters(repType, rep.color, rep.color_params, innerProps.plugin),
         }));
@@ -901,7 +944,7 @@ function MolstarCustomComponent(props: Props) {
     }
   };
 
-  const autoZoomToChains = async (chainIds: string[], structureIdx: number) => {
+  const autoZoomToChains = async (chainIds: string[], extraRadius: number, structureIdx: number) => {
     if (!innerProps.plugin || !chainIds || chainIds.length === 0) return;
 
     const expressions = chainIds.map(chainId =>
@@ -918,8 +961,46 @@ function MolstarCustomComponent(props: Props) {
     const sel = Script.getStructureSelection(mergedExpr, structureData);
     const loci = StructureSelection.toLociWithSourceUnits(sel);
     // also zoom out extra 10 angstroms to improve visibility
-    innerProps.plugin.managers.camera.focusLoci(loci, { extraRadius: 10 });
+    innerProps.plugin.managers.camera.focusLoci(loci, { extraRadius });
   };
+
+const addBondsVisualizations = async (bondVisualizations: BondVisualization[] | null, structureIdx: number) => {
+    if (!innerProps.plugin || !bondVisualizations) {
+    return;
+  }
+
+  for (const bondVis of bondVisualizations) {
+
+    const firstSel = getAtomSelectionByIds(innerProps.plugin, bondVis.binder_atoms, structureIdx);
+    const firstLoci = StructureSelection.toLociWithSourceUnits(firstSel);
+
+    const secondSel = getAtomSelectionByIds(innerProps.plugin, bondVis.target_atoms, structureIdx);
+    const secondLoci = StructureSelection.toLociWithSourceUnits(secondSel);
+
+    // Add distance line with short interaction type label, colored per interaction type.
+    const bondColor = Color(parseInt(bondVis.color.replace('#', ''), 16));
+    const options = {
+      visualParams: {
+        customText: bondVis.label ?? " ",
+        scaleByRadius: false,
+        sizeFactor: 1,
+        linesColor: bondColor,
+        textSize: 0.8,
+        textColor: bondColor,
+        borderColor: Color(0xffffff),
+        offsetZ: 1.5,
+      }
+    };
+
+    try {
+      innerProps.plugin!.managers.structure.measurement.addDistance(firstLoci, secondLoci, options);
+    } catch (error) {
+      console.error("Error adding distance:", error);
+    }
+  }
+};
+
+
 
   useEffect(() => {
     initPlugin();

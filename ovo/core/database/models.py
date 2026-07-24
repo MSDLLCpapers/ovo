@@ -1020,6 +1020,20 @@ class ResidueNumberDescriptor(Descriptor):
 
 
 @dataclass
+class InteractionDescriptor(Descriptor):
+    """Descriptor storing a list of interactions between binder and target atoms.
+    The value is stored as a JSON-encoded string representing a list of objects,
+    each with "binder" and "target" keys mapping to lists of atom indices in the structure, optionally with a "label" key (chain and residue number pair).
+    For example:
+    "[{""binder"":[12],""target"":[100],""label"":""A1-B50""},{""binder"":[94],""target"":[1447],""label"":""A6-B93""}]"
+    It can be loaded as a list of dictionaries using: json.loads(d.value)
+    """
+
+    short_name: str = None
+    color: str = None
+
+
+@dataclass
 class FileDescriptor(Descriptor):
     """Descriptor storing a Storage file path as a value"""
 

@@ -20,6 +20,8 @@ import multiprocessing
 import json
 import sys
 import site
+import numpy as np
+from scipy.spatial import cKDTree
 
 from pyrosetta import *
 from rosetta.protocols.rosetta_scripts import *
@@ -36,6 +38,8 @@ p.add_argument(
 )
 p.add_argument("--relax", action="store_true", default=False, help="Relax structures before scoring")
 p.add_argument("--out-pdb", help="Save PDB structures to this directory after applying movers")
+p.add_argument("--binder-chain", default="A", help="Chain ID of the binder (default: A)")
+p.add_argument("--target-chain", default="B", help="Chain ID of the target (default: B)")
 p.add_argument("--debug", action="store_true", default=False, help="Exit on error")
 args = p.parse_args()
 
@@ -49,12 +53,50 @@ if not os.path.isfile(dalphaball_path):
     raise FileNotFoundError(
         "DAlphaBall.gcc not found in expected locations. Please ensure DAlphaBall is installed and DAlphaBall.gcc is /opt/ or python site-packages/DAlphaBall/src/."
     )
-init(f"-corrections::beta_nov16 -detect_disulf false -run:preserve_header true -holes:dalphaball {dalphaball_path}")
+init(
+    f"-corrections::beta_nov16 -detect_disulf false -run:preserve_header true -holes:dalphaball {dalphaball_path}"
+    f" -parser:script_vars binder_chain={args.binder_chain} target_chain={args.target_chain}"
+)
 parser = RosettaScriptsParser()
 protocol_path = script_dir + "/interface_metrics_rfdesign.xml"
 
 ncpu = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
 print(f"Using {ncpu} cores")
+
+
+def get_interface_residues_all_atom(pose, binder_chain, target_chain, threshold=4.5):
+    """Return (binder_residues, target_residues) with any heavy atom within threshold angstroms.
+    Credit: BindCraft https://github.com/martinpacesa/BindCraft/blob/main/functions/biopython_utils.py
+    """
+
+    pdb_info = pose.pdb_info()
+
+    binder_coords, binder_res_nums = [], []
+    target_coords, target_res_nums = [], []
+
+    for i in range(1, pose.total_residue() + 1):
+        res = pose.residue(i)
+        chain = pdb_info.chain(i)
+        res_num = pdb_info.number(i)
+        if chain not in (binder_chain, target_chain):
+            continue
+        coords_list = binder_coords if chain == binder_chain else target_coords
+        res_list = binder_res_nums if chain == binder_chain else target_res_nums
+        for j in range(1, res.nheavyatoms() + 1):
+            xyz = res.xyz(j)
+            coords_list.append((xyz[0], xyz[1], xyz[2]))
+            res_list.append(res_num)
+
+    if not binder_coords or not target_coords:
+        return [], []
+
+    binder_tree = cKDTree(np.array(binder_coords))
+    target_tree = cKDTree(np.array(target_coords))
+    pairs = binder_tree.query_ball_tree(target_tree, threshold)
+
+    binder_residues = sorted(set(binder_res_nums[i] for i, contacts in enumerate(pairs) if contacts))
+    target_residues = sorted(set(target_res_nums[j] for contacts in pairs for j in contacts))
+    return binder_residues, target_residues
 
 
 def calculate(pdb_path):
@@ -82,6 +124,9 @@ def calculate(pdb_path):
         for k, v in pose.scores.items():
             row[k] = float(v)
         row["buns_percent"] = (row["buns_heavy_ball_1.1D"] / row["nres_int"]) * 100 if row["nres_int"] else float("NaN")
+        binder_residues, target_residues = get_interface_residues_all_atom(pose, args.binder_chain, args.target_chain)
+        row["interface_target_residues_aa"] = ",".join(f"{args.target_chain}{r}" for r in target_residues)
+        row["interface_binder_residues_aa"] = ",".join(f"{args.binder_chain}{r}" for r in binder_residues)
     except Exception as e:
         row["error"] = f"{e} ({type(e).__name__})"
         print(f"ERROR processing {basename}: {row['error']}")
@@ -91,7 +136,10 @@ def calculate(pdb_path):
 
 
 if __name__ == "__main__":
-    files = sorted(glob.glob(os.path.join(args.data_dir, f"*{args.suffix}.pdb")))
+    if os.path.isfile(args.data_dir) and args.data_dir.endswith(".pdb"):
+        files = [args.data_dir]
+    else:
+        files = sorted(glob.glob(os.path.join(args.data_dir, f"*{args.suffix}.pdb")))
 
     if not files:
         print("No files found in", args.data_dir)

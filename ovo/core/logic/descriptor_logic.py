@@ -11,9 +11,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from ovo import db, storage, get_scheduler, config
 from ovo.core.auth import get_username
 from ovo.core.database.descriptors_proteinqc import PROTEINQC_MAIN_DESCRIPTORS
-from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING, INTERFACE_TARGET_RESIDUES
+from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING
 from ovo.core.database.models_clustering import BaseHierarchicalClusteringWorkflow, FoldseekClusteringWorkflow
-from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.database.models_refolding import RefoldingWorkflow, RefoldingSupportedDesignWorkflow
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY, ALL_DESCRIPTOR_KEYS_SET
 from ovo.core.database.models import (
@@ -345,8 +344,7 @@ def prepare_hierarchical_clustering_workflow_params(workflow: BaseHierarchicalCl
         optional_params["dssp_csv"] = pydssp_csv_path
 
     if workflow.tool_key == "interface_residues_hierarchical_clustering":
-        descriptor = INTERFACE_TARGET_RESIDUES
-        descriptor_values = db.select_descriptor_values(descriptor.key, design_ids=workflow.design_ids)
+        descriptor_values = db.select_descriptor_values(workflow.input_descriptor_key, design_ids=workflow.design_ids)
         descriptor_values_by_design_series = pd.Series(descriptor_values, index=workflow.design_ids)
         interface_residues_table = get_interface_residues_by_design_table(descriptor_values_by_design_series)
         csv_bytes = interface_residues_table.to_csv().encode("utf-8")
@@ -373,7 +371,10 @@ def get_interface_residues_by_design_table(descriptor_values: pd.Series) -> pd.D
 
     # Build mapping from design to set of residues, and collect all unique residues
     for design_id, val in descriptor_values.items():
-        residues = {r.strip() for r in str(val).split(",") if r.strip()}
+        if pd.isna(val):
+            residues = set()
+        else:
+            residues = {r.strip() for r in str(val).split(",") if r.strip()}
         design_to_residues[design_id] = residues
         unique_residues.update(residues)
     # Remove "None" if present
@@ -886,24 +887,6 @@ def export_design_descriptors_excel(df: pd.DataFrame, output_path=None) -> Bytes
         buffer.seek(0)
         return buffer
     return None
-
-
-def tool_supports_scheduler(tool: ProteinClusteringTool, scheduler: Scheduler) -> bool:
-    if "conda" in scheduler.submission_args and scheduler.submission_args["conda"]:
-        return tool.supports_conda
-    return True
-
-
-def get_available_schedulers(tools: List[ProteinClusteringTool]) -> List[Scheduler]:
-    """
-    Get available schedulers based on the clustering tools selected by the user.
-    """
-    available_schedulers = {}
-
-    for scheduler_key, scheduler in config.schedulers.items():
-        if all(tool_supports_scheduler(tool, scheduler) for tool in tools):
-            available_schedulers[scheduler_key] = scheduler
-    return available_schedulers
 
 
 def get_descriptor_metadata_table(descriptor_keys: Collection[str]) -> pd.DataFrame:

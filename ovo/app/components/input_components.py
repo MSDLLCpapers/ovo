@@ -4,6 +4,7 @@ from copy import deepcopy
 import streamlit as st
 
 from ovo import viz
+from ovo.app.utils.cached_db import get_cached_num_cyclic, get_cached_common_chain_ids
 from ovo.core.database import WorkflowTypes, Workflow
 from ovo.core.utils.residue_selection import parse_selections, from_segments_to_hotspots, ContigSegment
 from ovo.core.utils.formatting import safe_filename
@@ -233,3 +234,34 @@ def sequence_selection_fragment(
         else:
             residues = from_segments_to_hotspots(selection)
             selection_container.write(f"{selection_label or 'Selected residues'}: {residues}")
+
+
+def get_default_target_chain(binder_chain: str) -> str:
+    """Return B if binder is A, A if binder is B, empty otherwise."""
+    if binder_chain == "A":
+        return "B"
+    if binder_chain == "B":
+        return "A"
+    return ""
+
+
+def binder_chain_input(design_ids: list[str], key_prefix: str) -> str:
+    """Render a binder chain selector pre-filled from common design spec chains."""
+
+    common_chains, available_chains = get_cached_common_chain_ids(design_ids)
+
+    if not common_chains:
+        st.error("Designs have different chain IDs. Please submit these designs separately.")
+        return ""
+
+    if common_chains != available_chains:
+        st.warning(f"Designs do not share the same chain IDs. Using common chains: {', '.join(common_chains)}.")
+
+    binder_chain = st.selectbox(
+        "Binder chain",
+        options=common_chains,
+        index=0,
+        help="Chain ID of the designed binder in the PDB file",
+        key=f"{key_prefix}_binder_chain",
+    )
+    return binder_chain or ""

@@ -8,6 +8,7 @@ from ovo.app.components.molstar_custom_component.dataclasses import (
     ChainVisualization as ChainVisualization,
     Representation as Representation,
     StructureVisualization as StructureVisualization,
+    BondVisualization as BondVisualization,
 )
 
 

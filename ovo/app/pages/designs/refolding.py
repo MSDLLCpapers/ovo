@@ -4,6 +4,7 @@ from ovo import db, schedulers
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.download_component import download_descriptor_table
+from ovo.app.components.submission_components import scheduler_selectbox
 from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_design_ids,
@@ -132,12 +133,14 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
             if st.checkbox(f"**{label}** {description}", key=test):
                 tests.append(test)
 
-        scheduler_key = st.selectbox(
-            "Scheduler",
-            options=list(schedulers.keys()),
-            format_func=lambda x: schedulers[x].name,
-            key="scheduler_selectbox",
+        workflows = RefoldingWorkflow.from_designs(
+            pool_ids=pool_ids,
+            design_ids=design_ids,
+            tests=tests,
+            design_type=design_type,
         )
+
+        scheduler_key = scheduler_selectbox(workflows)
 
         submit = st.button("Submit", disabled=not tests, type="primary")
 
@@ -149,12 +152,6 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
 
         # collect designs by their native PDB path (each workflow job only supports a single native structure)
         st.write("Preparing workflow inputs...")
-        workflows = RefoldingWorkflow.from_designs(
-            pool_ids=pool_ids,
-            design_ids=design_ids,
-            tests=tests,
-            design_type=design_type,
-        )
         for workflow in workflows:
             submit_descriptor_workflow(workflow, scheduler_key, st.session_state.project.id)
         st.rerun()

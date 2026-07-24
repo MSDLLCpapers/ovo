@@ -22,7 +22,8 @@ from pytest_mock import MockerFixture
 from streamlit.testing.v1 import AppTest
 from tests.unit_tests.utils import asserts
 from tests.unit_tests.utils.mocking import MockClient, MockScheduler, MockSession, mock_create_client
-from ovo import schedulers
+from ovo import schedulers, default_scheduler
+from ovo.core.scheduler import NextflowScheduler
 
 
 @pytest.fixture
@@ -64,6 +65,11 @@ def mock_scheduler(monkeypatch: pytest.MonkeyPatch) -> MockScheduler:
         schedulers[scheduler_key] = mocked_scheduler
     ovo.local_scheduler = mocked_scheduler
     return mocked_scheduler
+
+
+@pytest.fixture
+def nextflow_scheduler() -> NextflowScheduler:
+    return default_scheduler
 
 
 @pytest.fixture(scope="function", autouse=True)

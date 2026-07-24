@@ -30,9 +30,9 @@ def test_schedule_valid_params(mock_scheduler: Scheduler):
     assert mock_scheduler.get_output_dir(job_id) is not None
 
 
-def test_schedule_invalid_params(mock_scheduler):
+def test_schedule_invalid_params(nextflow_scheduler):
     with pytest.raises(ValidationError):
-        mock_scheduler.submit(
+        nextflow_scheduler.submit(
             "rfdiffusion-backbone",
             params=dict(
                 num_designs=1,
@@ -42,7 +42,7 @@ def test_schedule_invalid_params(mock_scheduler):
             ),
         )
     with pytest.raises(ValidationError):
-        mock_scheduler.submit(
+        nextflow_scheduler.submit(
             "rfdiffusion-backbone",
             params=dict(
                 num_designs=1,
@@ -52,8 +52,9 @@ def test_schedule_invalid_params(mock_scheduler):
                 INVALID_PARAM="SOME_VALUE",
             ),
         )
+
     try:
-        mock_scheduler.submit(
+        nextflow_scheduler.submit(
             "rfdiffusion-backbone",
             params=dict(
                 num_designs="INVALID",

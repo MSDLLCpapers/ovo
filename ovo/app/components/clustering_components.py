@@ -11,6 +11,7 @@ from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_descriptor_values,
 )
+from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.database.descriptors_clustering import (
     CLUSTER_INFO_REFERENCES,
     CLUSTERING_PRESETS,
@@ -21,7 +22,7 @@ from ovo.app.components.descriptor_scatterplot import PlotSettings
 from ovo import viz
 from ovo.app.components.download_component import download_job_designs_component
 from ovo import storage, Design
-from ovo.core.database.descriptors_rfdiffusion import INTERFACE_TARGET_RESIDUES, PYDSSP_STRING
+from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING
 from ovo.core.database.models_clustering import (
     BaseHierarchicalClusteringWorkflow,
     FoldseekClusteringWorkflow,
@@ -481,7 +482,7 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
     if isinstance(job.workflow, SecondaryStructureHierarchicalClusteringWorkflow):
         descriptors.append(PYDSSP_STRING)
     if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
-        descriptors.append(INTERFACE_TARGET_RESIDUES)
+        descriptors.append(ALL_DESCRIPTORS_BY_KEY[job.workflow.input_descriptor_key])
 
     # Do not use descriptors associated with required descriptor jobs
     descriptors = [d for d in descriptors if not d.required_descriptor_job]
@@ -526,7 +527,8 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
         st.markdown("**Aligned Cluster Structures**")
 
         if visualize_interface:
-            target_residues = df_descriptors[(INTERFACE_TARGET_RESIDUES.tool, INTERFACE_TARGET_RESIDUES.name)]
+            descriptor = ALL_DESCRIPTORS_BY_KEY[job.workflow.input_descriptor_key]
+            target_residues = df_descriptors[(descriptor.tool, descriptor.name)]
             valid_residue_ids = []
             for residues in target_residues.dropna().values:
                 for residue_id in str(residues).split(","):
@@ -605,10 +607,11 @@ def display_clustering_metrics(df_descriptor_values: pd.DataFrame, job: Descript
         st.metric("Median cluster size", median_cluster_size)
 
 
-def interface_clustering_table(df_descriptor_values: pd.DataFrame, job: DescriptorJob):
-    descriptor = INTERFACE_TARGET_RESIDUES
-    descriptor_values = get_cached_descriptor_values(descriptor.key, design_ids=job.workflow.design_ids)
-    descriptor_values_by_design_series = pd.Series(descriptor_values, index=job.workflow.design_ids)
+def interface_clustering_table(
+    df_descriptor_values: pd.DataFrame, workflow: InterfaceResiduesHierarchicalClusteringWorkflow
+):
+    descriptor_values = get_cached_descriptor_values(workflow.input_descriptor_key, design_ids=workflow.design_ids)
+    descriptor_values_by_design_series = pd.Series(descriptor_values, index=workflow.design_ids)
     interface_residues_table = get_interface_residues_by_design_table(descriptor_values_by_design_series)
     df_merged_test = (
         df_descriptor_values[[INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID.key, INTERFACE_HIERARCHICAL_REPR_CLUSTER.key]]
@@ -617,7 +620,7 @@ def interface_clustering_table(df_descriptor_values: pd.DataFrame, job: Descript
     )
 
     # Apply cluster-based row coloring using the same colors as in UMAP and cluster tiles
-    color_mapping = get_cluster_color_mapping_from_legend(df_descriptor_values, job.workflow.tool_key)
+    color_mapping = get_cluster_color_mapping_from_legend(df_descriptor_values, workflow.tool_key)
 
     # Drop the cluster representative column for display
     df_for_display = df_merged_test.drop(columns=[INTERFACE_HIERARCHICAL_REPR_CLUSTER.key])

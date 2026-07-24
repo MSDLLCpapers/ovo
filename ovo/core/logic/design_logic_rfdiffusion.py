@@ -202,6 +202,7 @@ def process_workflow_results(
         "proteinqc|seq_composition": "seq_composition",
         "rfd_ee|backbone_metrics": "backbone_metrics",
         "pyrosetta_interface_metrics|pyrosetta": "pyrosetta_interface_metrics",
+        "biotite_interface_metrics|biotite": "biotite_interface_metrics",
         **extra_filenames,
     }
     if workflow.refolding_params.primary_test:
@@ -293,8 +294,6 @@ def process_rfdiffusion_design(
             storage_rel_path=f"{destination_dir}/rfdiffusion/{backbone_id}_all_atom.cif.gz",
             overwrite=False,
         )
-    else:
-        raise ValueError(f"Unsupported backbone descriptor key: {backbone_descriptor_key}")
 
     backbone_pdb_path = storage.store_file_path(
         source_abs_path=f"{source_dir}/{source_backbone_path}",

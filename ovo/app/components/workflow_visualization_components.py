@@ -6,6 +6,7 @@ from streamlit.elements.metric import DeltaColor
 
 from ovo import db, storage, Threshold, UnknownWorkflow, WorkflowTypes, DesignWorkflow
 from ovo.app.components.custom_elements import wrapped_columns
+from ovo.app.components.descriptor_scatterplot import format_descriptor_name
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.core.database import (
     Design,
@@ -42,6 +43,7 @@ from ovo.app.utils.cached_db import (
     get_cached_pool,
     get_cached_design_job,
     get_cached_designs,
+    get_cached_available_descriptors,
 )
 from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
@@ -52,7 +54,10 @@ from ovo.core.utils.residue_selection import (
 
 
 def show_design_metrics(
-    design_id: str, descriptor_keys: list[str] = None, thresholds: dict[str, Threshold] = None
+    design_id: str,
+    descriptor_keys: list[str] = None,
+    thresholds: dict[str, Threshold] = None,
+    allow_custom: bool = True,
 ) -> pd.Series:
     required_descriptor_keys = descriptor_keys or []
     all_descriptor_keys = list(required_descriptor_keys)
@@ -60,9 +65,31 @@ def show_design_metrics(
     for descriptor_key, threshold in thresholds.items():
         if threshold.enabled and descriptor_key not in required_descriptor_keys:
             all_descriptor_keys.append(descriptor_key)
+
     descriptor_values = get_cached_design_descriptors(design_id, descriptor_keys=all_descriptor_keys)
-    columns = wrapped_columns(len(descriptor_values), wrap=4)
-    for column, (descriptor_key, value) in zip(columns, descriptor_values.items()):
+    columns = wrapped_columns(len(descriptor_values) + (1 if allow_custom else 0), wrap=4)
+    descriptor_value_pairs = list(descriptor_values.items()) + ([(None, None)] if allow_custom else [])
+    for column, (descriptor_key, value) in zip(columns, descriptor_value_pairs):
+        if descriptor_key is None:
+            if st.session_state.get("show_custom_metric") or column.button(
+                ":material/more_horiz: Show custom metric", type="tertiary"
+            ):
+                st.session_state["show_custom_metric"] = True
+                available_descriptor_keys = get_cached_available_descriptors([design_id])
+                descriptor_key = column.selectbox(
+                    "Metric",
+                    placeholder="Select a custom metric",
+                    index=None,
+                    options=available_descriptor_keys,
+                    format_func=lambda key: format_descriptor_name(ALL_DESCRIPTORS_BY_KEY[key]),
+                    label_visibility="collapsed",
+                    key="custom_metric",
+                )
+                if descriptor_key:
+                    value = get_cached_design_descriptors(design_id, descriptor_keys=[descriptor_key])[descriptor_key]
+                    if pd.isna(value):
+                        column.write("*No value available*")
+
         if pd.isna(value) and descriptor_key not in required_descriptor_keys:
             # do not show metric at all when value is missing and descriptor wasn't explicitly requested
             continue
@@ -91,6 +118,7 @@ def show_design_metrics(
             delta_arrow="off",
             delta_description=delta_description,
         )
+
     return descriptor_values
 
 

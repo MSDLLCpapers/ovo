@@ -8,6 +8,7 @@ dependencies:
       - biopython==1.85
       - pandas
       - scipy
-      - biotite
+      - biotite<1.7 # 1.7.0 not supported by hydride 1.2.3, can be upgraded later
       - biopandas
       - einops
+      - hydride

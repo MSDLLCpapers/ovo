@@ -6,6 +6,7 @@ include { BackboneMetrics } from params.getSharedPipelinePath("ovo.backbone-metr
 include { PyRosettaInterfaceMetrics } from params.getSharedPipelinePath("ovo.pyrosetta-interface-metrics")
 include { ProteinQC } from params.getSharedPipelinePath("ovo.proteinqc")
 include { Refolding } from params.getSharedPipelinePath("ovo.refolding")
+include { BiotiteInterfaceMetrics } from params.getSharedPipelinePath("ovo.biotite-interface-metrics")
 
 def requiredParams = [
 	'design_type',
@@ -159,11 +160,22 @@ workflow {
         params.design_type,
     )
 
-    if (!params.disable_pyrosetta_scoring && params.design_type == "binder") {
-        PyRosettaInterfaceMetrics(
-            mpnn_out,
-            relax_before_ddg
-        )
+    if (params.design_type == "binder") {
+        if (!params.disable_pyrosetta_scoring) {
+            PyRosettaInterfaceMetrics(
+                mpnn_out,
+                relax_before_ddg,
+                "A",
+                "B"
+            )
+        }
+        if ((params.enable_biotite_scoring == null && params.disable_pyrosetta_scoring) || params.enable_biotite_scoring) {
+            BiotiteInterfaceMetrics(
+                mpnn_out,
+                "A",
+                "B"
+            )
+        }
     }
 }
 

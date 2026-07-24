@@ -8,12 +8,26 @@
   "properties": {
     "pdb_dir": {
       "type": "string",
-      "description": "Directory containing PDB files to evaluate"
+      "description": "Input path: a .pdb file, a .txt file listing .pdb paths, or a directory ending with /"
     },
     "relax": {
       "type": "boolean",
       "description": "Apply FastRelax protocol before interface analysis",
       "default": false
+    },
+    "binder_chain": {
+      "type": "string",
+      "description": "Chain ID of the binder",
+      "default": "A"
+    },
+    "target_chain": {
+      "type": "string",
+      "description": "Chain ID of the target",
+      "default": "B"
+    },
+    "batch_size": {
+      "type": "integer",
+      "description": "Number of PDB files per batch"
     },
     "publish_dir": {
       "type": "string"

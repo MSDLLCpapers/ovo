@@ -8,6 +8,7 @@ from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.navigation import design_navigation_selector
+from ovo.app.components.submission_components import scheduler_selectbox
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_descriptor_jobs_for_design_ids,
@@ -69,22 +70,7 @@ def submit_ranking_dialog(design_ids: list[str]):
                 st.error(f"Validation error: {e}")
                 return
 
-        # Scheduler selection - filter by pipeline compatibility
-        compatible_scheduler_keys = [
-            key
-            for key, scheduler in schedulers.items()
-            if all(scheduler.supports_pipeline_name(workflow.get_pipeline_name()) for workflow in workflows)
-        ]
-
-        if not compatible_scheduler_keys:
-            st.error("No compatible schedulers found for this workflow type.")
-            return
-
-        scheduler_key = st.selectbox(
-            "Scheduler",
-            options=compatible_scheduler_keys,
-            format_func=lambda key: schedulers[key].name,
-        )
+        scheduler_key = scheduler_selectbox(workflows)
         preview_disabled = not isinstance(workflows[0], RankingTask)
         if st.button(
             "Preview",

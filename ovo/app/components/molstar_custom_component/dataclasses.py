@@ -24,6 +24,7 @@ RepresentationType = Literal[
     "interactions",
     "cartoon+ball-and-stick+interactions",
     "cartoon+ball-and-stick+label",
+    "label",
 ]
 
 StructureFormat = Literal["pdb", "mmcif", "bcif", "gro", "mol", "sdf", "mol2", "xyz"]
@@ -127,6 +128,14 @@ class ChainVisualization:
 
 
 @dataclasses.dataclass
+class BondVisualization:
+    binder_atoms: list[str]
+    target_atoms: list[str]
+    label: str | None = None  # short interaction type shown on the line, e.g. "H-bond"
+    color: str = "#FF0000"  # CSS hex color, matches Molstar InteractionType colors
+
+
+@dataclasses.dataclass
 class StructureVisualization:
     """Class for storing data about structures shown in the Mol* component.
 
@@ -150,9 +159,9 @@ class StructureVisualization:
         The color scheme name or a hex color like "#ffffff", by default "uniform".
     color_params : dict, optional
         Color parameters (see ``Representation``).
-    representation_type : RepresentationType, optional
+    representation_type (alias: representation) : RepresentationType, optional
         Default representation type, by default "cartoon". Also accepted as the ``representation`` alias.
-    highlighted_selections : list[str], optional
+    highlighted_selections (alias: selections) : list[str], optional
         Selections to highlight in green. Also accepted as the ``selection`` alias.
     representations : list[Representation] | Representation, optional
         Per-selection representations with individual coloring, by default None.
@@ -171,6 +180,8 @@ class StructureVisualization:
     highlighted_selections: list[str] | None = None
     representations: list[Representation] | None = None
     auto_zoom_chains: list[str] | None = None
+    auto_zoom_extra_radius: float = 10.0
+    bonds: list[BondVisualization] | None = None
 
     def __post_init__(self) -> None:
         if self.trajectory and not self.trajectory_format:

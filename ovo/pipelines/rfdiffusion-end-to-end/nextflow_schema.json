@@ -79,6 +79,10 @@
       "type": "boolean",
       "description": "Disable PyRosetta interface scoring (for binder design)"
     },
+    "enable_biotite_scoring": {
+      "type": "boolean",
+      "description": "Enable Biotite interface scoring (for binder design). Default null (enabled if disable_pyrosetta_scoring is true, otherwise disabled)"
+    },
     "refolding_tests": {
       "type": "string",
       "description": "Comma-separated list of refolding tests to perform. Available tests: TODO"

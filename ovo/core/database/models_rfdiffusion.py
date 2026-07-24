@@ -494,6 +494,13 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
             if key.startswith("refolding|") and not key.startswith(refolding_descriptor_key_prefix)
         ]
 
+        # Skip hotspot contact descriptor if no hotspots are provided
+        skipped_keys += [
+            key
+            for key in self.acceptance_thresholds.keys()
+            if key == descriptors_rfdiffusion.N_CONTACTS_TO_HOTSPOTS.key and not self.rfdiffusion_params.hotspots
+        ]
+
         return skipped_keys
 
 
@@ -576,10 +583,12 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
             descriptors_refolding.BOLTZ_PRIMARY_BINDER_PLDDT.key: Threshold(min_value=0.8),
             # Rosetta scoring
             descriptors_rfdiffusion.PYROSETTA_DDG.key: Threshold(max_value=-30.0),
+            # Hotspot contacts - will be disabled if hotspots are not provided
+            descriptors_rfdiffusion.N_CONTACTS_TO_HOTSPOTS.key: Threshold(min_value=2),
             # Added but disabled by default
-            descriptors_rfdiffusion.N_CONTACTS_TO_HOTSPOTS.key: Threshold(min_value=1, enabled=False),
             descriptors_rfdiffusion.PYROSETTA_CMS.key: Threshold(enabled=False),
             descriptors_rfdiffusion.PYROSETTA_SAP_SCORE.key: Threshold(enabled=False),
+            descriptors_rfdiffusion.PYROSETTA_BUNS.key: Threshold(enabled=False, max_value=4),
             descriptors_rfdiffusion.RADIUS_OF_GYRATION.key: Threshold(enabled=False),
             descriptors_refolding.AF2_PRIMARY_BINDER_PAE.key: Threshold(max_value=5.0, enabled=False),
         }

@@ -7,7 +7,6 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
-from ovo.core.scheduler import NextflowScheduler
 from ovo.core.utils.param_validation import validate_params
 from typing import Any, Dict
 
@@ -64,7 +63,7 @@ class MockJob:
         self.stop_time = datetime.now()
 
 
-class MockScheduler(NextflowScheduler):
+class MockScheduler(Scheduler):
     """Mock Scheduler Class"""
 
     def __init__(self, name: str, workdir: str, submission_args: dict = None, *args, **kwargs):
@@ -210,6 +209,9 @@ class MockScheduler(NextflowScheduler):
             datetime | None: Job end time.
         """
         return self.jobs[job_id].stop_time
+
+    def supports_pipeline_name(self, pipeline_name: str) -> bool:
+        return True
 
 
 def encode(class_to_encode: Any) -> bytes:

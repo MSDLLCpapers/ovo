@@ -7,7 +7,11 @@ import glob
 from Bio.PDB import PDBParser, PDBIO
 from Bio.PDB.SASA import ShrakeRupley
 from scipy.spatial import distance
-from biotite.structure import CellList
+from biotite.structure import CellList, AtomArray
+import biotite.structure as struc
+import biotite.structure.io as strucio
+import numpy as np
+from scipy.spatial.distance import cdist
 import argparse
 
 import os

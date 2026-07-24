@@ -257,6 +257,5 @@ class RefoldingWorkflow(DescriptorWorkflow):
                 chains=list(designed_chains),
                 **kwargs,
             )
-            workflow.validate()
             workflows.append(workflow)
         return workflows

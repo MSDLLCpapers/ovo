@@ -164,6 +164,15 @@ def get_cached_common_chain_ids(design_ids: list[str]) -> tuple[list[str], list[
     return design_logic.get_common_chain_ids(design_ids)
 
 
+@clear_when_modified(Design)
+@st.cache_data(max_entries=10, ttl="1h")
+def get_cached_num_cyclic(design_ids: list[str]) -> int:
+    """Get number of cyclic peptides across the given design IDs."""
+    specs = db.select_values(Design, "spec", id__in=design_ids)
+    num_cyclic = sum(any(c.cyclic for c in spec.chains) for spec in specs)
+    return num_cyclic
+
+
 @clear_when_modified(Round)
 @st.cache_data(max_entries=100, ttl="10m")
 def get_cached_round(round_id: str) -> Round:

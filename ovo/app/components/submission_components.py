@@ -1,6 +1,7 @@
 import json
 import os
 import traceback
+from typing import Callable
 
 import pandas as pd
 import streamlit as st
@@ -182,30 +183,7 @@ def submit_workflow_dialog(page_key: str, workflow: Workflow, round_id: str, poo
     # Create "empty" element to enable clearing the contents after submitting
     content = st.empty()
     with content.container():
-        # Get pipeline name from workflow
-        try:
-            pipeline_name = workflow.get_pipeline_name()
-        except Exception:
-            traceback.print_exc()
-            st.error("Unable to determine pipeline name for this workflow.")
-            return
-
-        # Filter schedulers to only those that support this pipeline
-        compatible_scheduler_keys = [
-            key for key, scheduler in schedulers.items() if scheduler.supports_pipeline_name(pipeline_name)
-        ]
-
-        if not compatible_scheduler_keys:
-            st.error("No compatible schedulers found for this workflow type.")
-            return
-
-        # Scheduler dropdown
-        with st.columns(2)[0]:
-            scheduler_key = st.selectbox(
-                "Scheduler",
-                options=compatible_scheduler_keys,
-                format_func=lambda k: schedulers[k].name,
-            )
+        scheduler_key = scheduler_selectbox(workflow)
 
         # Time estimate
         st.write(workflow.get_time_estimate(schedulers[scheduler_key]))
@@ -904,3 +882,39 @@ def chain_ids_input(design_ids: list[str]) -> list[str]:
     if not chains:
         st.warning("Please specify at least one chain to analyze.")
     return chains
+
+
+def scheduler_selectbox(workflows: list[Workflow] | Workflow, filter: Callable | None = None) -> str:
+    if isinstance(workflows, Workflow):
+        workflows = [workflows]
+
+    filtered_schedulers = {k: s for k, s in schedulers.items() if filter(s)} if filter else schedulers
+
+    # Scheduler selection - filter by pipeline compatibility
+    compatible_scheduler_keys = [
+        key
+        for key, scheduler in filtered_schedulers.items()
+        if all(scheduler.supports_pipeline_name(workflow.get_pipeline_name()) for workflow in workflows)
+    ]
+
+    if not compatible_scheduler_keys:
+        raise ValueError("No compatible schedulers found for this workflow type.")
+
+    scheduler_index = 0
+    if list(compatible_scheduler_keys)[0] not in (config.default_scheduler, config.task_scheduler):
+        st.warning(
+            f"The default scheduler does not support this workflow configuration. "
+            "Please select a compatible scheduler from the dropdown below."
+        )
+        scheduler_index = None
+
+    scheduler_key = st.selectbox(
+        "Scheduler",
+        options=compatible_scheduler_keys,
+        format_func=lambda key: schedulers[key].name,
+        index=scheduler_index,
+    )
+    if scheduler_key is None:
+        # Force user to select a scheduler before continuing
+        st.stop()
+    return scheduler_key

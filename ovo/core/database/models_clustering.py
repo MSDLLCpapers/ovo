@@ -1,8 +1,8 @@
 from typing import List, Callable
 
 from ovo.core.database import DescriptorJob
-from ovo.core.database.descriptors_rfdiffusion import INTERFACE_TARGET_RESIDUES, PYDSSP_STRING
-from ovo.core.database.models import DescriptorWorkflow, WorkflowParams, WorkflowTypes, Design
+from ovo.core.database.descriptors_rfdiffusion import PYROSETTA_INTERFACE_TARGET_RESIDUES_AA, PYDSSP_STRING
+from ovo.core.database.models import DescriptorWorkflow, WorkflowParams, WorkflowTypes, Design, ResidueNumberDescriptor
 from dataclasses import dataclass, field
 
 
@@ -288,6 +288,7 @@ class InterfaceResiduesHierarchicalClusteringWorkflow(BaseHierarchicalClustering
         metadata=dict(tool_name="Interface Residues Hierarchical Clustering"),
     )
     requires_structures: bool = False
+    input_descriptor_key: str = PYROSETTA_INTERFACE_TARGET_RESIDUES_AA.key
 
     def validate(self):
         from ovo import db
@@ -295,12 +296,12 @@ class InterfaceResiduesHierarchicalClusteringWorkflow(BaseHierarchicalClustering
         super().validate()
 
         # Check that all designs have interface residues descriptor calculated
-        descriptor_values = db.select_descriptor_values(INTERFACE_TARGET_RESIDUES.key, design_ids=self.design_ids)
+        descriptor_values = db.select_descriptor_values(self.input_descriptor_key, design_ids=self.design_ids)
         if descriptor_values.isna().any():
             designs_with_na_descriptor = descriptor_values[descriptor_values.isna()].index.tolist()
 
             raise ValueError(
-                f"Designs are missing required descriptor '{INTERFACE_TARGET_RESIDUES.key}' for Interface Residues Hierarchical Clustering. "
+                f"Designs are missing required descriptor '{self.input_descriptor_key}' for Interface Residues Hierarchical Clustering. "
                 f"Please calculate this descriptor for these designs before running the workflow: {', '.join(designs_with_na_descriptor)}"
             )
 

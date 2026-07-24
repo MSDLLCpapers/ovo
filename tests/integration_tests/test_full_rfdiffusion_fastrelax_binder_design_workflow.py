@@ -76,6 +76,10 @@ def test_binder_default_end_to_end_logic(project_data):
     assert len(rosetta_ddg.dropna()) == 2
     assert not rosetta_ddg.isna().any()
 
+    rosetta_buns = db.select_descriptor_values(descriptors_rfdiffusion.PYROSETTA_BUNS.key, design_ids)
+    assert len(rosetta_buns.dropna()) == 2
+    assert not rosetta_buns.isna().any()
+
     rosetta_bunsat = db.select_descriptor_values(descriptors_rfdiffusion.PYROSETTA_BUNS.key, design_ids)
     assert len(rosetta_bunsat.dropna()) == 2
     assert not rosetta_bunsat.isna().any()

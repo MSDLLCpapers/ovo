@@ -15,18 +15,6 @@ def tool_supports_scheduler(tool: ProteinQCTool, scheduler: Scheduler) -> bool:
     return True
 
 
-def get_available_schedulers(tools: List[ProteinQCTool]) -> dict[str, Scheduler]:
-    """
-    Get available schedulers based on the tools selected by the user.
-    """
-    available_schedulers = {}
-
-    for scheduler_key, scheduler in config.schedulers.items():
-        if all(tool_supports_scheduler(tool, scheduler) for tool in tools):
-            available_schedulers[scheduler_key] = scheduler
-    return available_schedulers
-
-
 def get_available_tools(tools: List[ProteinQCTool], scheduler: Scheduler) -> List[ProteinQCTool]:
     """
     Get available tools based on the selected scheduler.

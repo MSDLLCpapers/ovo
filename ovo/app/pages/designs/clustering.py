@@ -3,9 +3,10 @@ import streamlit as st
 import pandas as pd
 from collections import Counter
 
+from ovo import Scheduler, config
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.download_component import download_descriptor_table, download_job_designs_component
-from ovo.app.components.submission_components import chain_ids_input
+from ovo.app.components.submission_components import chain_ids_input, scheduler_selectbox
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors_per_job,
@@ -27,8 +28,8 @@ from ovo.core.database.models_clustering import (
     InterfaceResiduesHierarchicalClusteringWorkflow,
     ProteinClusteringWorkflow,
     SecondaryStructureHierarchicalClusteringWorkflow,
+    ProteinClusteringTool,
 )
-from ovo.core.logic.descriptor_logic import get_available_schedulers
 from ovo.core.database.descriptors_clustering import PROTEIN_CLUSTERING_DESCRIPTORS
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 from ovo.app.components.clustering_components import (
@@ -42,6 +43,12 @@ from ovo.app.components.clustering_components import (
     interface_clustering_table,
 )
 from ovo.app.utils.cached_db import get_cached_descriptor_values
+
+
+def tool_supports_scheduler(tool: ProteinClusteringTool, scheduler: Scheduler) -> bool:
+    if "conda" in scheduler.submission_args and scheduler.submission_args["conda"]:
+        return tool.supports_conda
+    return True
 
 
 @st.fragment
@@ -138,16 +145,9 @@ def submit_clustering_dialog(design_ids: list[str]):
 
         # Get unique tools for scheduler check
         unique_tools = list(set(inst["tool"] for inst in st.session_state.clustering_tool_instances))
-        schedulers = get_available_schedulers(unique_tools)
-        if not schedulers:
-            st.warning("No schedulers available for the selected tools.")
-            return
 
-        scheduler_key = st.selectbox(
-            "Scheduler",
-            options=list(schedulers.keys()),
-            format_func=lambda x: schedulers[x].name,
-            key="proteinclustering_scheduler_selectbox_multi",
+        scheduler_key = scheduler_selectbox(
+            workflows, filter=lambda scheduler: all(tool_supports_scheduler(tool, scheduler) for tool in unique_tools)
         )
 
         col1, col2 = st.columns([4, 1], vertical_alignment="center")
@@ -183,13 +183,12 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
             st.write("No designs selected")
             return
 
-    st.header(f"🔎 Protein Clustering | {len(design_ids):,} {'design' if len(design_ids) == 1 else 'designs'}")
+    st.header(f"🫧 Clustering | {len(design_ids):,} {'design' if len(design_ids) == 1 else 'designs'}")
 
     if st.button(
-        "Submit Protein Clustering",
+        "Submit Clustering",
         type="primary",
         key="submit_full_proteinclustering_btn",
-        help="Submit full Protein Clustering for all designs",
     ):
         submit_clustering_dialog(design_ids)
 
@@ -311,7 +310,7 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
 
     if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
         st.subheader("Interface residues by cluster")
-        interface_clustering_table(df_descriptor_values, job)
+        interface_clustering_table(df_descriptor_values, job.workflow)
 
     # Cluster browser
     st.subheader("Cluster browser")

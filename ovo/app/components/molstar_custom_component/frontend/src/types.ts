@@ -38,6 +38,13 @@ export type Representation = {
     label: string | null;
 };
 
+export type BondVisualization = {
+    binder_atoms: string[];
+    target_atoms: string[];
+    label: string | null;
+    color: string;  // CSS hex, e.g. "#2B83BA"
+};
+
 export type StructureVisualization = {
     data: string;
     data_format: StructureFormat | null;
@@ -50,6 +57,8 @@ export type StructureVisualization = {
     highlighted_selections: string[] | null;
     representations: Representation[] | null;
     auto_zoom_chains: string[] | null;
+    auto_zoom_extra_radius: number | null;
+    bonds: BondVisualization[] | null;
 };
 
 export type ColorParameters = {

@@ -9,6 +9,7 @@ from ovo.app.components.molstar_custom_component.dataclasses import (
     StructureFormat as StructureFormat,
     StructureVisualization as StructureVisualization,
     TrajectoryFormat as TrajectoryFormat,
+    BondVisualization as BondVisualization,
 )
 from ovo.core.auth import is_running_in_streamlit
 

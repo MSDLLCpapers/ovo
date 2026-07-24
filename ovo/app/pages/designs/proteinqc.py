@@ -7,7 +7,7 @@ from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.descriptor_tiles import descriptor_overview_tiles
 from ovo.app.components.navigation import design_navigation_selector
-from ovo.app.components.submission_components import chain_ids_input
+from ovo.app.components.submission_components import chain_ids_input, scheduler_selectbox
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors,
@@ -22,7 +22,7 @@ from ovo.core.logic.descriptor_logic import (
     get_wide_descriptor_table,
     export_proteinqc_excel,
 )
-from ovo.core.logic.proteinqc_logic import get_available_schedulers
+from ovo.core.logic.proteinqc_logic import tool_supports_scheduler
 
 
 @st.fragment
@@ -49,7 +49,6 @@ def proteinqc_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
         "Submit ProteinQC",
         type="primary",
         key="submit_full_proteinqc_btn",
-        help="Submit full ProteinQC for all designs",
     ):
         submit_proteinqc_dialog(design_ids)
 
@@ -123,31 +122,13 @@ def submit_proteinqc_dialog(design_ids: list[str]):
     if not chains:
         return
 
-    schedulers = get_available_schedulers(tools)
-
-    if not schedulers:
-        st.warning("No schedulers available for the selected tools.")
-        return
-
-    scheduler_index = 0
-    if list(schedulers.keys())[0] != config.default_scheduler:
-        st.warning(
-            f"Default scheduler **{config.default_scheduler}** does not support all the selected tools. "
-            f"Please select a compatible scheduler from the dropdown below."
-        )
-        scheduler_index = None
-
-    scheduler_key = st.selectbox(
-        "Scheduler",
-        options=list(schedulers.keys()),
-        format_func=lambda x: schedulers[x].name,
-        index=scheduler_index,
-        key="proteinqc_scheduler_selectbox",
+    workflow = ProteinQCWorkflow(tools=tool_keys, chains=list(chains), design_ids=design_ids)
+    scheduler_key = scheduler_selectbox(
+        workflow, filter=lambda scheduler: all(tool_supports_scheduler(tool, scheduler) for tool in tools)
     )
 
     if st.button("Submit", key="submit_proteinqc_btn", type="primary"):
         st.write("Submitting job... 🚀")
 
-        workflow = ProteinQCWorkflow(tools=tool_keys, chains=list(chains), design_ids=design_ids)
         submit_descriptor_workflow(workflow, scheduler_key, st.session_state.project.id)
         st.rerun()
