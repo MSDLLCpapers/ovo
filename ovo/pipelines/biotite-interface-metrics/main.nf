@@ -58,8 +58,8 @@ workflow {
     }
 
     createInputFolders(pdbPaths.collate(params.batch_size))
-    def indexes = Channel.of(1..(1000000.intdiv(params.batch_size)))
-    def batches = createInputFolders.out.merge(indexes, { pdb_dir, idx -> ["contig1_batch${idx}", pdb_dir] })
+    indexes = Channel.of(1..(1000000.intdiv(params.batch_size)))
+    batches = createInputFolders.out.merge(indexes, { pdb_dir, idx -> ["contig1_batch${idx}", pdb_dir] })
 
     BiotiteInterfaceMetrics(batches, params.binder_chain_id, params.target_chain_id)
 }
