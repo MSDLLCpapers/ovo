@@ -36,7 +36,7 @@ nextflow run ../../main.nf \
   --shared_modules "ovo:$OVO_MODULE_PATH" \
   --publish_dir $OUTPUT_DIR \
   --output_dir batch1 \
-  --binder_chain_id A \
-  --target_chain_id B \
+  --binder_chain A \
+  --target_chain B \
 
 cat batch1/biotite_interface_metrics.csv

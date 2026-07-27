@@ -23,8 +23,8 @@ process BiotiteInterfaceMetrics {
   publishDir { params.publish_dir }
   input:
     tuple val(batch_dir), path(pdb_dir)
-    val binder_chain_id
-    val target_chain_id
+    val binder_chain
+    val target_chain
   output:
     path "${batch_dir}/biotite_interface_metrics.csv", emit: output_csv
   script:
@@ -36,8 +36,8 @@ process BiotiteInterfaceMetrics {
   python3 ${moduleDir}/bin/interface_metrics.py \
     ${pdb_dir} \
     "${batch_dir}/biotite_interface_metrics.csv" \
-    --binder_chain ${binder_chain_id} \
-    --target_chain ${target_chain_id}
+    --binder_chain ${binder_chain} \
+    --target_chain ${target_chain}
   """
 }
 
@@ -61,5 +61,5 @@ workflow {
     indexes = Channel.of(1..(1000000.intdiv(params.batch_size)))
     batches = createInputFolders.out.merge(indexes, { pdb_dir, idx -> ["contig1_batch${idx}", pdb_dir] })
 
-    BiotiteInterfaceMetrics(batches, params.binder_chain_id, params.target_chain_id)
+    BiotiteInterfaceMetrics(batches, params.binder_chain, params.target_chain)
 }

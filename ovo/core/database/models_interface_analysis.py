@@ -50,8 +50,8 @@ class BiotiteInterfaceAnalysisWorkflow(InterfaceAnalysisWorkflow):
         pdb_dir = prepare_design_structures(designs, workdir=workdir)
         return {
             "pdb_dir": pdb_dir,
-            "binder_chain_id": self.chains[0],
-            "target_chain_id": ",".join(self.target_chains),
+            "binder_chain": self.chains[0],
+            "target_chain": ",".join(self.target_chains),
         }
 
     def process_results(self, job: DescriptorJob, callback: Callable = None) -> list[Base]:
