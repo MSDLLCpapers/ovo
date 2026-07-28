@@ -291,6 +291,7 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
         descriptor_job_id={job.id: [d.key for d in descriptors]},
         group_by=cluster_id_descriptor.key,
         group_by_fmt="cluster_{}",
+        key="cluster",
     )
 
     # Identify which clustering tool was used and get cluster descriptor for id
