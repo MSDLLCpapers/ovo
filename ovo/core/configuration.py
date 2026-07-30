@@ -1,14 +1,12 @@
-import dataclasses
 import json
 import os
-from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from ovo.cli.common import console, OVOCliError, OVONotInitializedError
 
@@ -19,64 +17,81 @@ class BaseConfigModel(BaseSettings):
         from_attributes=True,
         # Raise error on fields that do not match the model
         extra="forbid",
-        # Prefix for env vars - override any config value with OVO_SOME_FIELD_SUBFIELD=123
+        # Prefix for env vars - override any config value with OVO_SOME_FIELD=123
         env_prefix="OVO_",
+        # Delimiter for nested overrides, e.g. OVO_STORAGE__PATH=... or OVO_DB__URL=...
+        env_nested_delimiter="__",
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ):
+        # Env vars take precedence over values passed to __init__ (i.e. loaded from config.yml),
+        # so OVO_* overrides the config file rather than the other way around.
+        return env_settings, dotenv_settings, init_settings, file_secret_settings
 
-@dataclass
-class DBConfig:
-    url: str | None
+
+class BaseNestedConfigModel(BaseModel):
+    # Nested config models: forbid unknown keys to match the top-level behavior
+    model_config = ConfigDict(extra="forbid")
+
+
+class DBConfig(BaseNestedConfigModel):
+    url: str | None = "sqlite:///ovo.db"
     verbose: bool = False
 
 
-@dataclass
-class AWSConfig:
+class AWSConfig(BaseNestedConfigModel):
     region: str
     assume_role_arn: str
 
 
-@dataclass
-class StorageConfig:
-    path: str | None
+class StorageConfig(BaseNestedConfigModel):
+    path: str | None = "./storage"
     verbose: bool = False
-    aws: AWSConfig | None = field(default=None)
+    aws: AWSConfig | None = None
     num_copy_threads: int | None = None
     archive_method: Literal["zip", None] = None
 
 
-@dataclass
-class SchedulerConfig:
+class SchedulerConfig(BaseNestedConfigModel):
     type: str
     name: str
     workdir: str
-    aws: AWSConfig | None = field(default=None)
-    submission_args: dict = field(default_factory=dict)
+    aws: AWSConfig | None = None
+    submission_args: dict = Field(default_factory=dict)
+    # Whether to offer the scheduler in the web UI
+    # Some schedulers may be used only manually should not be exposed to users
+    visible: bool = True
 
 
-@dataclass
-class AuthConfig:
+class AuthConfig(BaseNestedConfigModel):
     # Users who can access Debug page and run commands on the server through the web UI
-    admin_users: list[str] = field(default_factory=list)
+    admin_users: list[str] = Field(default_factory=list)
     # Enable native Streamlit authentication
-    streamlit_auth: bool = field(default=False)
+    streamlit_auth: bool = False
     # Allow users to visit private projects if they have the link (containing the project UID)
-    allow_private_project_link_access: bool = field(default=True)
+    allow_private_project_link_access: bool = True
     # Hide admin access warning if admin_users is set but no auth is configured
-    hide_admin_warning: bool = field(default=False)
+    hide_admin_warning: bool = False
     # Always generate a required token to access the app
-    always_require_token: bool = field(default=False)
+    always_require_token: bool = False
 
 
-@dataclass
-class ConfigProps:
+class ConfigProps(BaseNestedConfigModel):
     check_new_version: bool = True
     pyrosetta_license: bool = False
     read_only: bool = False
     rfdiffusion_backbones_limit: int = 1000
     rfdiffusion_backbones_limit_admin: int = 5000
     mpnn_sequences_limit: int = 100
-    allowed_attachment_types: list[str] = field(
+    allowed_attachment_types: list[str] = Field(
         default_factory=lambda: [
             "image",
             "text",
@@ -97,23 +112,22 @@ class ConfigProps:
     )
 
 
-@dataclass
-class TemplatesConfig:
+class TemplatesConfig(BaseNestedConfigModel):
     welcome: str | None = None
     welcome_appendix: str | None = None
 
 
 class OVOConfig(BaseConfigModel):
     # Absolute path to config directory (not stored in YAML, initialized in load_config)
-    dir: str = field()
+    dir: str
     # Absolute path to reference files directory (model weights, etc)
-    reference_files_dir: str = field()
+    reference_files_dir: str
     # Database instance that manages all interactions with the DB
-    db: DBConfig = field(default_factory=DBConfig)
+    db: DBConfig = Field(default_factory=DBConfig)
     # Authentication config
-    auth: AuthConfig = field(default_factory=AuthConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
     # Storage instance that manages PDBs and other files
-    storage: StorageConfig = field(default_factory=StorageConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
     # Key of the default scheduler to use for job submissions
     default_scheduler: str | None = None
     # Key of the local scheduler to use for local job submissions like RFdiffusion preview
@@ -121,15 +135,15 @@ class OVOConfig(BaseConfigModel):
     # Key of the task scheduler to use for task-based workflows
     task_scheduler: str | None = None
     # Dictionary of scheduler instances (scheduler key -> instance) that enable scheduling jobs
-    schedulers: dict[str, SchedulerConfig] = field(default_factory=dict)
+    schedulers: dict[str, SchedulerConfig] = Field(default_factory=dict)
     # Nextflow home directory
-    nextflow_home: str = field(default="./nextflow")
+    nextflow_home: str = "./nextflow"
     # Text content configuration
-    templates: TemplatesConfig = field(default_factory=TemplatesConfig)
+    templates: TemplatesConfig = Field(default_factory=TemplatesConfig)
     # Remaining configuration settings
-    props: ConfigProps = field(default_factory=ConfigProps)
+    props: ConfigProps = Field(default_factory=ConfigProps)
     # Freeform plugin configuration (plugin module name -> config dict)
-    plugins: dict[str, dict] = field(default_factory=dict)
+    plugins: dict[str, dict] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def resolve_relative_paths(self):
@@ -161,9 +175,9 @@ class OVOConfig(BaseConfigModel):
                         scheduler_config.submission_args[path_arg]
                     )
 
-        for templ_field in dataclasses.fields(self.templates):
-            path = getattr(self.templates, templ_field.name)
-            setattr(self.templates, templ_field.name, make_absolute_if_relative(path))
+        for templ_field_name in type(self.templates).model_fields:
+            path = getattr(self.templates, templ_field_name)
+            setattr(self.templates, templ_field_name, make_absolute_if_relative(path))
 
         return self
 
@@ -171,7 +185,7 @@ class OVOConfig(BaseConfigModel):
     def default(cls, props: ConfigProps, default_profile=None, admin_users: list[str] = None) -> str:
         if default_profile is None:
             default_profile = "conda"
-        props_rows = "\n".join(f"  {k}: {json.dumps(v)}" for k, v in props.__dict__.items())
+        props_rows = "\n".join(f"  {k}: {json.dumps(v)}" for k, v in props.model_dump().items())
         default_scheduler_key = f"local_{default_profile}"
         return f"""
 db:

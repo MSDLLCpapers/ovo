@@ -908,9 +908,16 @@ def scheduler_selectbox(workflows: list[Workflow] | Workflow, filter: Callable |
     if isinstance(workflows, Workflow):
         workflows = [workflows]
 
-    filtered_schedulers = {k: s for k, s in schedulers.items() if filter(s)} if filter else schedulers
+    # Filter out schedulers with visible: False in config (fallback to visible: True if not present in config)
+    filtered_schedulers = {
+        k: s for k, s in schedulers.items() if k not in config.schedulers or config.schedulers[k].visible
+    }
 
-    # Scheduler selection - filter by pipeline compatibility
+    # Filter using custom function
+    if filter:
+        filtered_schedulers = {k: s for k, s in filtered_schedulers.items() if filter(s)}
+
+    # Filter by pipeline compatibility
     compatible_scheduler_keys = [
         key
         for key, scheduler in filtered_schedulers.items()
