@@ -10,7 +10,7 @@ process RFdiffusion3 {
     label 'rfdiffusion3'
     cpus 4
     memory "16 GB"
-    accelerator 1, type: "nvidia-tesla-t4"
+    accelerator 1, type: "nvidia-tesla-a10g"
     publishDir { params.publish_dir }
 
     input:
