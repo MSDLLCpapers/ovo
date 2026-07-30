@@ -14,6 +14,7 @@ from ovo.app.components.submission_components import (
     pool_submission_inputs,
     review_workflow_submission,
     show_rfdiffusion_binder_seq_design_inputs,
+    show_rfdiffusion_backbone_design_inputs,
 )
 
 from ovo.app.pages import jobs_page, designs_page
@@ -395,17 +396,7 @@ def settings_step():
 
     pool_submission_inputs(__file__)
 
-    with st.columns([1, 2])[0]:
-        is_admin = get_username() in config.auth.admin_users
-        workflow.rfdiffusion_params.num_designs = st.number_input(
-            "Number of structure designs (RFdiffusion backbones) per each input structure",
-            min_value=1,
-            max_value=config.props.rfdiffusion_backbones_limit_admin
-            if is_admin
-            else config.props.rfdiffusion_backbones_limit,
-            value=workflow.rfdiffusion_params.num_designs,
-            key="num_designs",
-        )
+    show_rfdiffusion_backbone_design_inputs(workflow, suffix=" per each input structure")
 
     show_rfdiffusion_binder_seq_design_inputs(workflow)
 

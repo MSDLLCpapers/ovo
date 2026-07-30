@@ -21,6 +21,8 @@ from ovo.app.components.submission_components import (
     show_rfdiffusion_advanced_settings,
     review_workflow_submission,
     show_backbone_generation_settings,
+    show_rfdiffusion_backbone_design_inputs,
+    NUM_SEQUENCES_CAPTION,
 )
 from ovo.app.pages import jobs_page, designs_page
 from ovo.app.utils.page_init import initialize_page
@@ -344,18 +346,9 @@ def settings_step():
     if check_contig_parsed(contig):
         workflow.rfdiffusion_params.contig = contig
 
-    with st.columns([1, 2])[0]:
-        is_admin = get_username() in config.auth.admin_users
-        workflow.rfdiffusion_params.num_designs = st.number_input(
-            "Number of structure designs (RFdiffusion backbones)",
-            min_value=1,
-            max_value=config.props.rfdiffusion_backbones_limit_admin
-            if is_admin
-            else config.props.rfdiffusion_backbones_limit,
-            value=workflow.rfdiffusion_params.num_designs,
-            key="num_designs",
-        )
+    show_rfdiffusion_backbone_design_inputs(workflow)
 
+    with st.columns([1, 2])[0]:
         workflow.protein_mpnn_params.num_sequences = st.number_input(
             "Number of sequence designs per backbone (ProteinMPNN)",
             min_value=1,
@@ -363,7 +356,9 @@ def settings_step():
             value=workflow.protein_mpnn_params.num_sequences,
             key="num_sequences",
         )
+    st.caption(NUM_SEQUENCES_CAPTION)
 
+    with st.columns([1, 2])[0]:
         show_backbone_generation_settings(workflow)
 
     show_rfdiffusion_advanced_settings(workflow)

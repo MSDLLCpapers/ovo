@@ -1,6 +1,5 @@
 import json
 import os
-import traceback
 from typing import Callable
 
 import pandas as pd
@@ -28,6 +27,10 @@ from ovo.core.database.models import Pool, Round, Workflow
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
 from ovo.core.utils.formatting import truncate_middle
+
+NUM_SEQUENCES_CAPTION = (
+    "Typical workflows design 2-10 sequences per backbone to explore sequence diversity around the same structure."
+)
 
 
 def pool_submission_inputs(page_key: str):
@@ -243,6 +246,22 @@ def get_next_round_name(last_round_name: str) -> str | None:
     return next_name
 
 
+def show_rfdiffusion_backbone_design_inputs(workflow: RFdiffusionWorkflow, suffix: str = ""):
+    with st.columns([1, 2])[0]:
+        is_admin = get_username() in config.auth.admin_users
+        limit = config.props.rfdiffusion_backbones_limit_admin if is_admin else config.props.rfdiffusion_backbones_limit
+        workflow.rfdiffusion_params.num_designs = st.number_input(
+            f"Number of structure designs (RFdiffusion backbones){suffix}",
+            min_value=1,
+            max_value=limit,
+            value=workflow.rfdiffusion_params.num_designs,
+            key="num_designs",
+        )
+    st.caption(
+        f"You can start with a small number of backbones to confirm the design task, then submit subsequent runs of up to {limit} backbone designs."
+    )
+
+
 def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
     seq_design_options = {
         "ligandmpnn": "LigandMPNN (ProteinMPNN weights)",
@@ -308,6 +327,7 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
                 value=workflow.protein_mpnn_params.num_sequences,
                 key="num_sequences",
             )
+        st.caption(NUM_SEQUENCES_CAPTION)
 
 
 TIMESTEPS_INPUT_KEY = "timesteps"
