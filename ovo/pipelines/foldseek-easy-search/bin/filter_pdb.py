@@ -12,6 +12,10 @@ from Bio import PDB
 from Bio.PDB.Polypeptide import is_aa
 from Bio.SeqUtils import seq1
 
+# Minimum sequence length for Foldseek k-mer prefilter mode (prefilter_mode=0)
+# Must match FOLDSEEK_KMER_PREFILTER_MIN_LENGTH in ovo.core.database.models_clustering
+FOLDSEEK_KMER_PREFILTER_MIN_LENGTH = 14
+
 
 def save_first_model_with_chains(
     pdb_file_path: str, out_pdb_file_path: str, chains_to_keep: List[str] = [], skip_unknown: bool = True
@@ -80,10 +84,11 @@ def validate_chains_present(pdb_file_path: str, expected_chains: List[str]):
     return True
 
 
-def check_short_sequences(pdb_file_path: str, min_length: int = 21):
+def has_min_length(pdb_file_path: str, min_length: int) -> bool:
     """
-    Check the sequences to be processed by foldseek comply with the lower sequence length limit.
-    Raises ValueError if any chain has a sequence shorter than min_length.
+    Check if sequences in PDB meet minimum length requirement.
+    Returns True if all sequences are long enough, False if any are too short.
+    Prints warning for sequences that are too short.
     """
     parser = PDB.PDBParser(QUIET=True)
     structure = parser.get_structure("structure", pdb_file_path)
@@ -103,10 +108,11 @@ def check_short_sequences(pdb_file_path: str, min_length: int = 21):
             short_sequences[chain.id] = seq_str
 
     if short_sequences:
-        error_msg = f"Found chains with sequences shorter than {min_length} residues in {pdb_file_path}:\n"
-        for chain_id, seq in short_sequences.items():
-            error_msg += f"  Chain {chain_id}: {len(seq)} residues\n"
-        raise ValueError(error_msg)
+        chain_details = ", ".join([f"chain {chain_id}: {len(seq)} res" for chain_id, seq in short_sequences.items()])
+        print(
+            f"[Warning] Skipping {os.path.basename(pdb_file_path)} - sequences too short for k-mer prefilter mode (minimum {min_length} res): {chain_details}"
+        )
+        return False
 
     return True
 
@@ -115,7 +121,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_dir", type=str, required=True, help="Input directory containing PDB files")
     parser.add_argument("--chains", type=str, required=True, help="Comma-separated list of chains to keep")
-    parser.add_argument("--min_length", type=int, default=21, help="Minimum sequence length (default: 21)")
+    parser.add_argument(
+        "--prefilter_mode",
+        type=int,
+        default=0,
+        help=f"Prefilter mode: 0=k-mer (needs ≥{FOLDSEEK_KMER_PREFILTER_MIN_LENGTH} res)",
+    )
+    parser.add_argument("--skip_length_check", action="store_true", help="Skip length check (for exhaustive search)")
 
     args = parser.parse_args()
     chains_to_keep = args.chains.split(",")
@@ -128,11 +140,21 @@ if __name__ == "__main__":
     print(f"Found {len(pdb_files)} PDB files to process in {args.input_dir}")
 
     # Process each PDB file
-    failed_files = []
+    skipped_files = []
     for pdb_file in pdb_files:
         # Extract the desired chains
         save_first_model_with_chains(pdb_file, pdb_file, chains_to_keep)
         # Check file contains the desired chains
         validate_chains_present(pdb_file, chains_to_keep)
-        # Check sequences meet the minimum length requirement
-        check_short_sequences(pdb_file, args.min_length)
+        # Check sequences meet the minimum length requirement for prefilter mode 0
+        # Skip length check when using exhaustive search
+        if args.prefilter_mode == 0 and not args.skip_length_check:
+            if not has_min_length(pdb_file, FOLDSEEK_KMER_PREFILTER_MIN_LENGTH):
+                skipped_files.append(pdb_file)
+                try:
+                    os.remove(pdb_file)
+                except OSError as e:
+                    print(f"[Warning] Could not remove {pdb_file}: {e}")
+
+    processed_count = len(pdb_files) - len(skipped_files)
+    print(f"\nProcessed {processed_count} files successfully, skipped {len(skipped_files)} files")

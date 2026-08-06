@@ -31,7 +31,8 @@ workflow FoldseekClustering {
         params.foldseek_alignment_type,
         output_columns,
         params.foldseek_c,
-        params.foldseek_s
+        params.foldseek_s,
+        params.foldseek_prefilter_mode
     )
 
     println "2. Running foldseek clustering"

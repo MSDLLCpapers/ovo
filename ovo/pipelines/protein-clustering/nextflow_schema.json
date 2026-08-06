@@ -56,6 +56,10 @@
       "type": "number",
       "description": "Foldseek: Adjust sensitivity to speed trade-off; lower is faster, higher more sensitive (fast: 7.5, default: 9.5)"
     },
+    "foldseek_prefilter_mode": {
+      "type": "integer",
+      "description": "Foldseek: Prefilter mode: 0 = kmer/ungapped (default), 1 = ungapped, 2 = nofilter, 3 = ungapped&gapped"
+    },
     "hierarchical_cyclic": {
       "type": "boolean",
       "description": "Whether structures are cyclic peptides (affects sequence alignment for hierarchical clustering)"

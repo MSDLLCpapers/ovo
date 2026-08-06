@@ -31,7 +31,7 @@ process FoldseekEasyCluster {
   cp ${pdb_dir}/*.pdb filtered_pdbs/
 
   # Filter the copied PDB files (not the originals)
-  python3 ${moduleDir}/bin/filter_pdb.py --chains ${chains} --input_dir filtered_pdbs --min_length 14
+  python3 ${moduleDir}/bin/filter_pdb.py --chains ${chains} --input_dir filtered_pdbs
 
   # Run foldseek on the filtered copies
   foldseek easy-cluster filtered_pdbs ${output_prefix} tmp \

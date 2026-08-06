@@ -55,6 +55,9 @@ def get_umap_embeddings_from_long_format(
     indices = np.zeros((n, n_neighbors), dtype=np.int64)
     dists = np.zeros((n, n_neighbors), dtype=np.float32)
 
+    # Track samples that needed padding
+    padded_samples = []
+
     for query_id, query_rows in df.groupby(query_column):
         # Sort: descending for similarity (highest first), ascending for distance (lowest first)
         top_rows = query_rows.sort_values(by=score_column, ascending=not is_similarity).head(n_neighbors)
@@ -64,6 +67,7 @@ def get_umap_embeddings_from_long_format(
         if len(top_rows) < n_neighbors:
             # Pad with self-score if not enough neighbors
             pad_size = n_neighbors - len(top_rows)
+            padded_samples.append((query_id, len(top_rows)))
             top_target_ids = pd.concat([pd.Series([query_id] * pad_size), top_target_ids])
             # Pad with 1.0 for similarity (perfect match), 0.0 for distance (zero distance to self)
             pad_value = 1.0 if is_similarity else 0.0
@@ -76,6 +80,14 @@ def get_umap_embeddings_from_long_format(
             dists[id_to_idx[query_id]] = np.clip(1 - top_scores.to_numpy(), 0, 1)
         else:
             dists[id_to_idx[query_id]] = top_scores.to_numpy()
+
+    # Warn if samples had insufficient neighbors
+    if padded_samples:
+        max_actual_neighbors = max(actual for _, actual in padded_samples)
+        print(
+            f"[Warning] Requested n_neighbors={n_neighbors} but only {max_actual_neighbors} neighbors available for {len(padded_samples)} sample(s). "
+            f"UMAP will use padded self-references for missing neighbors."
+        )
 
     # Create UMAP embeddings from precomputed kNN
     mapper = umap.UMAP(
@@ -115,7 +127,7 @@ def get_umap_embeddings_from_matrix(
     """
 
     if n_neighbors >= len(distance_matrix):
-        print(f"N_neighbors {n_neighbors} exceeds number of samples, setting to {len(distance_matrix) - 1}")
+        print(f"[Warning] N_neighbors {n_neighbors} exceeds number of samples, setting to {len(distance_matrix) - 1}")
 
     mapper = umap.UMAP(
         n_neighbors=min(n_neighbors, len(distance_matrix) - 1),
@@ -217,8 +229,9 @@ def fill_missing_ids_in_matrix(
     missing_ids = sorted(set(cluster_ids) - set(matrix.index))
     if missing_ids:
         matrix_type = "similarity" if is_similarity else "distance"
-        print(f"[Warning] {len(missing_ids)} design IDs are missing in the {matrix_type} matrix: {missing_ids}")
-        print(f"Adding self-{matrix_type} entries for missing IDs.")
+        print(
+            f"[Warning] {len(missing_ids)} design IDs are missing in the {matrix_type} matrix: {missing_ids}. Adding self-{matrix_type} entries for missing IDs."
+        )
 
         # Determine self-score and other-score based on matrix type
         if is_similarity:
@@ -262,8 +275,9 @@ def fill_missing_ids_in_similarity_long_format(
     missing_ids = sorted(set(cluster_ids) - set(df[query_column].unique()))
     if missing_ids:
         matrix_type = "similarity" if is_similarity else "distance"
-        print(f"[Warning] {len(missing_ids)} design IDs are missing in the {matrix_type} file: {missing_ids}")
-        print(f"Adding self-{matrix_type} entries for missing IDs.")
+        print(
+            f"[Warning] {len(missing_ids)} design IDs are missing in the {matrix_type} file: {missing_ids}. Adding self-{matrix_type} entries for missing IDs"
+        )
         # Determine self-score based on matrix type
         self_score = 1.0 if is_similarity else 0.0
         # Add self-score entries for missing IDs
@@ -327,7 +341,11 @@ if __name__ == "__main__":
     # For symlinks, follow to the target; for compressed files, check actual file size
     file_size = os.path.getsize(os.path.realpath(options.similarity_file))
     if file_size == 0:
-        raise ValueError(f"Similarity file is empty: {options.similarity_file}")
+        raise ValueError(
+            f"Similarity file is empty: {options.similarity_file}. "
+            f"This can happen if most of the designs have very short sequences and you used foldseek prefilter_mode=0 (kmer/ungapped). "
+            f"Consider running Foldseek with prefilter_mode=1 (ungapped) if not used already."
+        )
 
     similarity_sep = "\t" if options.similarity_file.endswith(".tsv") else ","
     cluster_sep = "\t" if options.cluster_file.endswith(".tsv") else ","
@@ -407,9 +425,8 @@ if __name__ == "__main__":
     if options.similarity_format == "matrix":
         validation_warnings = validate_matrix(similarity_data, is_similarity)
         if validation_warnings:
-            print("[Validation Warnings]")
             for warning in validation_warnings:
-                print(f"  - {warning}")
+                print(f"[Warning] {warning}")
 
     # Get number of unique queries
     if options.similarity_format == "matrix":
@@ -423,14 +440,14 @@ if __name__ == "__main__":
 
     # Compute embedding for each n_neighbor, handle failures without exceptions
     query_embeddings = []
-    all_errors = []
+    all_warnings = []
     for n_neighbors in options.n_neighbors.split(","):
-        error_messages = validate_neighbors_value(n_neighbors)
-        all_errors.extend(error_messages)
+        warning_messages = validate_neighbors_value(n_neighbors)
+        all_warnings.extend(warning_messages)
 
         embedding_df = None
 
-        if not error_messages:
+        if not warning_messages:
             try:
                 if options.similarity_format == "matrix":
                     distance_matrix = similarity_data.copy()
@@ -456,7 +473,7 @@ if __name__ == "__main__":
 
             except Exception as e:
                 traceback.print_exc()
-                error_messages = [str(e)]
+                warning_messages = [str(e)]
 
         if embedding_df is None:
             nan_data = {
@@ -465,10 +482,12 @@ if __name__ == "__main__":
             }
             embedding_df = pd.DataFrame(nan_data, index=empty_index)
         query_embeddings.append(embedding_df)
-        all_errors.extend(error_messages)
+        all_warnings.extend(warning_messages)
 
+    # Print warnings to job log
     embedding_df = pd.concat(query_embeddings, axis=1)
-    embedding_df["error"] = ";".join(list(set(all_errors)))
+    for warning in set(all_warnings):
+        print(f"[Warning] {warning}")
 
     joined_embedding_df = join_embedding_with_cluster(
         embedding_df, cluster_df, cluster_repr_column=cluster_representative_column

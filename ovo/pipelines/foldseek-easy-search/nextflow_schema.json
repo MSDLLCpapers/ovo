@@ -45,6 +45,10 @@
     "s": {
       "type": "float",
       "description": "Adjust sensitivity to speed trade-off; lower is faster, higher more sensitive (fast: 7.5, default: 9.5)"
+    },
+    "prefilter_mode": {
+      "type": "integer",
+      "description": "0: kmer/ungapped (default), 1: ungapped, 2: nofilter, 3: ungapped&gapped"
     }
   }
 }

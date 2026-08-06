@@ -1,16 +1,28 @@
 import traceback
 
-import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import streamlit as st
 from plotly import express as px
 
+from ovo import storage, Design
+from ovo import viz
 from ovo.app.components.custom_elements import wrapped_columns
+from ovo.app.components.descriptor_scatterplot import PlotSettings
+from ovo.app.components.descriptor_table import descriptor_table
+from ovo.app.components.download_component import download_job_designs_component
+from ovo.app.components.workflow_visualization_components import (
+    visualize_align_structure_selection,
+)
+from ovo.app.pages.designs.explorer import design_visualization_fragment
 from ovo.app.utils.cached_db import (
     get_cached_design,
     get_cached_pools,
     get_cached_descriptor_values,
+    get_cached_designs,
+    get_cached_num_cyclic,
 )
+from ovo.core.database import DescriptorJob
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.database.descriptors_clustering import (
     CLUSTER_INFO_REFERENCES,
@@ -18,10 +30,6 @@ from ovo.core.database.descriptors_clustering import (
     INTERFACE_HIERARCHICAL_REPR_CLUSTER,
     INTERFACE_HIERARCHICAL_REPR_CLUSTER_ID,
 )
-from ovo.app.components.descriptor_scatterplot import PlotSettings
-from ovo import viz
-from ovo.app.components.download_component import download_job_designs_component
-from ovo import storage, Design
 from ovo.core.database.descriptors_rfdiffusion import PYDSSP_STRING
 from ovo.core.database.models_clustering import (
     BaseHierarchicalClusteringWorkflow,
@@ -31,19 +39,13 @@ from ovo.core.database.models_clustering import (
     SecondaryStructureHierarchicalClusteringWorkflow,
     RMSDHierarchicalClusteringWorkflow,
 )
-from ovo.core.utils.formatting import datetime_from_utc_to_local
-from ovo.core.utils.colors import hex_to_rgba
-from ovo.app.components.descriptor_table import descriptor_table
-from ovo.app.pages.designs.explorer import design_visualization_fragment
-from ovo.app.components.workflow_visualization_components import (
-    visualize_align_structure_selection,
-)
+from ovo.core.database.models_clustering import FOLDSEEK_KMER_PREFILTER_MIN_LENGTH
 from ovo.core.logic.descriptor_logic import (
     get_interface_residues_by_design_table,
     get_wide_descriptor_table,
-    export_design_descriptors_excel,
 )
-from ovo.core.database import DescriptorJob
+from ovo.core.utils.colors import hex_to_rgba
+from ovo.core.utils.formatting import datetime_from_utc_to_local
 
 FOLDSEEK_ALIGNMENT_DESCRIPTIONS_MAP = {
     0: "3Di Gotoh-Smith-Waterman (local)",
@@ -51,9 +53,56 @@ FOLDSEEK_ALIGNMENT_DESCRIPTIONS_MAP = {
     2: "3Di+AA Gotoh-Smith-Waterman (Default)",
 }
 
+FOLDSEEK_PREFILTER_DESCRIPTION_MAP = {
+    0: "kmer/ungapped (Foldseek default)",
+    1: "ungapped (default for short sequences)",
+    2: "nofilter",
+    3: "ungapped&gapped",
+}
+
+
+def has_short_sequences_for_chains(
+    design_ids: list[str],
+    chains: list[str],
+    min_length: int = FOLDSEEK_KMER_PREFILTER_MIN_LENGTH,
+) -> bool:
+    """
+    Check if any designs have sequences shorter than min_length for the specified chains.
+    Sequences shorter than FOLDSEEK_KMER_PREFILTER_MIN_LENGTH residues fail in Foldseek easy-search with prefilter_mode 0.
+
+    Returns:
+        True if any sequence is shorter than min_length, False otherwise
+    """
+    designs = get_cached_designs(design_ids)
+
+    for design in designs:
+        if not design.spec:
+            continue
+        for chain_id in chains:
+            chain = design.spec.get_chain(chain_id)
+            if chain and chain.sequence and len(chain.sequence) < min_length:
+                return True
+
+    return False
+
 
 def set_foldseek_params(workflow: FoldseekClusteringWorkflow, key_suffix: str = "") -> FoldseekClusteringWorkflow:
-    cols_prefilter = st.columns(2, vertical_alignment="bottom")
+    if get_cached_num_cyclic(workflow.design_ids):
+        st.warning(
+            "Foldseek is not aware of the macrocyclic bond, so it will treat each peptide as linear. "
+            'To make sure that similar peptides with "rotated" starting positions are placed in the same cluster, consider using hierarchical clustering instead.'
+        )
+
+    has_short_seqs = has_short_sequences_for_chains(workflow.design_ids, workflow.chains)
+
+    if has_short_seqs and workflow.params.prefilter_mode == 0:
+        workflow.params.prefilter_mode = 1
+        st.caption(
+            f":material/info: **Auto-detected some short sequences (<{FOLDSEEK_KMER_PREFILTER_MIN_LENGTH} residues).** "
+            f"Prefilter mode automatically set to ungapped.",
+        )
+
+    cols_prefilter = st.columns(3, vertical_alignment="bottom")
     with cols_prefilter[1]:
         workflow.params.exhaustive_search = st.checkbox(
             "Use exhaustive search (skip prefilter)",
@@ -72,6 +121,17 @@ def set_foldseek_params(workflow: FoldseekClusteringWorkflow, key_suffix: str = 
             help="Adjust sensitivity to speed trade-off; lower is faster, higher more sensitive (fast: 7.5, default: 9.5). Not used when exhaustive search is enabled.",
             disabled=workflow.params.exhaustive_search,
         )
+    with cols_prefilter[2]:
+        workflow.params.prefilter_mode = st.selectbox(
+            "Prefilter mode for Foldseek easy-search",
+            options=[0, 1, 2, 3],
+            format_func=lambda option: FOLDSEEK_PREFILTER_DESCRIPTION_MAP.get(option, "Error in selection"),
+            index=workflow.params.prefilter_mode,
+            key=f"protein_clustering_prefilter_mode_input{key_suffix}",
+            help=f"Prefilter mode: 0=kmer/ungapped (default, fastest), 1=ungapped, 2=nofilter, 3=ungapped&gapped. ⚠️ Mode 0 will skip sequences <{FOLDSEEK_KMER_PREFILTER_MIN_LENGTH} residues from easy-search, which can cause Foldseek pipeline to fail. Use mode 1 or 2 for pools with mostly short sequences.",
+            disabled=workflow.params.exhaustive_search,
+        )
+
     workflow.params.alignment_type = st.selectbox(
         "Alignment type for Foldseek",
         options=[0, 1, 2],
@@ -488,7 +548,7 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
     descriptors = [d for d in descriptors if not d.required_descriptor_job]
     df_descriptors = get_wide_descriptor_table(
         design_ids=df_descriptor_values_cluster.index.tolist(),
-        descriptor_keys=[d.key for d in descriptors],
+        descriptor_keys=[d.key for d in descriptors] if descriptors else None,
         nested=True,
     )
     descriptor_table(design_ids=cluster_design_ids, descriptors_df=df_descriptors, descriptors=descriptors)
@@ -582,7 +642,9 @@ def display_clustering_job_params(job: DescriptorJob):
             param_description = None
             if isinstance(workflow, FoldseekClusteringWorkflow):
                 if param_name == "alignment_type":
-                    param_description = FOLDSEEK_ALIGNMENT_DESCRIPTIONS_MAP[param_value]
+                    param_description = FOLDSEEK_ALIGNMENT_DESCRIPTIONS_MAP.get(param_value)
+                elif param_name == "prefilter_mode":
+                    param_description = FOLDSEEK_PREFILTER_DESCRIPTION_MAP.get(param_value)
             col = col1 if i % 2 == 0 else col2
             with col:
                 param_str = f"**{param_name.capitalize()}:**  {param_value}"

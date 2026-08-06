@@ -5,6 +5,10 @@ from ovo.core.database.descriptors_rfdiffusion import PYROSETTA_INTERFACE_TARGET
 from ovo.core.database.models import DescriptorWorkflow, WorkflowParams, WorkflowTypes, Design, ResidueNumberDescriptor
 from dataclasses import dataclass, field
 
+# Minimum sequence length for Foldseek k-mer prefilter mode (prefilter_mode=0)
+# Sequences shorter than this will be skipped in easy-search with default prefilter
+FOLDSEEK_KMER_PREFILTER_MIN_LENGTH = 14
+
 
 @dataclass
 class ProteinClusteringWorkflow(DescriptorWorkflow):
@@ -92,6 +96,7 @@ class FoldseekParams(WorkflowParams):
     embedding_metric: str = "qtmscore"
     min_seq_id: float = 0.0
     s: float = 9.5
+    prefilter_mode: int = 0
 
 
 @dataclass
@@ -119,8 +124,10 @@ class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
         return prepare_foldseek_clustering_workflow_params(self, workdir=workdir)
 
     def process_results(self, job: DescriptorJob, callback: Callable = None):
-        from ovo import db
+        from ovo import get_scheduler
         from ovo.core.logic.descriptor_logic import read_descriptor_file_values
+        import re
+        from sqlalchemy.orm.attributes import flag_modified
 
         descriptor_values = read_descriptor_file_values(
             descriptor_job=job,
@@ -129,6 +136,34 @@ class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
             # mapping from design.id to ID column in produced file
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
         )
+
+        # Extract warnings from job logs (check both main log and task logs)
+        scheduler = get_scheduler(job.scheduler_key)
+
+        # Check main job log
+        warning_regex = r"\[Warning\]\s+(.+?)(?=\n|$)"
+        log = scheduler.get_log(job.job_id)
+        if log:
+            warning_lines = re.findall(warning_regex, log, re.IGNORECASE)
+            for warning in warning_lines:
+                if warning not in job.warnings:
+                    job.warnings.append(warning)
+
+        # Check individual task logs
+        tasks = scheduler.get_tasks(job.job_id)
+        if tasks is not None and not tasks.empty:
+            for _, task in tasks.iterrows():
+                task_log = scheduler.get_log(job.job_id, task_id=task["task_id"])
+                if task_log:
+                    warning_lines = re.findall(warning_regex, task_log, re.IGNORECASE)
+                    for warning in warning_lines:
+                        warning_with_task = f"{task['name']}: {warning}"
+                        if warning_with_task not in job.warnings:
+                            job.warnings.append(warning_with_task)
+
+        # Mark warnings as modified so SQLAlchemy persists changes
+        if job.warnings:
+            flag_modified(job, "warnings")
 
         return descriptor_values + [job]
 

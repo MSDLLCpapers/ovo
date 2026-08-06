@@ -80,42 +80,10 @@ def validate_chains_present(pdb_file_path: str, expected_chains: List[str]):
     return True
 
 
-def check_short_sequences(pdb_file_path: str, min_length: int = 21):
-    """
-    Check the sequences to be processed by foldseek comply with the lower sequence length limit.
-    Raises ValueError if any chain has a sequence shorter than min_length.
-    """
-    parser = PDB.PDBParser(QUIET=True)
-    structure = parser.get_structure("structure", pdb_file_path)
-    first_model = structure[0]
-
-    short_sequences = {}
-
-    for chain in first_model:
-        # Extract sequence from chain
-        sequence = []
-        for residue in chain:
-            if is_aa(residue.get_resname(), standard=True):
-                sequence.append(seq1(residue.get_resname()))
-
-        seq_str = "".join(sequence)
-        if len(seq_str) < min_length:
-            short_sequences[chain.id] = seq_str
-
-    if short_sequences:
-        error_msg = f"Found chains with sequences shorter than {min_length} residues in {pdb_file_path}:\n"
-        for chain_id, seq in short_sequences.items():
-            error_msg += f"  Chain {chain_id}: {len(seq)} residues\n"
-        raise ValueError(error_msg)
-
-    return True
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_dir", type=str, required=True, help="Input directory containing PDB files")
     parser.add_argument("--chains", type=str, required=True, help="Comma-separated list of chains to keep")
-    parser.add_argument("--min_length", type=int, default=21, help="Minimum sequence length (default: 21)")
 
     args = parser.parse_args()
     chains_to_keep = args.chains.split(",")
@@ -134,5 +102,3 @@ if __name__ == "__main__":
         save_first_model_with_chains(pdb_file, pdb_file, chains_to_keep)
         # Check file contains the desired chains
         validate_chains_present(pdb_file, chains_to_keep)
-        # Check sequences meet the minimum length requirement
-        check_short_sequences(pdb_file, args.min_length)

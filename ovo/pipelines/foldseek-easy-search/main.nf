@@ -21,6 +21,7 @@ process FoldseekEasySearch {
     val format_output
     val c
     val s
+    val prefilter_mode
   output:
     path "${output_dir}/foldseek_similarity.tsv"  , emit: similarity_tsv
   script:
@@ -39,8 +40,9 @@ process FoldseekEasySearch {
   cp ${target_pdb_dir}/*.pdb filtered_target_pdbs/
 
   # Filter the copied PDB files (not the originals)
-  python3 ${moduleDir}/bin/filter_pdb.py --chains ${chains} --input_dir filtered_query_pdbs --min_length 14
-  python3 ${moduleDir}/bin/filter_pdb.py --chains ${chains} --input_dir filtered_target_pdbs --min_length 14
+  # Skip length filtering when using exhaustive search
+  python3 ${moduleDir}/bin/filter_pdb.py --chains ${chains} --input_dir filtered_query_pdbs --prefilter_mode ${prefilter_mode} ${exhaustive_search ? '--skip_length_check' : ''}
+  python3 ${moduleDir}/bin/filter_pdb.py --chains ${chains} --input_dir filtered_target_pdbs --prefilter_mode ${prefilter_mode} ${exhaustive_search ? '--skip_length_check' : ''}
 
   foldseek easy-search filtered_query_pdbs/ filtered_target_pdbs/ ${output_dir}/foldseek_similarity.tsv temp \
           ${exhaustive_search ? '--exhaustive-search' : ''} \
@@ -48,7 +50,8 @@ process FoldseekEasySearch {
           --alignment-type ${alignment_type} \
           --format-output ${format_output} \
           -c ${c} \
-          -s ${s}
+          -s ${s} \
+          --prefilter-mode ${prefilter_mode}
 
   # Remove temporary folder
   rm -r filtered_query_pdbs filtered_target_pdbs
@@ -64,6 +67,7 @@ workflow {
     params.alignment_type,
     params.format_output,
     params.c,
-    params.s
+    params.s,
+    params.prefilter_mode
   )
 }

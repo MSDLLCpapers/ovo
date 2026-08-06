@@ -260,6 +260,12 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     st.subheader(f"{job.workflow.name} parameters")
     display_clustering_job_params(job)
 
+    if job.warnings:
+        warnings_title = ("1 warning" if len(job.warnings) == 1 else f"{len(job.warnings)} warnings") + f" found"
+        with st.expander(warnings_title, icon="⚠️"):
+            for warning in job.warnings:
+                st.warning(warning)
+
     # Get descriptors for specific job and designs and inform about possibly incomplete job
     descriptors_by_key = get_cached_available_descriptors_per_job(design_ids, job.id)
     descriptors = [d for d in PROTEIN_CLUSTERING_DESCRIPTORS if d.key in descriptors_by_key]
