@@ -266,10 +266,14 @@ class RankAggregationRankingTask(RankingTask):
         # Aggregation method selection
         aggregation_method = st.selectbox(
             "Aggregation method",
-            options=["average", "product", "worst-case"],
+            options=list(AGGREGATION_LABELS),
             format_func=AGGREGATION_LABELS.get,
             help="Method to aggregate individual descriptor ranks into a final ranking",
+            index=None,
         )
+        if not aggregation_method:
+            st.write("Please select how ranks of different descriptors should be aggregated")
+            return []
         aggregation_help = {
             "average": "Ranks of each design are averaged across descriptors. A poor rank in one descriptor can be balanced by strong ranks in others.",
             "product": "Ranks of each design are multiplied across descriptors. A poor rank in any single descriptor heavily penalizes the overall score.",
