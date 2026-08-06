@@ -251,9 +251,11 @@ class HealthOmicsScheduler(Scheduler):
         while True:
             response = self.aws.omics.list_run_tasks(**kwargs)
             items.extend(response["items"])
-            if not response.get("nextToken") or response["nextToken"] == kwargs.get("nextToken"):
+            # The request takes "startingToken" but the response returns "nextToken"
+            next_token = response.get("nextToken")
+            if not next_token or next_token == kwargs.get("startingToken"):
                 break
-            kwargs["nextToken"] = response["nextToken"]
+            kwargs["startingToken"] = next_token
 
         if not items:
             return None

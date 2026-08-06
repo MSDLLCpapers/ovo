@@ -77,6 +77,8 @@ def job_status_fragment(job: DesignJob | DescriptorJob, pool: Pool = None, expan
             if tab == "Log preview":
                 with st.spinner("Getting job log output..."):
                     st.code(scheduler.get_log(job.job_id, preview=True) or "No log output available")
+                if job.job_result == False:
+                    st.write('Job failed. See more detailed log output in "Full log" or "Workflow tasks" tab above.')
             elif tab == "Full log":
                 # Show full log in a scrollable container with fixed height
                 with st.spinner("Getting job log output..."):
