@@ -5,7 +5,7 @@ from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.navigation import project_round_selector, pool_selector_table
 from ovo.app.utils.page_init import initialize_page
 from ovo.app.utils.testing import is_test_dialog_shown
-from ovo.app.components.create_new_pool import create_new_pool
+from ovo.app.components.pool_components import create_new_pool, pool_actions_menu
 from ovo.core.database import Design
 from ovo.core.plugins import load_variable, get_extension_points, DesignView
 from ovo.app.utils.cached_db import (
@@ -54,6 +54,7 @@ else:
         st.subheader("Pools")
 
         with st.container(horizontal=True):
+            actions_container = st.container(width="content")
             if st.button(
                 ":material/upload: Upload designs",
                 disabled=config.props.read_only,
@@ -66,11 +67,19 @@ else:
         with st.spinner("Loading pools..."):
             pools_table = get_cached_pools_table(round_ids=selected_round_ids)
 
-            if pools_table.empty:
-                st.write("No pools created yet in this round")
-                st.stop()
+        # Pass the active round only when a single round is selected, to enable renaming/deleting it
+        active_round_id = selected_round_ids[0] if len(selected_round_ids) == 1 else None
+
+        if pools_table.empty:
+            with actions_container:
+                pool_actions_menu([], st.session_state.project.id, round_id=active_round_id)
+            st.write("No pools created yet in this round")
+            st.stop()
 
         selected_pool_ids = pool_selector_table(pools_table, st.session_state.project.id)
+
+        with actions_container:
+            pool_actions_menu(selected_pool_ids, st.session_state.project.id, round_id=active_round_id)
 
 # Label filtering
 # Get relevant labels based on current context

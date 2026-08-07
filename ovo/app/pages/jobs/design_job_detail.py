@@ -21,6 +21,7 @@ from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.job_components import job_status_fragment
 from ovo.app.components.navigation import design_navigation_selector
+from ovo.app.components.pool_components import pool_actions_menu
 from ovo.app.components.workflow_visualization_components import show_design
 from ovo.app.utils.cached_db import (
     get_cached_pools,
@@ -52,14 +53,17 @@ def design_job_detail(pool_ids):
         if all(j.job_result for j in design_jobs)
         else ("⚠️" if any(j.job_result is False for j in design_jobs) else "⏳")
     )
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
+        title_container = st.container()
+        pool_actions_menu(pool_ids, st.session_state.project.id)
     if len(pools) == 1:
         pool = pools[0]
-        st.title(f"{status_icon} {pool.name}")
+        title_container.title(f"{status_icon} {pool.name}")
         if pool.description:
-            st.write(pool.description)
+            title_container.write(pool.description)
     else:
-        st.title(f"{status_icon} {len(pools)} pools")
-        st.markdown("#### " + ", ".join([pool.name for pool in pools]))
+        title_container.title(f"{status_icon} {len(pools)} pools")
+        title_container.markdown("#### " + ", ".join([pool.name for pool in pools]))
 
     # Update status for all jobs that are still in progress,
     # and process results for those that have finished but are not yet processed

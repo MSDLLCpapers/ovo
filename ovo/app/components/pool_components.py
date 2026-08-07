@@ -2,16 +2,18 @@ import re
 import time
 import traceback
 
+import pandas as pd
 import streamlit as st
 
 from ovo import get_username, config, db
 from ovo.app.components.navigation import ROUND_IDS_QUERY_PARAM
 from ovo.app.components.submission_components import get_next_round_name
-from ovo.core.database.models import Pool, Round
+from ovo.core.database.models import Design, Pool, Round
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 from ovo.core.logic.design_logic import create_designs_from_structure_files, create_designs_from_dataframe
-from ovo.core.logic.round_logic import get_or_create_project_rounds
+from ovo.app.utils.cached_db import get_cached_round
+from ovo.core.logic.round_logic import get_or_create_project_rounds, get_or_create_archived_round, ARCHIVED_ROUND_NAME
 from ovo.core.utils.export import parse_tabular_file
 from ovo.core.utils.formatting import truncate_middle
 
@@ -314,5 +316,258 @@ def create_new_pool():
 
         st.session_state.files = None
         st.text("✅ Done")
+
+        st.rerun()
+
+
+def pool_actions_menu(pool_ids: list[str], project_id: str, round_id: str | None = None, **button_kwargs):
+    """Render an "Actions" menu with pool management actions.
+
+    If ``round_id`` is provided (i.e. a single round is active), a "Rename round" action is included.
+    Extra keyword arguments are forwarded to the ``st.menu_button``.
+    """
+    # Don't offer archiving when the active round is already the Archived round
+    is_archived_round = round_id is not None and get_cached_round(round_id).name == ARCHIVED_ROUND_NAME
+    # A round can only be deleted when it is empty (has no pools)
+    round_is_empty = round_id is not None and db.count(Pool, round_id=round_id) == 0
+
+    noun = "pool" if len(pool_ids) == 1 else "pools"
+    edit_action = f":material/edit: Edit {noun}"
+    archive_action = f":material/drive_file_move: Archive {noun}"
+    rename_round_action = ":material/edit_note: Rename round"
+    delete_round_action = ":material/delete: Delete round"
+
+    options = []
+    if pool_ids:
+        options.append(edit_action)
+        if not is_archived_round:
+            options.append(archive_action)
+    if round_id is not None:
+        options.append(rename_round_action)
+        if round_is_empty:
+            options.append(delete_round_action)
+
+    action = st.menu_button(
+        "Actions",
+        options=options,
+        disabled=config.props.read_only or not options,
+        key=f"pool_actions_{'_'.join(pool_ids)}_{round_id}",
+        **button_kwargs,
+    )
+
+    if action == edit_action:
+        edit_pools_dialog(pool_ids, project_id)
+    elif action == archive_action:
+        archive_pools_dialog(pool_ids, project_id)
+    elif action == rename_round_action:
+        rename_round_dialog(round_id)
+    elif action == delete_round_action:
+        delete_round_dialog(round_id)
+
+
+@st.dialog("Edit pools", width="large")
+def edit_pools_dialog(pool_ids: list[str], project_id: str):
+    pools = db.select(Pool, id__in=pool_ids, order_by="-created_date_utc")
+    if not pools:
+        st.error("No pools selected.")
+        return
+
+    rounds_by_id = get_or_create_project_rounds(project_id=project_id)
+    round_name_by_id = {round_id: r.name for round_id, r in rounds_by_id.items()}
+    round_id_by_name = {name: round_id for round_id, name in round_name_by_id.items()}
+
+    st.caption("Double-click the table cell to start editing.")
+
+    pools_df = pd.DataFrame(
+        [
+            {
+                "ID": pool.id,
+                "Name": pool.name,
+                "Description": pool.description or "",
+                "Round": round_name_by_id.get(pool.round_id),
+            }
+            for pool in pools
+        ]
+    )
+
+    edited = st.data_editor(
+        pools_df,
+        key=f"edit_pools_{'_'.join(pool_ids)}",
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "ID": None,
+            "Name": st.column_config.TextColumn("Name", required=True),
+            "Description": st.column_config.TextColumn("Description"),
+            "Round": st.column_config.SelectboxColumn("Round", options=list(round_id_by_name.keys()), required=True),
+        },
+    )
+
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
+        if st.button("Cancel"):
+            # Close the dialog without saving
+            st.rerun(scope="app")
+        save = st.button("Save changes", type="primary")
+
+    if save:
+        pools_by_id = {pool.id: pool for pool in pools}
+        edited_ids = set(pools_by_id)
+        updated_pools = []
+        seen_name_round = set()
+        for _, row in edited.iterrows():
+            pool = pools_by_id[row["ID"]]
+            new_round_id = round_id_by_name.get(row["Round"])
+
+            name = (row["Name"] or "").strip()
+            if not name:
+                st.error("Pool name cannot be empty.")
+                return
+
+            # Guard against two edited pools ending up with the same name in the same round
+            if (name, new_round_id) in seen_name_round:
+                st.error(f"Multiple pools named '{name}' in round '{row['Round']}'. Names must be unique.")
+                return
+            seen_name_round.add((name, new_round_id))
+
+            # Check name uniqueness against other pools in the target round (excluding those being edited)
+            other_conflicts = [p for p in db.select(Pool, round_id=new_round_id, name=name) if p.id not in edited_ids]
+            if other_conflicts:
+                st.error(f"A pool named '{name}' already exists in round '{row['Round']}'.")
+                return
+
+            pool.name = name
+            pool.description = (row["Description"] or "").strip()
+            pool.round_id = new_round_id
+            updated_pools.append(pool)
+
+        db.save_all(updated_pools)
+        st.rerun()
+
+
+@st.dialog("Archive pools", width="medium")
+def archive_pools_dialog(pool_ids: list[str], project_id: str):
+    pools = db.select(Pool, id__in=pool_ids, order_by="-created_date_utc")
+    if not pools:
+        st.error("No pools selected.")
+        return
+
+    accepted_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=pool_ids, accepted=True)
+    total_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=pool_ids)
+
+    noun = "pool" if len(pools) == 1 else "pools"
+    st.write(f"Move the following {len(pools)} {noun} to the **Archived** round?")
+    bullets = []
+    for pool in pools:
+        accepted = accepted_by_pool.get(pool.id, 0)
+        total = total_by_pool.get(pool.id, 0)
+        bullets.append(f"- **{pool.name.strip()}**: {accepted:,} accepted and {total:,} total designs")
+    st.write("\n".join(bullets))
+
+    st.caption(
+        """
+        :material/info: No data will be deleted. This action can be reverted by moving the pool to another round using Actions → Edit pools.
+
+        :material/info: Designs from archived pools will remain in any Rankings or Clustering results created earlier.
+        """
+    )
+    message = st.text_area(
+        "Message to add to description (Optional)",
+        placeholder="Explain why the pool is being archived",
+    )
+
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
+        if st.button("Cancel"):
+            # Close the dialog without archiving
+            st.rerun(scope="app")
+        archive = st.button("Archive", type="primary")
+
+    if archive:
+        archived_round = get_or_create_archived_round(project_id)
+
+        # Check for pools already having the same name in the archived round
+        existing_names = set(db.select_values(Pool, "name", round_id=archived_round.id))
+        conflicts = [pool.name for pool in pools if pool.round_id != archived_round.id and pool.name in existing_names]
+        if conflicts:
+            st.error(
+                f"Cannot archive, a pool with the same name already exists in the Archived round: "
+                f"{', '.join(conflicts)}"
+            )
+            return
+
+        username = get_username()
+        message = f"Archived by {username}. " + (message or "").strip()
+        for pool in pools:
+            pool.round_id = archived_round.id
+            pool.description = f"{pool.description}\n\n{message}" if pool.description else message
+        db.save_all(pools)
+        st.rerun()
+
+
+@st.dialog("Rename round")
+def rename_round_dialog(round_id: str):
+    round = db.get(Round, id=round_id)
+    if not round:
+        st.error("Round not found.")
+        return
+
+    st.write(f"Rename round **{round.name}**")
+
+    name = st.text_input("Rename to", value=round.name, placeholder="Enter new round name")
+
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
+        if st.button("Cancel"):
+            # Close the dialog without renaming
+            st.rerun(scope="app")
+        save = st.button("Save", type="primary")
+
+    if save:
+        name = (name or "").strip()
+        if not name:
+            st.error("Round name cannot be empty.")
+            return
+        if name != round.name and db.count(Round, project_id=round.project_id, name=name):
+            st.error(f"A round named '{name}' already exists in this project. Please choose a different name.")
+            st.error(
+                "If you are trying to move the pools to an existing round, please use the 'Edit pools' action instead."
+            )
+            return
+
+        round.name = name
+        db.save(round)
+        st.rerun()
+
+
+@st.dialog("Delete round")
+def delete_round_dialog(round_id: str):
+    rounds = db.select(Round, id=round_id, limit=1)
+    if not rounds:
+        st.error("Round not found.")
+        return
+    round = rounds[0]
+
+    st.write(f"Delete round **{round.name}**?")
+
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
+        if st.button("Cancel"):
+            # Close the dialog without deleting
+            st.rerun(scope="app")
+        delete = st.button("Delete", type="primary")
+
+    if delete:
+        # Re-verify the round is empty right before removing it, to avoid deleting pools
+        num_pools = db.count(Pool, round_id=round_id)
+        if num_pools:
+            st.error(f"Cannot delete round '{round.name}', it contains {num_pools} pool(s).")
+            return
+
+        db.remove(Round, id=round_id)
+
+        # Clear the deleted round from the active selection so we don't land on a missing round
+        if ROUND_IDS_QUERY_PARAM in st.query_params:
+            remaining = [r for r in st.query_params[ROUND_IDS_QUERY_PARAM].split(",") if r != round_id]
+            if remaining:
+                st.query_params[ROUND_IDS_QUERY_PARAM] = ",".join(remaining)
+            else:
+                del st.query_params[ROUND_IDS_QUERY_PARAM]
 
         st.rerun()
