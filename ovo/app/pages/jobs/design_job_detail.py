@@ -1,11 +1,15 @@
 import streamlit as st
 
-from ovo import db, Pool, Design, WorkflowTypes, DesignWorkflow
+from ovo import db, Pool, Design, WorkflowTypes, DesignWorkflow, Threshold
 from ovo.app.components.acceptance_thresholds_components import (
     thresholds_and_histograms_component,
     accept_designs_dialog,
-    display_current_thresholds,
     filter_designs_by_thresholds_cached,
+    get_acceptance_df,
+    display_acceptance_df,
+)
+from ovo.app.components.parallel_coordinates_component import (
+    parallel_coordinates_plot_component,
 )
 from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.descriptor_job_components import refresh_descriptors
@@ -22,9 +26,11 @@ from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_design_jobs_table,
 )
+
 from ovo.core.database import DesignJob
 from ovo.core.logic.design_logic import process_results
 from ovo.core.logic.job_logic import update_job_status
+from ovo.core.logic.filtering_logic import get_saved_thresholds_by_pool_id, get_inconsistent_threshold_descriptor_keys
 
 
 @st.fragment
@@ -71,7 +77,7 @@ def design_job_detail(pool_ids):
                     st.success(f"Workflow finished: {pool.name}")
 
     with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="bottom"):
-        st.subheader("Workflow parameters")
+        st.subheader("Workflow parameters", width="content")
 
         with st.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
             st.write("Show as:")
@@ -168,9 +174,19 @@ def design_job_detail(pool_ids):
 def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: list[DesignJob]):
     st.subheader("Job results")
 
-    # Get dictionary of saved thresholds (descriptor key -> (min, max) or None)
+    jobs_by_id = {job.id: job for job in jobs if job.job_result}  # Only include non-failed jobs
+    jobs_by_pool_id = {
+        pool.id: jobs_by_id[pool.design_job_id]
+        for pool in pools
+        if pool.design_job_id and pool.design_job_id in jobs_by_id
+    }
+
+    saved_thresholds_by_pool_id = get_saved_thresholds_by_pool_id(jobs_by_pool_id)
+
+    # Build thresholds_by_pool based on whether user has edited thresholds
     saved_thresholds = {}
-    inconsistent_threshold_keys = set()
+
+    # Get saved thresholds from workflows to detect if any thresholds have been changed
     workflows = [job.workflow for job in jobs]
     for workflow in workflows:
         if not hasattr(workflow, "acceptance_thresholds") or not workflow.acceptance_thresholds:
@@ -179,11 +195,6 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
         for descriptor_key, thresholds in sorted_thresholds:
             if descriptor_key not in saved_thresholds:
                 saved_thresholds[descriptor_key] = thresholds
-            elif saved_thresholds[descriptor_key] != thresholds:
-                st.warning(
-                    f"Looking at multiple workflows with different thresholds for {descriptor_key}, showing the first one"
-                )
-                inconsistent_threshold_keys.add(descriptor_key)
 
     # Save selected_thresholds into session state when first opening the page
     pool_ids_str = ",".join(p.id for p in pools)
@@ -204,11 +215,11 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
 
     if show_mode == "Accepted designs":
         displayed_design_ids = show_accepted_designs_and_thresholds(
-            all_design_ids,
-            saved_thresholds,
-            pools,
-            jobs,
-            inconsistent_threshold_keys,
+            all_design_ids=all_design_ids,
+            saved_thresholds=saved_thresholds,
+            saved_thresholds_by_pool_id=saved_thresholds_by_pool_id,
+            pools=pools,
+            jobs=jobs,
         )
     elif show_mode == "All designs":
         displayed_design_ids = show_all_designs(all_design_ids)
@@ -238,10 +249,10 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
 
 def show_accepted_designs_and_thresholds(
     all_design_ids: list[str],
-    saved_thresholds: dict,
+    saved_thresholds: dict[str, Threshold],
+    saved_thresholds_by_pool_id: dict[str, dict[str, Threshold]],
     pools: list[Pool],
     jobs: list[DesignJob],
-    inconsistent_threshold_keys: set[str],
 ):
     accepted_design_ids = db.select_values(Design, "id", id__in=all_design_ids, accepted=True)
 
@@ -284,16 +295,21 @@ def show_accepted_designs_and_thresholds(
             f"Accepted designs: **{len(accepted_design_ids):,} / {len(all_design_ids):,}** ({len(accepted_design_ids) / len(all_design_ids):.2%})"
         )
 
-    display_current_thresholds(
-        selected_thresholds=st.session_state.selected_thresholds,
-        all_design_ids=all_design_ids,
-        num_accepted_by_descriptor=num_accepted_by_descriptor,
-    )
+    if st.session_state.selected_thresholds != saved_thresholds:
+        thresholds_by_pool_id = {pool.id: st.session_state.selected_thresholds for pool in pools}
+    else:
+        thresholds_by_pool_id = saved_thresholds_by_pool_id
+
+    acceptance_df, threshold_descriptor_keys = get_acceptance_df(pools, thresholds_by_pool_id)
+    inconsistent_keys = get_inconsistent_threshold_descriptor_keys(thresholds_by_pool_id)
 
     if st.session_state.selected_thresholds != saved_thresholds:
-        if inconsistent_threshold_keys:
+        # Show how many pools will be affected
+        num_pools_affected = len([p for p in pools if p.design_job_id])
+        if num_pools_affected > 1:
             st.warning(
-                f"Selected pools currently use different thresholds for {' & '.join(inconsistent_threshold_keys)}, confirming will override these with the selected threshold value."
+                f"⚠️ Confirming will apply the selected thresholds to all {num_pools_affected} pools, "
+                f"overriding their current settings."
             )
         left, mid, _, _ = st.columns(4)
         if left.button("Confirm thresholds", key="confirm_designs_btn", type="primary", width="stretch"):
@@ -309,15 +325,19 @@ def show_accepted_designs_and_thresholds(
             st.session_state.selected_thresholds = saved_thresholds
             st.rerun()
 
-    st.subheader("Acceptance thresholds")
-    if inconsistent_threshold_keys:
-        st.warning(
-            f"Looking at multiple workflows with different thresholds for {' & '.join(inconsistent_threshold_keys)}, using the first values."
-        )
+    # Show acceptance rate plots, enabling the user to also show the workflow parameters of each pool
+    params_table = get_cached_design_jobs_table(
+        round_ids=sorted(set(p.round_id for p in pools)), id__in=[p.id for p in pools]
+    )
+    display_acceptance_df(acceptance_df, threshold_descriptor_keys, params_table=params_table)
+    parallel_coordinates_plot_component(acceptance_df, threshold_descriptor_keys)
+
     new_thresholds = thresholds_and_histograms_component(
         selected_thresholds=st.session_state.selected_thresholds,
         saved_thresholds=saved_thresholds,
         all_design_ids=all_design_ids,
+        acceptance_df=acceptance_df,
+        inconsistent_keys=inconsistent_keys,
     )
 
     if st.session_state.selected_thresholds != new_thresholds:
