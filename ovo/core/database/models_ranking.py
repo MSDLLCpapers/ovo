@@ -97,6 +97,7 @@ class RankingDescriptorWorkflow(DescriptorWorkflow, ABC):
         show_design_metrics(
             design.id,
             descriptor_keys=self.descriptor_keys,
+            allow_custom=False,
         )
 
     def visualize_summary(self, job: DescriptorJob):

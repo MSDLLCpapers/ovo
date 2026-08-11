@@ -1,4 +1,5 @@
 import os
+import traceback
 
 import pandas as pd
 import streamlit as st
@@ -72,7 +73,7 @@ def show_design_metrics(
     for column, (descriptor_key, value) in zip(columns, descriptor_value_pairs):
         if descriptor_key is None:
             if st.session_state.get("show_custom_metric") or column.button(
-                ":material/more_horiz: Show custom metric", type="tertiary"
+                ":material/more_horiz: Show custom metric", type="tertiary", key="add_custom"
             ):
                 st.session_state["show_custom_metric"] = True
                 available_descriptor_keys = get_cached_available_descriptors([design_id])
@@ -137,6 +138,7 @@ def show_design(design_id: str, shared_workflow_name: str = None):
     try:
         WorkflowType.visualize_single_design_structures(design_id)
     except Exception as e:
+        traceback.print_exc()
         st.error(f"Error visualizing structure: {e}")
 
     st.write("### Sequence")
