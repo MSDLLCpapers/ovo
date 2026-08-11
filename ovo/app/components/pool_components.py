@@ -12,7 +12,7 @@ from ovo.core.database.models import Design, Pool, Round
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 from ovo.core.logic.design_logic import create_designs_from_structure_files, create_designs_from_dataframe
-from ovo.app.utils.cached_db import get_cached_round
+from ovo.app.utils.cached_db import get_cached_round, get_cached_pool_count
 from ovo.core.logic.round_logic import get_or_create_project_rounds, get_or_create_archived_round, ARCHIVED_ROUND_NAME
 from ovo.core.utils.export import parse_tabular_file
 from ovo.core.utils.formatting import truncate_middle
@@ -323,13 +323,15 @@ def create_new_pool():
 def pool_actions_menu(pool_ids: list[str], project_id: str, round_id: str | None = None, **button_kwargs):
     """Render an "Actions" menu with pool management actions.
 
+    `pool_ids` is a list of selected pool IDs to operate on. If not selected, only actions related to the round are shown.
+
     If ``round_id`` is provided (i.e. a single round is active), a "Rename round" action is included.
     Extra keyword arguments are forwarded to the ``st.menu_button``.
     """
     # Don't offer archiving when the active round is already the Archived round
     is_archived_round = round_id is not None and get_cached_round(round_id).name == ARCHIVED_ROUND_NAME
     # A round can only be deleted when it is empty (has no pools)
-    round_is_empty = round_id is not None and db.count(Pool, round_id=round_id) == 0
+    round_is_empty = round_id is not None and get_cached_pool_count(round_id=round_id) == 0
 
     noun = "pool" if len(pool_ids) == 1 else "pools"
     edit_action = f":material/edit: Edit {noun}"
@@ -349,7 +351,7 @@ def pool_actions_menu(pool_ids: list[str], project_id: str, round_id: str | None
 
     action = st.menu_button(
         "Actions",
-        options=options,
+        options=options or [None],
         disabled=config.props.read_only or not options,
         key=f"pool_actions_{'_'.join(pool_ids)}_{round_id}",
         **button_kwargs,
@@ -396,7 +398,7 @@ def edit_pools_dialog(pool_ids: list[str], project_id: str):
         hide_index=True,
         width="stretch",
         column_config={
-            "ID": None,
+            "ID": st.column_config.TextColumn("ID", disabled=True),
             "Name": st.column_config.TextColumn("Name", required=True),
             "Description": st.column_config.TextColumn("Description"),
             "Round": st.column_config.SelectboxColumn("Round", options=list(round_id_by_name.keys()), required=True),

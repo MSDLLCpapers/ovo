@@ -212,6 +212,12 @@ def get_cached_pools(pool_ids: Collection[str] = None, **kwargs) -> list[Pool]:
     return db.select(Pool, **filters, order_by="-created_date_utc", **kwargs)
 
 
+@clear_when_modified(Pool)
+@st.cache_data(max_entries=100, ttl="1h")
+def get_cached_pool_count(**kwargs):
+    return db.count(Pool, **kwargs)
+
+
 @clear_when_modified(DesignJob)
 @st.cache_data(max_entries=100, ttl="1h")
 def get_cached_design_jobs(design_job_ids: Collection[str]) -> list[DesignJob]:
