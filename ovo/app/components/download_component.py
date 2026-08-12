@@ -20,6 +20,21 @@ from ovo.core.logic.design_logic import collect_storage_paths
 from ovo.core.utils.formatting import get_hash_of_bytes
 
 
+def get_download_filename_prefix(pool_ids: list[str], design_ids: list[str]) -> str:
+    """Generate a filename prefix for downloads based on pools and design IDs.
+
+    :param pool_ids: List of Pool IDs
+    :param design_ids: List of design IDs
+    :return: Filename prefix string (e.g., "ovo_pool1_pool2" or "ovo_5_pools")
+    """
+    if len(design_ids) <= 3:
+        return "_".join(design_ids)
+    elif len(pool_ids) < 10:
+        return "ovo_" + "_".join(pool_ids)
+    else:
+        return f"ovo_{len(pool_ids)}_pools"
+
+
 @st.fragment
 def download_job_designs_component(
     design_ids: list[str],
@@ -77,18 +92,14 @@ def download_job_designs_component(
         download_fields[file_descriptor.name] = (DescriptorValue, file_descriptor.key)
 
     if single_line:
-        first, second, third, _ = st.columns([1, 1, 1, 1])
+        first, second, third, extra = st.columns([1, 1, 1, 1])
     else:
         first = st.container()
         second = st.container()
         third = st.container()
+        extra = st.container()
     # for example ovo_xyv_avg_123_designs
-    if len(design_ids) <= 3:
-        filename_prefix = "_".join(design_ids)
-    elif len(pools) < 10:
-        filename_prefix = "ovo_" + "_".join(p.id for p in pools)
-    else:
-        filename_prefix = f"ovo_{len(pools)}_pools"
+    filename_prefix = get_download_filename_prefix([p.id for p in pools], design_ids)
     filename = filename_prefix + f"_{len(design_ids)}_designs"
     key = key + "_" + get_hash_of_bytes(",".join(design_ids).encode())
 
@@ -133,6 +144,8 @@ def download_job_designs_component(
                 descriptor_job_id=descriptor_job_id,
                 key=key,
             )
+
+    return extra
 
 
 @st.fragment

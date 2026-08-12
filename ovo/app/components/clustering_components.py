@@ -1,3 +1,4 @@
+import io
 import traceback
 
 import pandas as pd
@@ -475,7 +476,7 @@ def cluster_representatives_tiles(df_descriptor_values, tool: str, job: Descript
     if num_representatives > len(representatives):
         st.warning(
             f"Only the top {max_representatives} cluster representatives are shown out of {num_representatives} total clusters, "
-            f"use the dropdown below to inspect all clusters."
+            f"use the Cluster browser tab to inspect all clusters."
         )
 
 
@@ -657,12 +658,14 @@ def display_clustering_metrics(df_descriptor_values: pd.DataFrame, job: Descript
     """Display clustering summary metrics"""
     tool_key = job.workflow.tool_key
     cluster_info = CLUSTER_INFO_REFERENCES[tool_key]
+    num_designs = len(df_descriptor_values)
     num_clusters = df_descriptor_values[cluster_info["id"].key].nunique()
     largest_cluster_size = df_descriptor_values[cluster_info["id"].key].value_counts().max()
     average_cluster_size = df_descriptor_values[cluster_info["id"].key].value_counts().mean()
     median_cluster_size = df_descriptor_values[cluster_info["id"].key].value_counts().median()
 
     with st.container(horizontal=True):
+        st.metric("Number of designs", num_designs)
         st.metric("Number of clusters", num_clusters)
         st.metric("Largest cluster size", largest_cluster_size)
         st.metric("Average cluster size", f"{average_cluster_size:.2f}")
@@ -719,3 +722,291 @@ def style_cluster_rows(df: pd.DataFrame, cluster_id_col: str, color_mapping: dic
         return [f"background-color: {rgba_color}"] * len(row)
 
     return df.style.apply(highlight_cluster, axis=1)
+
+
+def prepare_distance_matrix_for_visualization(
+    artifact_file_path: str,
+    df_descriptor_values: pd.DataFrame,
+    cluster_id_key: str,
+    representative_id_key: str,
+    max_display_size: int = 500,
+) -> tuple[pd.DataFrame, dict]:
+    """Load, reorder, and subsample distance matrix for visualization.
+
+    :param artifact_file_path: Storage path to distance matrix CSV.gz file
+    :param df_descriptor_values: DataFrame with cluster assignments and representatives
+    :param cluster_id_key: Column name for cluster IDs
+    :param representative_id_key: Column name for representative IDs
+    :param max_display_size: Maximum number of designs to display (subsamples if larger)
+    :return: Tuple of (prepared matrix DataFrame, metadata dict)
+    """
+    # 1. Load matrix from storage
+    matrix_bytes = storage.read_file_bytes(artifact_file_path)
+    matrix_df = pd.read_csv(io.BytesIO(matrix_bytes), index_col=0, compression="gzip")
+
+    # 2. Get cluster info and sort by cluster ID
+    cluster_info = df_descriptor_values[[cluster_id_key, representative_id_key]].copy()
+    cluster_info = cluster_info.sort_values(cluster_id_key)
+
+    # 3. Reorder matrix (rows and columns) by cluster
+    ordered_ids = cluster_info.index.tolist()
+    matrix_ordered = matrix_df.loc[ordered_ids, ordered_ids]
+
+    # 4. Get cluster IDs and representatives in order (for color bars and hover)
+    cluster_ids = cluster_info[cluster_id_key].tolist()
+    representative_ids = cluster_info[representative_id_key].tolist()
+
+    # 5. Build initial metadata (before potential subsampling)
+    original_n_designs = len(matrix_ordered)
+    cluster_sizes = cluster_info[cluster_id_key].value_counts().sort_index().to_dict()
+    representatives = cluster_info[representative_id_key].unique().tolist()
+
+    # 6. Subsample if too large
+    if original_n_designs > max_display_size:
+        # Show warning about subsampling
+        st.warning(
+            f"Matrix too large ({original_n_designs} > {max_display_size}). "
+            f"Showing up to {max_display_size} designs (representatives prioritized) to keep the plot responsive."
+        )
+
+        # Group designs by cluster
+        cluster_to_indices = {}
+        for i, (cluster_id, design_id) in enumerate(zip(cluster_ids, ordered_ids)):
+            if cluster_id not in cluster_to_indices:
+                cluster_to_indices[cluster_id] = []
+            cluster_to_indices[cluster_id].append(i)
+
+        # Select designs: all representatives + proportional sampling
+        selected_indices = set()
+
+        # First, add all representatives
+        for i, (design_id, repr_id) in enumerate(zip(ordered_ids, representative_ids)):
+            if design_id == repr_id:
+                selected_indices.add(i)
+
+        # Then proportionally sample from each cluster
+        remaining_slots = max_display_size - len(selected_indices)
+        total_non_repr = original_n_designs - len(selected_indices)
+
+        if remaining_slots > 0 and total_non_repr > 0:
+            for cluster_id, indices in cluster_to_indices.items():
+                non_repr_indices = [
+                    i for i in indices if i not in selected_indices and ordered_ids[i] != representative_ids[i]
+                ]
+
+                if non_repr_indices:
+                    n_samples = max(1, int(len(non_repr_indices) / total_non_repr * remaining_slots))
+                    step = max(1, len(non_repr_indices) // n_samples)
+                    sampled = non_repr_indices[::step][:n_samples]
+                    selected_indices.update(sampled)
+
+        # Apply subsampling
+        selected_indices = sorted(list(selected_indices))[:max_display_size]
+        selected_ids = [ordered_ids[i] for i in selected_indices]
+        matrix_ordered = matrix_ordered.loc[selected_ids, selected_ids]
+
+        # Update metadata for subsampled matrix
+        cluster_ids = [cluster_ids[i] for i in selected_indices]
+        representative_ids = [representative_ids[i] for i in selected_indices]
+        ordered_ids = selected_ids
+
+    # 7. Calculate cluster boundaries
+    boundaries = []
+    prev_cluster = None
+    for i, cluster_id in enumerate(cluster_ids):
+        if prev_cluster is not None and cluster_id != prev_cluster:
+            boundaries.append(i)
+        prev_cluster = cluster_id
+
+    # 8. Final metadata
+    metadata = {
+        "cluster_boundaries": boundaries,
+        "cluster_ids": cluster_ids,
+        "representative_ids": representative_ids,
+        "representatives": representatives,
+        "cluster_sizes": cluster_sizes,  # Keep original sizes
+        "ordered_ids": ordered_ids,
+    }
+
+    return matrix_ordered, metadata
+
+
+def visualize_distance_matrix_heatmap(matrix_df: pd.DataFrame, metadata: dict, cluster_colors: dict) -> go.Figure:
+    """Create interactive heatmap with cluster color bars (like sns.clustermap row_colors).
+
+    :param matrix_df: Distance matrix DataFrame (already ordered and subsampled by cluster)
+    :param metadata: Dict with cluster_boundaries, representatives, etc.
+    :param cluster_colors: Dict mapping cluster_id -> color hex code
+    :return: Plotly Figure object
+    """
+
+    n_designs = len(matrix_df)
+
+    # Build customdata for hover: [design_id_row, design_id_col, cluster_id_row, cluster_id_col, repr_id_row, repr_id_col]
+    cluster_ids = metadata["cluster_ids"]
+    representative_ids = metadata["representative_ids"]
+    design_ids = matrix_df.index.tolist()
+
+    customdata = [
+        [
+            [
+                design_ids[i],  # row design ID
+                design_ids[j],  # col design ID
+                cluster_ids[i],  # row cluster ID
+                cluster_ids[j],  # col cluster ID
+                representative_ids[i],  # row representative ID
+                representative_ids[j],  # col representative ID
+            ]
+            for j in range(n_designs)
+        ]
+        for i in range(n_designs)
+    ]
+
+    # Create main distance matrix heatmap
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=matrix_df.values,
+            x=matrix_df.columns.tolist(),
+            y=matrix_df.index.tolist(),
+            colorscale="Greens_r",
+            # Keep the colorbar next to the plot, the cluster legend is placed to the right of it
+            colorbar=dict(title="Distance", x=1.02, xanchor="left"),
+            zmin=0,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b> (Cluster %{customdata[2]}, Rep: %{customdata[4]})<br>"
+                "↔<br>"
+                "<b>%{customdata[1]}</b> (Cluster %{customdata[3]}, Rep: %{customdata[5]})<br>"
+                "<b>Distance:</b> %{z:.3f}"
+                "<extra></extra>"
+            ),
+            customdata=customdata,
+            showscale=True,
+        )
+    )
+
+    # Add colored rectangles for each cluster (row/column color bars)
+    boundaries = [0] + metadata["cluster_boundaries"] + [n_designs]
+
+    for i in range(len(boundaries) - 1):
+        start_idx = boundaries[i]
+        end_idx = boundaries[i + 1]
+        cluster_id = cluster_ids[start_idx]
+        color = cluster_colors.get(cluster_id, "#CCCCCC")
+
+        # Left side color bar (row colors)
+        fig.add_shape(
+            type="rect",
+            xref="paper",
+            yref="y",
+            x0=-0.02,
+            x1=0,
+            y0=start_idx - 0.5,
+            y1=end_idx - 0.5,
+            fillcolor=color,
+            line=dict(width=0),
+            layer="below",
+        )
+
+        # Invisible trace just to get a legend entry for this cluster color
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker=dict(size=10, symbol="square", color=color),
+                name=f"Cluster {cluster_id} ({end_idx - start_idx})",
+                showlegend=True,
+                hoverinfo="skip",
+            )
+        )
+
+        # Top color bar (column colors)
+        fig.add_shape(
+            type="rect",
+            xref="x",
+            yref="paper",
+            x0=start_idx - 0.5,
+            x1=end_idx - 0.5,
+            y0=1.0,
+            y1=1.02,
+            fillcolor=color,
+            line=dict(width=0),
+            layer="below",
+        )
+
+    # Layout
+    fig.update_layout(
+        xaxis=dict(
+            title="Design ID",
+            showticklabels=n_designs <= 100,
+            side="bottom",
+            showgrid=False,
+        ),
+        yaxis=dict(
+            title="Design ID",
+            showticklabels=n_designs <= 100,
+            autorange="reversed",
+            showgrid=False,
+            # Invisible ticks to push the design IDs left of the cluster color bar
+            ticks="outside",
+            ticklen=10,
+            tickcolor="rgba(0,0,0,0)",
+        ),
+        height=800,
+        # Extra left margin so the y axis design IDs are not truncated,
+        # extra right margin to fit the colorbar and the cluster legend side by side
+        margin=dict(l=200, r=220),
+        # Cluster legend on the right, next to the distance colorbar
+        legend=dict(
+            title="Clusters (size)",
+            x=1.13,
+            xanchor="left",
+            y=1,
+            yanchor="top",
+            itemclick=False,
+            itemdoubleclick=False,
+        ),
+    )
+
+    return fig
+
+
+@st.fragment
+def distance_matrix_component(
+    tool_key: str,
+    artifact_file_path: str,
+    df_descriptor_values: pd.DataFrame,
+):
+    """Display interactive distance matrix visualization with clusters highlighted.
+
+    :param tool_key: Clustering tool key
+    :param artifact_file_path: Storage path to distance matrix artifact
+    :param df_descriptor_values: DataFrame with clustering results
+    """
+    # Get cluster info using the same logic as other components
+    if tool_key not in CLUSTER_INFO_REFERENCES:
+        st.error(f"Unknown clustering tool: {tool_key}")
+        return
+
+    cluster_info = CLUSTER_INFO_REFERENCES[tool_key]
+    repr_descriptor = cluster_info["representative"]
+    repr_key = repr_descriptor.key
+    id_descriptor = cluster_info["id"]
+    id_key = id_descriptor.key
+
+    with st.spinner("Loading and processing distance matrix..."):
+        # Prepare data
+        matrix_df, metadata = prepare_distance_matrix_for_visualization(
+            artifact_file_path,
+            df_descriptor_values,
+            id_key,
+            repr_key,
+        )
+
+        # Get cluster colors using the existing color scheme
+        cluster_color_mapping = get_cluster_color_mapping_from_legend(df_descriptor_values, tool_key)
+
+        # Create and display visualization
+        fig = visualize_distance_matrix_heatmap(matrix_df, metadata, cluster_color_mapping)
+
+        st.plotly_chart(fig, use_container_width=True)

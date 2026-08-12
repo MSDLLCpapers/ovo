@@ -1,11 +1,13 @@
 import uuid
 import streamlit as st
 import pandas as pd
-from collections import Counter
 
-from ovo import Scheduler, config
+from ovo import Scheduler, db
+from ovo.app.components.attachment_components import download_distance_matrix_artifacts
+from ovo.app.components.custom_elements import simple_tabs
+from ovo.core.database.models import ProjectArtifact, DistanceMatrixArtifact
 from ovo.app.components.descriptor_job_components import refresh_descriptors
-from ovo.app.components.download_component import download_descriptor_table, download_job_designs_component
+from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.submission_components import chain_ids_input, scheduler_selectbox
 from ovo.app.utils.cached_db import (
     get_cached_design_ids,
@@ -41,6 +43,7 @@ from ovo.app.components.clustering_components import (
     inspect_clusters,
     display_clustering_metrics,
     interface_clustering_table,
+    distance_matrix_component,
 )
 from ovo.app.utils.cached_db import get_cached_descriptor_values
 
@@ -250,7 +253,7 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
         format_func=job_labels.get,
     )
     if job_id is None:
-        st.info("Please select a clustering result above")
+        st.write(":material/arrow_upward: Please select a clustering result above")
         return
 
     # Get the job object from the selected ID
@@ -283,7 +286,6 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     if isinstance(job.workflow, SecondaryStructureHierarchicalClusteringWorkflow):
         df_descriptor_values[PYDSSP_STRING.key] = get_cached_descriptor_values(PYDSSP_STRING.key, design_ids)
 
-    pools = get_cached_pools(pool_ids)
     # TODO how to get clustering descriptors in a more reliable way
     cluster_id_descriptors = [d for d in descriptors if "Cluster ID" in d.name]
     if not cluster_id_descriptors:
@@ -291,7 +293,10 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
         return
 
     cluster_id_descriptor = cluster_id_descriptors[0]
-    download_job_designs_component(
+
+    pools = get_cached_pools(pool_ids)
+
+    extra_col = download_job_designs_component(
         design_ids,
         pools,
         descriptor_job_id={job.id: [d.key for d in descriptors]},
@@ -300,25 +305,56 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
         key="cluster",
     )
 
+    matrix_artifact: DistanceMatrixArtifact | None = None
+    matrix_artifacts = db.select(
+        ProjectArtifact,
+        descriptor_job_id=job.id,
+        artifact_type=DistanceMatrixArtifact.artifact_type,
+        order_by=ProjectArtifact.created_date_utc.desc(),
+    )
+    if matrix_artifacts:
+        matrix_artifact: DistanceMatrixArtifact = matrix_artifacts[0].artifact
+        with extra_col:
+            download_distance_matrix_artifacts(matrix_artifact, job, pools, design_ids)
+
     # Identify which clustering tool was used and get cluster descriptor for id
     # this is neccessary when other clustering algorithms used and columns descriptors named differently
     tool_key = job.workflow.tool_key
-    st.subheader("Clustering summary metrics")
+
     display_clustering_metrics(df_descriptor_values, job=job)
 
-    st.subheader(
-        "UMAP scatterplots",
-        help="UMAP projects designs into a low-dimensional space by first constructing a k-nearest neighbor graph from pairwise similarity matrix, followed by optimization of embedding coordinates for visualization.",
+    tab_name = simple_tabs(
+        [
+            "Representatives",
+            "UMAP plots",
+            "Distance matrix" if matrix_artifact else None,
+            "Interface residues by cluster"
+            if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow)
+            else None,
+            "Cluster browser",
+        ],
+        key="cluster_tab",
     )
-    umap_scatterplot_component(df_descriptor_values, tool=tool_key)
+    if tab_name == "UMAP plots":
+        st.markdown("#### UMAP scatterplots")
+        st.caption(
+            "UMAP projects designs into a low-dimensional space by first constructing a k-nearest neighbor graph from pairwise similarity matrix, followed by optimization of embedding coordinates for visualization."
+        )
+        umap_scatterplot_component(df_descriptor_values, tool=tool_key)
 
-    # Create tiles for cluster representatives
-    cluster_representatives_tiles(df_descriptor_values, tool=tool_key, job=job)
+    elif tab_name == "Distance matrix":
+        # Visualize distance matrix if available
+        if matrix_artifact and hasattr(job.workflow, "params"):  # Only for hierarchical clustering
+            distance_matrix_component(tool_key, matrix_artifact.file_path, df_descriptor_values)
 
-    if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
-        st.subheader("Interface residues by cluster")
+    elif tab_name == "Representatives":
+        # Create tiles for cluster representatives
+        cluster_representatives_tiles(df_descriptor_values, tool=tool_key, job=job)
+
+    elif tab_name == "Interface residues by cluster":
+        st.markdown("#### Interface residues by cluster")
         interface_clustering_table(df_descriptor_values, job.workflow)
 
-    # Cluster browser
-    st.subheader("Cluster browser")
-    inspect_clusters(df_descriptor_values, tool=tool_key, job=job)
+    elif tab_name == "Cluster browser":
+        st.markdown("#### Cluster browser")
+        inspect_clusters(df_descriptor_values, tool=tool_key, job=job)

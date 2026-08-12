@@ -178,6 +178,7 @@ class BaseHierarchicalClusteringWorkflow(ProteinClusteringWorkflow):
     designs_target: List[Design] = field(default_factory=list)
     params: HierarchicalClusteringParams = field(default_factory=HierarchicalClusteringParams)
     requires_structures: bool = False  # Whether this workflow requires structure files
+    max_distance_matrix_designs: int = 5000  # Maximum number of designs to save distance matrix for
 
     def get_pipeline_name(self) -> str:
         return "ovo.protein-clustering"
@@ -188,8 +189,10 @@ class BaseHierarchicalClusteringWorkflow(ProteinClusteringWorkflow):
         return prepare_hierarchical_clustering_workflow_params(self, workdir=workdir)
 
     def process_results(self, job: DescriptorJob, callback: Callable = None):
-        from ovo import db
+        from ovo import db, storage, get_scheduler
         from ovo.core.logic.descriptor_logic import read_descriptor_file_values
+        from ovo.core.database.models import ProjectArtifact, DistanceMatrixArtifact
+        import os
 
         descriptor_values = read_descriptor_file_values(
             descriptor_job=job,
@@ -198,6 +201,35 @@ class BaseHierarchicalClusteringWorkflow(ProteinClusteringWorkflow):
             # mapping from design.id to ID column in produced file
             design_id_mapping={design_id: design_id for design_id in self.design_ids},
         )
+
+        # Save distance matrix as artifact if small enough
+        num_designs = len(self.design_ids)
+        if num_designs <= self.max_distance_matrix_designs:
+            scheduler = get_scheduler(job.scheduler_key)
+            output_dir = scheduler.get_output_dir(job.job_id)
+
+            # Distance matrix filename from pipeline
+            matrix_filename = f"contig1_batch1/{self.params.similarity_method}_distance_matrix.csv.gz"
+            local_matrix_path = os.path.join(output_dir, matrix_filename)
+
+            if os.path.exists(local_matrix_path):
+                # Upload to storage
+                storage_path = f"{job.project_id}/{job.id}/distance_matrix_{self.params.similarity_method}.csv.gz"
+                storage.store_file_path(local_matrix_path, storage_path)
+
+                # Create artifact
+                artifact = DistanceMatrixArtifact(
+                    file_path=storage_path,
+                )
+
+                project_artifact = ProjectArtifact(
+                    project_id=job.project_id,
+                    descriptor_job_id=job.id,
+                    artifact_type=artifact.artifact_type,
+                    artifact=artifact,
+                    author=job.author,
+                )
+                db.save(project_artifact)
 
         return descriptor_values + [job]
 

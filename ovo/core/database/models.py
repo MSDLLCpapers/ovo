@@ -886,6 +886,17 @@ class AttachmentArtifact(Artifact):
         return [self.file_path] if self.file_path else []
 
 
+@ArtifactTypes.register()
+@dataclass
+class DistanceMatrixArtifact(Artifact):
+    """Artifact for hierarchical clustering distance matrices"""
+
+    file_path: str  # Storage path to distance matrix file
+
+    def get_storage_paths(self) -> list[str]:
+        return [self.file_path] if self.file_path else []
+
+
 class ProjectArtifact(Base, MetadataMixin):
     __tablename__ = "project_artifact"
     id: Mapped[str] = mapped_column(String, primary_key=True, default_factory=lambda: str(uuid.uuid4()))

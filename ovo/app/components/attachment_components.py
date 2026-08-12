@@ -3,8 +3,16 @@ import os
 import humanize
 import streamlit as st
 from ovo import storage, get_username, config, db
-from ovo.core.database.models import Project, ProjectArtifact, AttachmentArtifact, UnknownArtifact
+from ovo.core.database.models import (
+    Project,
+    ProjectArtifact,
+    AttachmentArtifact,
+    UnknownArtifact,
+    DistanceMatrixArtifact,
+    DescriptorJob,
+)
 from ovo.core.utils.formatting import safe_filename
+from ovo.app.components.download_component import get_download_filename_prefix
 
 
 def add_project_attachments(project: Project):
@@ -177,3 +185,30 @@ def select_project_attachments(
             st.write(f":grey[{humanize.naturalsize(attachment.size_bytes)}]")
             st.write(f":grey[uploaded {humanize.naturaldate(pa.created_date_utc)} by {pa.author}]")
     return selected_attachments
+
+
+def download_distance_matrix_artifacts(
+    artifact: DistanceMatrixArtifact, job: DescriptorJob, pools: list, design_ids: list[str]
+):
+    """Display distance matrix artifacts for a descriptor job with download button.
+
+    :param job: DescriptorJob object
+    :param pools: List of Pool objects corresponding to the designs
+    :param design_ids: List of design IDs that were clustered
+    """
+    if not artifact:
+        return
+
+    clustering_method = job.workflow.params.similarity_method
+
+    # Generate filename using same convention as descriptor table downloads
+    filename_prefix = get_download_filename_prefix([p.id for p in pools], design_ids)
+    filename = f"{filename_prefix}_distance_matrix_{clustering_method}.csv.gz"
+
+    st.download_button(
+        label=f"Download distance matrix",
+        data=lambda path=artifact.file_path: storage.read_file_bytes(path),
+        file_name=filename,
+        key=f"download_distance_matrix_{job.id}",
+        width="stretch",
+    )

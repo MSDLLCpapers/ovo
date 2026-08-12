@@ -106,28 +106,51 @@ def refresh_button(key: str, text="Refresh"):
     return just_refreshed
 
 
-def simple_tabs(names: list[str], key: str) -> str:
+def simple_tabs(names: list[str | None], key: str) -> str:
     """Simplified tabs that return the selected tab label, and persist the selected tab in the URL query params under the given key
 
     The tab container is actually unused in this case - we show the content below the tabs,
     since it seems to be smoother when switching tabs.
 
-    :param names: list of tab names/labels
+    Allows passing None for a tab name to hide that tab.
+    For example, if you want to hide the distance matrix tab when there is no distance matrix artifact, you can do:
+
+    tab_name = simple_tabs(
+        [
+            "UMAP scatterplots",
+            "Distance matrix" if matrix_artifact else None,
+            "Cluster representatives",
+            "Cluster browser",
+        ],
+        key="cluster_tab",
+    )
+
+    if tab_name == "UMAP scatterplots":
+        ...
+    elif tab_name == "Distance matrix":
+        ...
+
+    :param names: list of tab names/labels, pass None to hide a tab
     :param key: query param key to persist selected tab
     :return name of selected tab
     """
+    visible_names = [name for name in names if name is not None]
+    # note that in streamlit 1.56,
+    # changing the default will cause the component to be recreated even if it has the same key
+    # this is why we include this logic that first checks if the key is already in session state before falling back to query params
+    # this might not be needed if tabs adopt the logic of other input components and only use the default value on first creation
+    default = st.session_state[key] if key in st.session_state else st.query_params.get(key)
+    if default not in visible_names:
+        # The previously selected tab is hidden now, fall back to the first tab
+        default = None
     tabs = st.tabs(
-        names,
+        visible_names,
         on_change="rerun",
-        # note that in streamlit 1.56,
-        # changing the default will cause the component to be recreated even if it has the same key
-        # this is why we include this logic that first checks if the key is already in session state before falling back to query params
-        # this might not be needed if tabs adopt the logic of other input components and only use the default value on first creation
-        default=st.session_state[key] if key in st.session_state else st.query_params.get(key),
+        default=default,
         key=key,
     )
-    assert len(tabs) == len(names)
-    if selected_tabs := [(tab, name) for tab, name in zip(tabs, names) if tab.open]:
+    assert len(tabs) == len(visible_names)
+    if selected_tabs := [(tab, name) for tab, name in zip(tabs, visible_names) if tab.open]:
         tab, name = selected_tabs[0]
         st.query_params[key] = name
         return name
