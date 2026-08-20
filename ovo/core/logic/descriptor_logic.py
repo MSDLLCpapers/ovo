@@ -492,7 +492,7 @@ def read_descriptor_file_values(
                     if df is not None:
                         if not df.empty:
                             id_column = find_id_column(df, descriptor_key_prefix)
-                            batch_descriptors[descriptor_key_prefix].append(df.set_index(id_column))
+                            batch_descriptors[descriptor_key_prefix].append((batch_name, df.set_index(id_column)))
                         any_files_in_batch = True
                         any_files_in_contig = True
                 if not any_files_in_batch:
@@ -511,9 +511,9 @@ def read_descriptor_file_values(
             )
 
         # Concatenate dataframes from all batches for each tool
-        for key, dfs in batch_descriptors.items():
-            if dfs:
-                descriptor_tables[key] = pd.concat(dfs).sort_index()
+        for key, batch_dfs in batch_descriptors.items():
+            if batch_dfs:
+                descriptor_tables[key] = _concat_batch_descriptor_tables(key, batch_dfs)
 
     descriptor_values = []
     for design_id, table_ids in design_id_mapping.items():
@@ -689,6 +689,46 @@ def save_descriptor_job_for_design_job(
     return descriptor_job
 
 
+def _concat_batch_descriptor_tables(
+    descriptor_key_prefix: str, batch_dfs: list[tuple[str, pd.DataFrame]]
+) -> pd.DataFrame:
+    """Concatenate per-batch descriptor tables into one table indexed by table_id.
+
+    The same table_id can legitimately appear in multiple batches (e.g. two BindCraft batches
+    independently sampling the same random seed, producing the same design name). Such rows are
+    identical, so we keep the first occurrence. Duplicate IDs with *differing* values are a real
+    problem and raise an error naming the IDs and batches involved.
+    """
+    df = pd.concat([df for _, df in batch_dfs]).sort_index()
+    duplicated = df.index.duplicated(keep=False)
+    if not duplicated.any():
+        return df
+
+    batch_of_row = pd.Series(
+        [batch_name for batch_name, batch_df in batch_dfs for _ in range(len(batch_df))],
+        index=pd.concat([batch_df for _, batch_df in batch_dfs]).index,
+    ).sort_index()
+    conflicting = {}
+    for table_id in df.index[duplicated].unique():
+        rows = df.loc[[table_id]]
+        if len(rows.drop_duplicates()) > 1:
+            conflicting[table_id] = sorted(set(batch_of_row.loc[[table_id]]))
+    if conflicting:
+        details = ", ".join(f"'{k}' in {'/'.join(v)}" for k, v in list(conflicting.items())[:10])
+        raise ValueError(
+            f"Found {len(conflicting)} duplicate ID(s) with conflicting values in descriptor table "
+            f"'{descriptor_key_prefix}': {details}"
+        )
+
+    duplicate_ids = df.index[duplicated].unique()
+    print(
+        f"Warning: dropping {duplicated.sum() - len(duplicate_ids)} duplicate row(s) with identical "
+        f"values in descriptor table '{descriptor_key_prefix}' for {len(duplicate_ids)} ID(s): "
+        f"{', '.join(map(str, duplicate_ids[:10]))}" + (" ..." if len(duplicate_ids) > 10 else "")
+    )
+    return df[~df.index.duplicated(keep="first")]
+
+
 def find_id_column(df: pd.DataFrame, df_name: str):
     for column in ["id", "ID", "Id"]:
         if column in df.columns:
@@ -731,9 +771,12 @@ def generate_descriptor_values_for_design(
         for table_id in table_ids:
             if table_id in descriptor_table.index:
                 row = descriptor_table.loc[table_id]
-                assert not isinstance(row, pd.DataFrame), (
-                    f"Found duplicate ID '{table_id}' in descriptor table '{descriptor_key_prefix}'"
-                )
+                if isinstance(row, pd.DataFrame):
+                    raise ValueError(
+                        f"Found {len(row)} rows with duplicate ID '{table_id}' in descriptor table "
+                        f"'{descriptor_key_prefix}' (design {design_id}), "
+                        f"{len(row.drop_duplicates())} of them with distinct values"
+                    )
         if row is None:
             raise ValueError(
                 f"ID {table_ids} ({design_id}) missing in {descriptor_key_prefix} descriptor table, found only: {descriptor_table.index.tolist()}"
