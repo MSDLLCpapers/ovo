@@ -264,7 +264,7 @@ NONPOLAR_PERC = NumericGlobalDescriptor(
     min_value=0,
     max_value=100,
     warning_value=90,
-    error_value=100,
+    error_value=99,
 )
 
 POLAR_UNCHARGED_PERC = NumericGlobalDescriptor(
@@ -276,7 +276,7 @@ POLAR_UNCHARGED_PERC = NumericGlobalDescriptor(
     min_value=0,
     max_value=100,
     warning_value=90,
-    error_value=100,
+    error_value=99,
 )
 
 POSITIVE_PERC = NumericGlobalDescriptor(
