@@ -808,9 +808,16 @@ def generate_descriptor_values_for_design(
     return descriptor_values
 
 
-def update_and_process_descriptors(descriptor_jobs: List[DescriptorJob], error_callback: Callable):
+def update_and_process_descriptors(
+    descriptor_jobs: List[DescriptorJob], error_callback: Callable, callback: Callable = None
+):
     """
     Update descriptor jobs and process finished descriptor jobs
+
+    :param descriptor_jobs: Descriptor jobs to update and process
+    :param error_callback: Called with a message when processing a job fails, the other jobs are still processed
+    :param callback: Called with value (0 to 1) and text while a job's results are being processed,
+        for example a progress bar of the web UI
     """
     processed_jobs = []
     for descriptor_job in descriptor_jobs:
@@ -819,7 +826,7 @@ def update_and_process_descriptors(descriptor_jobs: List[DescriptorJob], error_c
         if job_result is True and descriptor_job.workflow:
             workflow_name = descriptor_job.workflow.name or "workflow"
             try:
-                process_results(descriptor_job, wait=False)
+                process_results(descriptor_job, callback=callback, wait=False)
                 processed_jobs.append(descriptor_job)
             except Exception as e:
                 # Print exception and continue processing other jobs

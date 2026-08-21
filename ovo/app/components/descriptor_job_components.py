@@ -43,7 +43,22 @@ def refresh_descriptors(design_ids: list[str] | set[str], workflow_names: list[s
 
         pending_jobs = [j for j in pending_or_failed_jobs if j.job_result is None]
 
-        processed_jobs = update_and_process_descriptors(descriptor_jobs=pending_jobs, error_callback=st.error)
+        # Processing the results of a finished job downloads its structure files, which takes a while,
+        # so report its progress instead of leaving the spinner alone. The bar is created on the first
+        # report, so nothing is shown for jobs that are still running.
+        progress_bar = None
+
+        def report_progress(value, text=None):
+            nonlocal progress_bar
+            if progress_bar is None:
+                progress_bar = st.progress(0)
+            progress_bar.progress(value, text=text)
+
+        processed_jobs = update_and_process_descriptors(
+            descriptor_jobs=pending_jobs, error_callback=st.error, callback=report_progress
+        )
+        if progress_bar is not None:
+            progress_bar.empty()
         for processed_job in processed_jobs:
             st.success(f"{processed_job.workflow.name} job has finished")
         if processed_jobs:

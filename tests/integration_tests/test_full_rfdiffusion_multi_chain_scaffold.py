@@ -1,6 +1,4 @@
 from ovo import db, design_logic, storage
-from ovo.core.database.models_refolding import RefoldingWorkflow
-from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, FoldseekParams
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionParams,
     ProteinMPNNParams,
@@ -10,9 +8,7 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.core.database import (
     descriptors_refolding,
     descriptors_rfdiffusion,
-    descriptors_clustering,
 )
-from ovo.core.logic import descriptor_logic
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.utils.tests import TEST_SCHEDULER_KEY
 

@@ -78,6 +78,19 @@ class RefoldingWorkflow(DescriptorWorkflow):
 
         structure_descriptor_values = []
         items_to_save = []
+        # Progress is reported per design rather than per file, so that it does not depend
+        # on how many tests were run or how the designs were split into batches
+        num_designs = len(self.design_ids)
+
+        def callback_wrapper(num_processed_designs: int, text: str):
+            if callback:
+                callback(
+                    value=num_processed_designs / num_designs if num_designs else 0.0,
+                    text=f"{text} ({num_processed_designs}/{num_designs} designs)",
+                )
+
+        designs_found = set()
+        designs_stored = set()
         contig_number = 1
         while True:
             any_files_in_contig = False
@@ -86,23 +99,30 @@ class RefoldingWorkflow(DescriptorWorkflow):
             while True:
                 batch_name = f"contig{contig_number}_batch{batch_number}"
                 batch_output_path = f"{source_output_path}/{batch_name}"
-                any_files_in_batch = False
+                callback_wrapper(len(designs_found), f"Looking for structure files of {batch_name}")
 
+                # A test writes all of its structure files into one directory, so the directory is
+                # listed once per test - asking about each design separately would be one round trip
+                # to the storage per design and test. A directory that is not there lists as empty,
+                # which is how the last batch is recognized.
+                filenames_by_test = {test: set(storage.list_dir(f"{batch_output_path}/{test}")) for test in self.tests}
+                any_files_in_batch = False
                 for design_id in self.design_ids:
-                    pool_id = Design.design_id_to_pool_id(design_id)
                     for test in self.tests:
-                        source_structure_path = f"{batch_output_path}/{test}/{design_id}_{test}.pdb"
-                        if storage.file_exists(source_structure_path):
-                            items_to_save.append(
-                                (
-                                    design_id,
-                                    batch_output_path,
-                                    test,
-                                    pool_id,
-                                )
+                        if f"{design_id}_{test}.pdb" not in filenames_by_test[test]:
+                            continue
+                        pool_id = Design.design_id_to_pool_id(design_id)
+                        designs_found.add(design_id)
+                        items_to_save.append(
+                            (
+                                design_id,
+                                batch_output_path,
+                                test,
+                                pool_id,
                             )
-                            any_files_in_batch = True
-                            any_files_in_contig = True
+                        )
+                        any_files_in_batch = True
+                        any_files_in_contig = True
 
                 if not any_files_in_batch:
                     break
@@ -115,8 +135,8 @@ class RefoldingWorkflow(DescriptorWorkflow):
         if not items_to_save:
             return structure_descriptor_values
 
-        with storage.archive_context(delete_if_exists=True):
-            with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
+        with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
+            with storage.archive_context(delete_if_exists=True):
                 futures = [
                     executor.submit(
                         self.store_output,
@@ -130,15 +150,12 @@ class RefoldingWorkflow(DescriptorWorkflow):
                     for design_id, batch_output_path, test, pool_id in items_to_save
                 ]
 
-                for i, future in enumerate(futures):
+                for (design_id, *_), future in zip(items_to_save, futures):
                     values = future.result()
                     structure_descriptor_values.extend(values)
-
-                    if callback:
-                        callback(
-                            value=(i + 1) / len(futures),
-                            text=f"Storing structure files ({i + 1}/{len(futures)})",
-                        )
+                    # a design has one file per test, and is counted on the first of them
+                    designs_stored.add(design_id)
+                    callback_wrapper(len(designs_stored), "Storing structure files")
 
         return structure_descriptor_values
 
