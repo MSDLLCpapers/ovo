@@ -20,6 +20,8 @@ from ovo import (
     Artifact,
     ArtifactTypes,
     ProjectArtifact,
+    Labeling,
+    DesignLabeling,
 )
 from ovo.core.logic.import_export_logic import export_project, import_project
 
@@ -192,7 +194,7 @@ def test_export_import_cycle(example_pdb_path, recwarn):
         imported_project = db.get(Project, test_project.id)
         assert imported_project.name == "Test Export Import Project"
         assert imported_project.author == "test_user"
-        assert imported_project.public == True, "Project should become public upon export"
+        assert imported_project.public, "Project should become public upon export"
 
         imported_round = db.get(Round, test_round.id)
         assert imported_round.name == "Test Round"
@@ -297,3 +299,134 @@ def test_import_id_conflicts():
         # Clean up export file
         if os.path.exists(export_zip_path):
             os.unlink(export_zip_path)
+
+
+def test_export_import_labels_skip_existing(example_pdb_path):
+    """Test that labels are exported and imported correctly, skipping existing labels with same attributes"""
+
+    # Create a test project with designs and labels
+    test_project = Project(
+        id="test_label_export_import_project",
+        name="Test Label Export Import Project",
+        author="test_user",
+        public=False,
+    )
+    db.save(test_project)
+
+    test_round = Round(
+        id="test_label_export_import_round", project_id=test_project.id, name="Test Round", author="test_user"
+    )
+    db.save(test_round)
+
+    test_pool = Pool(id="tlei", round_id=test_round.id, name="Test Pool", author="test_user")
+    db.save(test_pool)
+
+    # Create designs
+    with open(example_pdb_path) as f:
+        pdb_content = f.read()
+        test_design_1 = Design.from_pdb_file(
+            storage=storage,
+            filename="design1.pdb",
+            pdb_str=pdb_content,
+            chains=["A"],
+            project_id=test_project.id,
+            pool_id=test_pool.id,
+        )
+        test_design_2 = Design.from_pdb_file(
+            storage=storage,
+            filename="design2.pdb",
+            pdb_str=pdb_content,
+            chains=["A"],
+            project_id=test_project.id,
+            pool_id=test_pool.id,
+        )
+        db.save_all([test_design_1, test_design_2])
+
+    # Create labels for the project
+    label_good = Labeling(id="import_good_id_test", label="Good", explanation="Good design", author="test_user")
+    label_interesting = Labeling(
+        id="import_interesting_id_test", label="Interesting", explanation="Interesting design", author="test_user"
+    )
+    db.save_all([label_good, label_interesting])
+
+    # Create design-label associations
+    design_labeling_1 = DesignLabeling(design_id=test_design_1.id, labeling_id=label_good.id)
+    design_labeling_2 = DesignLabeling(design_id=test_design_2.id, labeling_id=label_good.id)
+    design_labeling_3 = DesignLabeling(design_id=test_design_2.id, labeling_id=label_interesting.id)
+    db.save_all([design_labeling_1, design_labeling_2, design_labeling_3])
+
+    try:
+        # Export the project
+        export_zip_path = export_project(test_project.id)
+        assert os.path.exists(export_zip_path)
+
+        # Delete the project data but keep label_good to test that it gets skipped on import
+        db.remove(DesignLabeling, design_id=test_design_1.id, labeling_id=label_good.id)
+        db.remove(DesignLabeling, design_id=test_design_2.id, labeling_id=label_good.id)
+        db.remove(DesignLabeling, design_id=test_design_2.id, labeling_id=label_interesting.id)
+        # Keep label_good in database to test skipping behavior
+        db.remove(Labeling, label_interesting.id)
+        db.remove(Design, test_design_1.id)
+        db.remove(Design, test_design_2.id)
+        db.remove(Pool, test_pool.id)
+        db.remove(Round, test_round.id)
+        db.remove(Project, test_project.id)
+
+        # Extract and import
+        with tempfile.TemporaryDirectory() as temp_root:
+            with zipfile.ZipFile(export_zip_path, "r") as zipf:
+                zipf.extractall(temp_root)
+            paths = os.listdir(temp_root)
+            temp_dir = os.path.join(temp_root, paths[0])
+
+            # Count entities before import
+            counts = import_project(temp_dir, count_only=True)
+            assert counts.get("design") == 2
+            assert counts.get("labeling") == 2  # Good and Interesting
+            assert counts.get("design_labeling") == 3
+
+            # Import the data
+            counts = import_project(temp_dir, test_project.id)
+
+        # Verify imported data
+        imported_design_1 = db.get(Design, test_design_1.id)
+        imported_design_2 = db.get(Design, test_design_2.id)
+        assert imported_design_1 is not None
+        assert imported_design_2 is not None
+
+        # Verify labels exist (Good was skipped, Interesting was imported)
+        all_labelings = db.select(Labeling)
+        labeling_by_name = {labeling.label: labeling for labeling in all_labelings}
+
+        assert "Good" in labeling_by_name, "Good label should exist (was already in DB, skipped during import)"
+        assert "Interesting" in labeling_by_name, "Interesting label should exist (was imported)"
+
+        # Verify labels kept their original IDs
+        good_label = labeling_by_name["Good"]
+        assert good_label.id == "import_good_id_test", "Good label should keep its original ID"
+        interesting_label = labeling_by_name["Interesting"]
+        assert interesting_label.id == "import_interesting_id_test", "Interesting label should keep its original ID"
+
+        # Verify design-label associations
+        design1_labelings = db.select(DesignLabeling, design_id=test_design_1.id)
+        assert len(design1_labelings) == 1
+        assert design1_labelings[0].labeling_id == label_good.id
+
+        design2_labelings = db.select(DesignLabeling, design_id=test_design_2.id)
+        assert len(design2_labelings) == 2
+        design2_labeling_ids = {dl.labeling_id for dl in design2_labelings}
+        assert label_good.id in design2_labeling_ids
+        assert label_interesting.id in design2_labeling_ids
+
+        # Verify counts
+        assert counts["design"] == 2
+        assert counts["labeling"] == 1, "Only 1 label should be imported (Good was skipped because it already exists)"
+        assert counts["design_labeling"] == 3
+
+    finally:
+        # Clean up
+        if "export_zip_path" in locals() and os.path.exists(export_zip_path):
+            os.unlink(export_zip_path)
+        # Clean up the label_good that we kept in the database
+        if db.count(Labeling, id=label_good.id):
+            db.remove(Labeling, label_good.id)

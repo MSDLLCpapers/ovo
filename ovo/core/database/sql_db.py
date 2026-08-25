@@ -491,19 +491,10 @@ class SqlDBEngine(CacheClearingEngine):
         series = pd.Series({design_id: value for design_id, value in result})
         return series.reindex(design_ids)
 
-    def get_or_create_labeling(self, label: str, username: str, explanation: str | None = None) -> Labeling:
-        """Get an existing labeling or create a new one if it doesn't exist."""
+    def create_labeling(self, label: str, username: str, explanation: str | None = None) -> Labeling:
+        """Create a new labeling."""
         self.check_read_only()
 
-        # Try to find existing labeling
-        existing_labelings = self.select(
-            Labeling, label=label.strip(), author=username, explanation=explanation, limit=1
-        )
-
-        if existing_labelings:
-            return existing_labelings[0]
-
-        # Create new labeling if not found
         labeling = Labeling(id=Labeling.generate_id(), label=label.strip(), author=username, explanation=explanation)
         self.save(labeling)
         return labeling
@@ -520,7 +511,7 @@ class SqlDBEngine(CacheClearingEngine):
         self.check_read_only()
 
         # Create Labeling
-        labeling = self.get_or_create_labeling(label, username, explanation)
+        labeling = self.create_labeling(label, username, explanation)
 
         # Add the labeling to the designs
         design_labelings = []
@@ -588,23 +579,41 @@ class SqlDBEngine(CacheClearingEngine):
             return design_ids or []
 
         with self._create_session() as session:
-            # Build the base query joining DesignLabeling and Labeling
-            query = (
-                session.query(DesignLabeling.design_id)
-                .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
-                .filter(Labeling.label.in_(label_names))
+            # If no design_ids filter, run a single query
+            if not design_ids:
+                query = (
+                    session.query(DesignLabeling.design_id)
+                    .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
+                    .filter(Labeling.label.in_(label_names))
+                    .group_by(DesignLabeling.design_id)
+                    .having(func.count(func.distinct(Labeling.label)) == len(set(label_names)))
+                )
+                return [row[0] for row in query.all()]
+
+            # Batch design_ids to avoid SQLite parameter limit
+            design_ids = list(design_ids)
+            batches = (
+                [design_ids]
+                if not self._in_clause_items_limit
+                else [
+                    design_ids[i : i + self._in_clause_items_limit]
+                    for i in range(0, len(design_ids), self._in_clause_items_limit)
+                ]
             )
 
-            # If design_ids filter is provided, apply it
-            if design_ids:
-                query = query.filter(DesignLabeling.design_id.in_(design_ids))
+            all_results = []
+            for batch in batches:
+                query = (
+                    session.query(DesignLabeling.design_id)
+                    .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
+                    .filter(Labeling.label.in_(label_names))
+                    .filter(DesignLabeling.design_id.in_(batch))
+                    .group_by(DesignLabeling.design_id)
+                    .having(func.count(func.distinct(Labeling.label)) == len(set(label_names)))
+                )
+                all_results.extend([row[0] for row in query.all()])
 
-            # Group by design_id and ensure ALL labels are present
-            query = query.group_by(DesignLabeling.design_id).having(
-                func.count(func.distinct(Labeling.label)) == len(set(label_names))
-            )
-
-            return [row[0] for row in query.all()]
+            return all_results
 
     def get_designs_with_any_labels(
         self, label_names: list[str], design_ids: list[str] = None, author: str = None
@@ -620,24 +629,43 @@ class SqlDBEngine(CacheClearingEngine):
             return design_ids or []
 
         with self._create_session() as session:
-            # Build the base query joining DesignLabeling and Labeling
-            query = (
-                session.query(DesignLabeling.design_id)
-                .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
-                .filter(Labeling.label.in_(label_names))
+            # If no design_ids filter, run a single query
+            if not design_ids:
+                query = (
+                    session.query(DesignLabeling.design_id)
+                    .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
+                    .filter(Labeling.label.in_(label_names))
+                )
+                if author:
+                    query = query.filter(Labeling.author == author)
+                query = query.distinct()
+                return [row[0] for row in query.all()]
+
+            # Batch design_ids to avoid SQLite parameter limit
+            design_ids = list(design_ids)
+            batches = (
+                [design_ids]
+                if not self._in_clause_items_limit
+                else [
+                    design_ids[i : i + self._in_clause_items_limit]
+                    for i in range(0, len(design_ids), self._in_clause_items_limit)
+                ]
             )
 
-            # If design_ids filter is provided, apply it
-            if design_ids:
-                query = query.filter(DesignLabeling.design_id.in_(design_ids))
+            all_results = set()
+            for batch in batches:
+                query = (
+                    session.query(DesignLabeling.design_id)
+                    .join(Labeling, DesignLabeling.labeling_id == Labeling.id)
+                    .filter(Labeling.label.in_(label_names))
+                    .filter(DesignLabeling.design_id.in_(batch))
+                )
+                if author:
+                    query = query.filter(Labeling.author == author)
+                query = query.distinct()
+                all_results.update([row[0] for row in query.all()])
 
-            # If author filter is provided, apply it
-            if author:
-                query = query.filter(Labeling.author == author)
-
-            query = query.distinct()
-
-            return [row[0] for row in query.all()]
+            return list(all_results)
 
     def get_labelings_for_design(self, design_id: str) -> list[Labeling]:
         """Get all labelings for a specific design using a single optimized query."""
@@ -659,13 +687,28 @@ class SqlDBEngine(CacheClearingEngine):
             return []
 
         with self._create_session() as session:
-            query = (
-                session.query(Labeling.label)
-                .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
-                .filter(DesignLabeling.design_id.in_(design_ids))
-                .distinct()
+            # Batch design_ids to avoid SQLite parameter limit
+            design_ids = list(design_ids)
+            batches = (
+                [design_ids]
+                if not self._in_clause_items_limit
+                else [
+                    design_ids[i : i + self._in_clause_items_limit]
+                    for i in range(0, len(design_ids), self._in_clause_items_limit)
+                ]
             )
-            return sorted([row[0] for row in query.all()])
+
+            all_labels = set()
+            for batch in batches:
+                query = (
+                    session.query(Labeling.label)
+                    .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
+                    .filter(DesignLabeling.design_id.in_(batch))
+                    .distinct()
+                )
+                all_labels.update([row[0] for row in query.all()])
+
+            return sorted(all_labels)
 
     def get_available_shared_labels_for_design_ids(self, design_ids: list[str], author: str = None) -> list[str]:
         """Get labels that are present on ALL of the given design IDs (intersection).
@@ -680,17 +723,37 @@ class SqlDBEngine(CacheClearingEngine):
         design_ids = list(set(design_ids))
 
         with self._create_session() as session:
-            query = (
-                session.query(Labeling.label)
-                .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
-                .filter(DesignLabeling.design_id.in_(design_ids))
+            # Batch design_ids to avoid SQLite parameter limit
+            batches = (
+                [design_ids]
+                if not self._in_clause_items_limit
+                else [
+                    design_ids[i : i + self._in_clause_items_limit]
+                    for i in range(0, len(design_ids), self._in_clause_items_limit)
+                ]
             )
-            if author:
-                query = query.filter(Labeling.author == author)
-            query = query.group_by(Labeling.label).having(
-                func.count(func.distinct(DesignLabeling.design_id)) == len(design_ids)
-            )
-            return sorted([row[0] for row in query.all()])
+
+            # Collect label -> set of design_ids mappings across all batches
+            from collections import defaultdict
+
+            label_to_design_ids = defaultdict(set)
+
+            for batch in batches:
+                query = (
+                    session.query(Labeling.label, DesignLabeling.design_id)
+                    .join(DesignLabeling, Labeling.id == DesignLabeling.labeling_id)
+                    .filter(DesignLabeling.design_id.in_(batch))
+                )
+                if author:
+                    query = query.filter(Labeling.author == author)
+
+                for label, design_id in query.all():
+                    label_to_design_ids[label].add(design_id)
+
+            # Filter to labels that appear on ALL design_ids
+            shared_labels = [label for label, ids in label_to_design_ids.items() if len(ids) == len(design_ids)]
+
+            return sorted(shared_labels)
 
     def get_available_labels_for_pool_ids(self, pool_ids: list[str], **design_filters) -> list[str]:
         """Get unique labels available for designs in the given pool IDs.

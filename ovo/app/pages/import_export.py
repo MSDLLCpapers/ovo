@@ -20,7 +20,7 @@ EXPORT_DESIGNS_LIMIT = 20_000  # TODO should this be configured in config?
 
 def show_counts(counts: dict[str, int]):
     # Display summary in columns
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         st.metric("Projects", counts.get("project"))
@@ -35,6 +35,10 @@ def show_counts(counts: dict[str, int]):
     with col3:
         st.metric("Descriptor Jobs", counts.get("descriptor_job"))
         st.metric("Descriptor Values", counts.get("descriptor_value"))
+
+    with col4:
+        st.metric("Labels", counts.get("labeling"))
+        st.metric("Design Labels", counts.get("design_labeling"))
 
 
 def export_tab():

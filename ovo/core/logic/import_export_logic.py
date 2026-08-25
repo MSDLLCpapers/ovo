@@ -19,6 +19,8 @@ from ovo.core.database.models import (
     DescriptorValue,
     FileDescriptor,
     ProjectArtifact,
+    Labeling,
+    DesignLabeling,
 )
 from ovo.core.storage import Storage
 from ovo.core.utils.formatting import safe_filename
@@ -38,6 +40,14 @@ IMPORT_EXPORT_CONFIGS = [
         "filter": lambda o: dict(descriptor_job_id__in=[j.id for j in o["descriptor_job"]]),
     },
     {"model_class": ProjectArtifact, "filter": lambda o: dict(project_id__in=[p.id for p in o["project"]])},
+    {
+        "model_class": DesignLabeling,
+        "filter": lambda o: dict(design_id__in=[d.id for d in o["design"]]),
+    },
+    {
+        "model_class": Labeling,
+        "filter": lambda o: dict(id__in=[dl.labeling_id for dl in o["design_labeling"]]),
+    },
 ]
 
 
@@ -127,6 +137,43 @@ def export_import_project(
 
         # Update counts
         counts[table_name] = len(all_objects[table_name])
+
+        # Special handling for Labeling: skip labels that already exist with the same attributes
+        if model_class is Labeling and not count_only and all_objects[table_name]:
+            print("- Checking for existing labels...")
+            obj_ids = [obj.id for obj in all_objects[table_name]]
+            existing_labelings = dest_db.select(Labeling, id__in=obj_ids)
+
+            if existing_labelings:
+                existing_by_id = {obj.id: obj for obj in existing_labelings}
+                to_skip = []
+
+                for obj in all_objects[table_name]:
+                    if obj.id in existing_by_id:
+                        existing = existing_by_id[obj.id]
+                        # Check if all attributes match (same label, author, created_date)
+                        if (
+                            existing.label == obj.label
+                            and existing.author == obj.author
+                            and existing.created_date_utc == obj.created_date_utc
+                            and existing.explanation == obj.explanation
+                        ):
+                            to_skip.append(obj.id)
+                            print(
+                                f"  - Skipping Labeling '{obj.label}' ({obj.id}) - already exists with same attributes"
+                            )
+                        else:
+                            # Label ID exists but with different attributes - this is a conflict
+                            raise ValueError(
+                                f"Labeling ID conflict: {obj.id} already exists but with different attributes. "
+                                f"Existing: label='{existing.label}', author='{existing.author}'. "
+                                f"Import: label='{obj.label}', author='{obj.author}'"
+                            )
+
+                if to_skip:
+                    print(f"  ⏭️  Skipping {len(to_skip)} Labeling(s) that already exist")
+                    all_objects[table_name] = [obj for obj in all_objects[table_name] if obj.id not in to_skip]
+                    counts[table_name] = len(all_objects[table_name])
 
         # Check for conflicts if requested and model has an id field and we have objects (but not when only counting)
         if check_conflicts and not count_only and hasattr(model_class, "id") and all_objects[table_name]:
@@ -285,8 +332,10 @@ def export_project(project_id: str, output_zip_path: str = None, accepted_only: 
         - Pools: {counts["pool"]}
         - Designs: {counts["design"]}
         - Storage files: {counts["storage_file"]}
-        - Descriptor value: {counts["descriptor_value"]}
+        - Descriptor values: {counts["descriptor_value"]}
         - Project artifacts: {counts["project_artifact"]}
+        - Labels: {counts["labeling"]}
+        - Design labels: {counts["design_labeling"]}
     """.lstrip()
 
         with open(os.path.join(temp_home, "README.txt"), "wt") as f:

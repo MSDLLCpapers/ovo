@@ -1,5 +1,7 @@
 import streamlit as st
-from ovo import db, Labeling
+import humanize
+from datetime import datetime, timezone
+from ovo import db, Labeling, DesignLabeling
 from ovo.core.auth import get_username
 from ovo.core.utils.formatting import get_hash_of_bytes
 
@@ -158,8 +160,15 @@ def design_labeling_fragment(design_ids: str | list[str], key_suffix: str = "", 
                         explanation = show_explanation_input(labeling.label, width=400, label_visibility="collapsed")
                         if st.button("Add", key=f"add_explanation_{design_ids_key}_{key_suffix}"):
                             if explanation:
-                                labeling.explanation = explanation
-                                db.save(labeling)
+                                # The labeling from emoji button always has explanation=None
+                                # Create a new labeling with explanation to avoid affecting other designs
+                                db.remove_designs_labeling(labeling_id=labeling.id, design_ids=design_ids)
+                                db.add_label(
+                                    label=labeling.label,
+                                    design_ids=design_ids,
+                                    username=get_username(),
+                                    explanation=explanation,
+                                )
                             del st.session_state["added_labeling"]
                             st.rerun(scope="fragment" if not is_bulk else "app")
 
@@ -193,10 +202,26 @@ def label_design_dialog(design_ids: list[str], key_suffix: str = ""):
 
     if st.button("Add Label", key=f"add_label_btn_{key_suffix}", type="primary", disabled=new_label is None):
         try:
-            # Filter out designs that already have this label from current user
+            # Filter out designs that already have this exact label (same name, author, and explanation)
             if is_bulk:
-                designs_with_label = set(db.get_designs_with_any_labels([new_label], design_ids, author=get_username()))
-                designs_to_label = [d for d in design_ids if d not in designs_with_label]
+                # Get all labelings with this label name and author
+                existing_labelings = db.select(
+                    Labeling,
+                    label=new_label,
+                    author=get_username(),
+                    explanation=explanation.strip() if explanation is not None else None,
+                )
+
+                if existing_labelings:
+                    # Get designs that already have this exact labeling
+                    existing_labeling_ids = [l.id for l in existing_labelings]
+                    design_labelings = db.select(
+                        DesignLabeling, labeling_id__in=existing_labeling_ids, design_id__in=design_ids
+                    )
+                    designs_with_exact_label = {dl.design_id for dl in design_labelings}
+                    designs_to_label = [d for d in design_ids if d not in designs_with_exact_label]
+                else:
+                    designs_to_label = design_ids
             else:
                 designs_to_label = design_ids
 
@@ -248,11 +273,16 @@ def label_design_dialog(design_ids: list[str], key_suffix: str = ""):
                     with st.popover(labeling.label, help="Click to see details and remove this label"):
                         st.write(f"**Added by:** {labeling.author}")
 
+                        if labeling.created_date_utc:
+                            time_ago = humanize.naturaltime(
+                                labeling.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)
+                            )
+                            st.write(f"**Added:** {time_ago}")
+
                         if labeling.explanation:
                             st.write(f"**Explanation:** {labeling.explanation}")
                         else:
                             st.write("**Explanation:** *No explanation provided*")
-
                         if st.button(
                             "Remove",
                             key=f"remove_{labeling.id}_{key_suffix}",
@@ -276,4 +306,14 @@ def show_label_badge(labeling: Labeling) -> str:
     badge = f":grey-background[&nbsp;{labeling.label}&nbsp;]"
     if labeling.author != get_username():
         badge += f" :grey[by {labeling.author}]"
-    st.markdown(badge, help=f"{labeling.label} Explanation: {labeling.explanation}" if labeling.explanation else None)
+
+    # Build help text with explanation first, then timestamp
+    help_parts = []
+    if labeling.explanation:
+        help_parts.append(f"Explanation: {labeling.explanation}")
+    if labeling.created_date_utc:
+        time_ago = humanize.naturaltime(labeling.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None))
+        help_parts.append(f"Added: {time_ago}")
+
+    help_text = " | ".join(help_parts) if help_parts else None
+    st.markdown(badge, help=help_text)

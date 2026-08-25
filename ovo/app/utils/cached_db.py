@@ -129,7 +129,7 @@ def get_cached_descriptor_values(
     return db.select_descriptor_values(descriptor_key, design_ids=design_ids, descriptor_job_id=descriptor_job_id)
 
 
-@clear_when_modified(DescriptorValue)
+@clear_when_modified(DescriptorValue, DesignLabeling)
 @st.cache_data(max_entries=10, ttl="1h", show_spinner="Loading descriptors...")
 def get_cached_wide_descriptor_table(**kwargs):
     return get_wide_descriptor_table(**kwargs)
