@@ -13,7 +13,7 @@ def test_sequence_only_refolding(project_data):
     sequence_pool = db.Pool(
         id=db.Pool.generate_id(),
         round_id=project_round.id,
-        name="Sequence Pool",
+        name="Sequence Pool for Refolding",
         author="test",
     )
     db.save(sequence_pool)
