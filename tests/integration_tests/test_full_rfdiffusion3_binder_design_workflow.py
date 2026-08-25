@@ -11,8 +11,9 @@ from ovo.core.database import (
 )
 from ovo.core.utils.residue_selection import get_chains_and_contigs
 from ovo.core.utils.resources import RESOURCES_DIR
-from ovo.core.utils.tests import TEST_SCHEDULER_KEY, create_test_project_data
-import pytest
+from ovo.core.utils.tests import TEST_SCHEDULER_KEY
+
+from ovo.core.utils.pdb import get_sequences_from_pdb_str
 
 
 def test_binder_end_to_end_logic(project_data):
@@ -70,9 +71,38 @@ def test_binder_end_to_end_logic(project_data):
     backbone_pdbs = db.select_descriptor_values(
         descriptors_rfdiffusion.RFDIFFUSION3_ALL_ATOM_STRUCTURE_PATH.key, design_ids
     )
+    backbone_pdb_str = storage.read_file_str(backbone_pdbs.iloc[0])
+
     assert len(backbone_pdbs.dropna()) == 2
     assert backbone_pdbs.iloc[0].endswith(".pdb")
-    assert "ATOM " in storage.read_file_str(backbone_pdbs.iloc[0])
+    assert "ATOM " in backbone_pdb_str
+    target_position_numbers = list(
+        get_sequences_from_pdb_str(backbone_pdb_str, chains=["B"], by_residue_number=True)["B"].keys()
+    )
+    assert target_position_numbers == [
+        "74",
+        "75",
+        "76",
+        "77",
+        "78",
+        "79",
+        "82",
+        "83",
+        "84",
+        "85",
+        "86",
+        "87",
+        "88",
+        "89",
+        "90",
+        "91",
+        "92",
+        "93",
+        "94",
+        "95",
+        "96",
+        "97",
+    ]
 
     # gzip compressed cif artifact exists (raw RFD3 output)
     all_atom_cif_gz_path = db.select_descriptor_values(

@@ -10,12 +10,9 @@ REMARK lines are added for contig, hotspot, and chain provenance.
 
 import argparse
 import glob
-import gzip
 import json
 import os
-import re
 import sys
-import tempfile
 import itertools
 
 import gemmi
@@ -92,7 +89,18 @@ def get_standardized_contig(diffused_index_map: dict[str, str], sampled_contig: 
             else:
                 contig.append(f"{len(region)}-{len(region)}")
         contigs.append(contig)
-    return "/0 ".join(["/".join(contig) for contig in contigs])
+    return ["/".join(contig) for contig in contigs]
+
+
+def is_designed(contig_chain_or_segment: str) -> bool:
+    """Whether a contig chain or a single contig segment contains any generated residue.
+
+    Generated segments are lengths ("20-20"), fixed segments start with a chain letter ("A74-79").
+    """
+    for segment in contig_chain_or_segment.removesuffix("/0").split("/"):
+        if not segment[0].isalpha():
+            return True
+    return False
 
 
 def chunk_string(s: str, chunk_size: int = 40) -> list:
@@ -128,11 +136,33 @@ def standardize(
     with open(json_path) as f:
         json_data = json.load(f)
     contig_v3 = json_data["specification"]["contig"]
+    # diffused_index_map: where each fixed input residue ended up in the output, e.g.
+    # {"A74": "B1", ..., "A97": "B19"} -- e.g. input structure positions: raw output positions
+    # (chains named in contig order, each renumbered from 1). Differently from RFD1,
+    # it includes also the unindexed residues, fixed residues kept "structurally" but locally
+    # diffused by RFD3. They are fixed, but not included in the contig string.
     diffused_index_map = json_data["diffused_index_map"]
+    # sampled_contig: the contig RFD3 actually realized, e.g.
+    # "20P,/0,A74,A75,A76,A77,A78,A79,A85,A86,A87,A88,A89,A90,A91,A92,A93,A94,A95,A96,A97"
+    # 20P = 20 generated residues, /0 = chain break, A74-A97 = fixed residues taken from the input
     sampled_contig = json_data["specification"]["extra"]["sampled_contig"]
 
-    # Build v1-style standardized contig (required by downstream prepare_json.py)
-    std_contig_v1 = get_standardized_contig(diffused_index_map=diffused_index_map, sampled_contig=sampled_contig)
+    # Build the v1-style contig: contig chains in output order, e.g. ["20-20", "A74-79/A85-97"]
+    contig_chains = get_standardized_contig(diffused_index_map=diffused_index_map, sampled_contig=sampled_contig)
+    std_contig_v1 = "/0 ".join(contig_chains)
+
+    # Renumber the output structure: RFdiffusion3 numbers every chain from 1, the standardized
+    # convention keeps the input residue numbers on chains without any generated residue.
+    for chain_id, contig_chain in zip(all_chain_names, contig_chains, strict=True):
+        if is_designed(contig_chain):
+            continue
+        standard_nums = []
+        for segment in contig_chain.removesuffix("/0").split("/"):
+            start_resnum, end_resnum = map(int, segment[1:].split("-"))
+            standard_nums += range(start_resnum, end_resnum + 1)
+        residues = [residue for residue in model[chain_id] if residue.get_ca() is not None]
+        for residue, standard_num in zip(residues, standard_nums, strict=True):
+            residue.seqid.num = standard_num
 
     # Standardize hotspots (remap chain letters using the rename mapping)
     std_hotspots = ""

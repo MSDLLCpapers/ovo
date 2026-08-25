@@ -10,8 +10,7 @@ from ovo.core.database import (
     descriptors_rfdiffusion,
 )
 from ovo.core.utils.resources import RESOURCES_DIR
-from ovo.core.utils.tests import TEST_SCHEDULER_KEY, create_test_project_data
-import pytest
+from ovo.core.utils.tests import TEST_SCHEDULER_KEY
 
 
 def test_scaffold_end_to_end_logic(project_data):
@@ -62,6 +61,13 @@ def test_scaffold_end_to_end_logic(project_data):
 
     designs = db.Design.select(pool_id=pool.id)
     design_ids = [d.id for d in designs]
+
+    for design in designs:
+        assert "A111" in design.spec.get_chain("A").contig
+        assert "A118" in design.spec.get_chain("A").contig
+        assert (
+            "119" in design.spec.get_chain("A").contig
+        )  # note that the A might not be present if they end up as A118-119
 
     # Backbone structure exists
     # check that inner_batch_size = 2, so total backbones = 2*2 = 4.
