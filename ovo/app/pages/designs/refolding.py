@@ -1,6 +1,6 @@
 import streamlit as st
 
-from ovo import db, schedulers
+from ovo import db, schedulers, Design
 from ovo.app.components.descriptor_job_components import refresh_descriptors
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.download_component import download_descriptor_table
@@ -10,6 +10,7 @@ from ovo.app.utils.cached_db import (
     get_cached_design_ids,
     get_cached_available_descriptors,
     get_cached_num_cyclic,
+    get_cached_wide_descriptor_table,
 )
 from ovo.core.database import Pool, DesignJob
 from ovo.core.database.descriptors_refolding import REFOLDING_DESCRIPTORS
@@ -19,11 +20,11 @@ from ovo.core.database.models_refolding import (
     RefoldingSupportedDesignWorkflow,
     RefoldingWorkflow,
 )
-from ovo.core.logic.descriptor_logic import submit_descriptor_workflow, get_wide_descriptor_table
+from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
 
 
 @st.fragment
-def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
+def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None, max_preview_designs: int = 500):
     pools = get_cached_pools(pool_ids)
 
     if design_ids is None:
@@ -49,7 +50,7 @@ def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
         type="primary",
         key="submit_refolding_btn",
     ):
-        submit_refolding_dialog(pool_ids, design_ids)
+        submit_refolding_dialog(design_ids)
 
     refresh_descriptors(
         design_ids=design_ids,
@@ -65,9 +66,21 @@ def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
         st.write("No results yet")
         return
 
-    descriptors_df = get_wide_descriptor_table(
+    descriptors_df = get_cached_wide_descriptor_table(
         design_ids=design_ids, descriptor_keys=[d.key for d in descriptors], nested=True
     )
+
+    if len(design_ids) > max_preview_designs:
+        # Filter the displayed table rows for UI performance
+        # NOTE that we are not filtering the ids passed to get_cached_wide_descriptor_table since
+        # we don't know if all descriptors are available for all designs, so filtering too early could result in an empty table.
+        # This would need to be solved by adding a limit to get_wide_descriptor_table itself.
+        descriptors_df = descriptors_df[:max_preview_designs]
+        st.warning(
+            f"Showing only first {max_preview_designs}/{len(design_ids)} designs in the table. "
+            f"Download the full table below to see all results."
+        )
+
     descriptor_table(design_ids, descriptors_df, descriptors)
 
     download_descriptor_table(
@@ -82,15 +95,20 @@ def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
 
 @st.fragment
 @st.dialog("Refolding submission", width="medium")
-def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
+def submit_refolding_dialog(design_ids: list[str]):
+    # Get actual pool ids from the selected designs
+    pool_ids = sorted(set(Design.design_id_to_pool_id(design_id) for design_id in design_ids))
     # Create "empty" element to enable clearing the contents after submitting
     content = st.empty()
     with content.container():
         num_designs = len(design_ids)
 
-        pools = db.select(Pool, id__in=pool_ids)
+        pools = get_cached_pools(pool_ids)
+        design_workflows_by_job_id = db.select_dict(
+            DesignJob, "id", "workflow", id__in=[p.design_job_id for p in pools if p.design_job_id]
+        )
         design_workflows_by_pool_id = {
-            p.id: db.get(DesignJob, id=p.design_job_id).workflow for p in pools if p.design_job_id
+            p.id: design_workflows_by_job_id[p.design_job_id] for p in pools if p.design_job_id
         }
         if any(not p.design_job_id for p in pools):
             st.warning(
