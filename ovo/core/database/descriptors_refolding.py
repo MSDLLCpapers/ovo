@@ -38,6 +38,10 @@ REFOLDING_TESTS_SCAFFOLD = {
 }
 
 REFOLDING_TESTS_BINDER = {
+    "af2_model_1_ptm_binderalone_3rec": (
+        "AF2 monomer, binder sequence alone, 3 recycles",
+        "AlphaFold2 model_1_ptm (monomer model), no initial guess and no template input. Used for an unbiased prediction of binder structure alone.",
+    ),
     "af2_model_1_ptm_tt_3rec": (
         "AF2 monomer, target template, 3 recycles",
         "AlphaFold2 model_1_ptm (monomer model) with residue index offset to predict two separate chains, initial guess with template input for target chain. Low risk of over-confidence.",
@@ -70,6 +74,10 @@ REFOLDING_TESTS_BINDER = {
         "Boltz-1 binder, target template",
         "Boltz-1 structure prediction with template input for target chain only. Low risk of over-confidence.",
     ),
+    "boltz2_binder_alone": (
+        "Boltz-2 binder sequence alone",
+        "Boltz-2 structure prediction of the binder sequence alone, without the target and with no template input. Used for an unbiased prediction of binder structure alone.",
+    ),
     "boltz2_binder_nt": (
         "Boltz-2 binder, no template",
         "Boltz-2 structure prediction with no template input. Low risk of over-confidence.",
@@ -80,10 +88,18 @@ REFOLDING_TESTS_BINDER = {
     ),
 }
 
+REFOLDING_TESTS_SEQUENCE = {
+    "af2_model_1_ptm_seq_3rec": (
+        "AF2 monomer, sequence only, 3 recycles",
+        "AlphaFold2 model_1_ptm (monomer model), sequence input only - no initial guess and no template input. Low risk of over-confidence, but may fail to predict the structure (since no MSA input is provided either).",
+    )
+}
+
 
 REFOLDING_TESTS_BY_TYPE = {
     "scaffold": REFOLDING_TESTS_SCAFFOLD,
     "binder": REFOLDING_TESTS_BINDER,
+    "sequence": REFOLDING_TESTS_SEQUENCE,
 }
 
 REFOLDING_TESTS = {k: v for tests in REFOLDING_TESTS_BY_TYPE.values() for k, v in tests.items()}
@@ -177,6 +193,28 @@ AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD = NumericGlobalDescriptor(
     unit="Å",
     tool="AF2 Initial Guess",
     key="refolding|af2_primary|target_aligned_binder_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+
+AF2_PRIMARY_BINDER_ALONE_BB_RMSD = NumericGlobalDescriptor(
+    name="AF2 Binder Alone Backbone RMSD",
+    description="RMSD between Ca backbone atoms of design and AF2 prediction of binder sequence alone",
+    unit="Å",
+    tool="AF2 Initial Guess",
+    key="refolding|af2_primary|binder_alone_bb_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+
+AF2_PRIMARY_BINDER_ALONE_AA_RMSD = NumericGlobalDescriptor(
+    name="AF2 Binder Alone All-atom RMSD",
+    description="RMSD between all atoms of design and AF2 prediction of binder sequence alone",
+    unit="Å",
+    tool="AF2 Initial Guess",
+    key="refolding|af2_primary|binder_alone_aa_rmsd",
     min_value=0,
     comparison="lower_is_better",
     color_scale="rmsd",
@@ -287,6 +325,27 @@ AF2_PRIMARY_INTERFACE_TARGET_RESIDUES = ResidueNumberDescriptor(
     key="refolding|af2_primary|interface_target_residues",
 )
 
+AF2_REF_STRUCTURE_ALL_ATOM_RMSD = NumericGlobalDescriptor(
+    name="AF2 Reference Structure All Atom RMSD",
+    description="Aligned RMSD between all atoms of the reference structure and the design structure AF2 prediction, after aligning the sequences",
+    unit="Å",
+    tool="AlphaFold2",
+    key="refolding|af2_primary|ref_structure_all_atom_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+
+AF2_REF_STRUCTURE_BACKBONE_RMSD = NumericGlobalDescriptor(
+    name="AF2 Reference Structure Backbone RMSD",
+    description="Aligned RMSD between backbone Ca atoms of the reference structure and the design structure AF2 prediction, after aligning the sequences",
+    unit="Å",
+    tool="AlphaFold2",
+    key="refolding|af2_primary|ref_structure_backbone_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
 
 # Initial guess descriptors
 AF2_PRIMARY_DESCRIPTORS = [
@@ -298,12 +357,17 @@ AF2_PRIMARY_DESCRIPTORS = [
     AF2_PRIMARY_BINDER_PAE,
     AF2_PRIMARY_PLDDT_BINDER,
     AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD,
+    AF2_PRIMARY_BINDER_ALONE_BB_RMSD,
+    AF2_PRIMARY_BINDER_ALONE_AA_RMSD,
     AF2_PRIMARY_INTERFACE_TARGET_RESIDUES,
     # scaffold
     AF2_PRIMARY_DESIGN_RMSD,
     AF2_PRIMARY_NATIVE_MOTIF_RMSD,
     AF2_PRIMARY_PAE,
     AF2_PRIMARY_PLDDT,
+    # sequence
+    AF2_REF_STRUCTURE_ALL_ATOM_RMSD,
+    AF2_REF_STRUCTURE_BACKBONE_RMSD,
 ]
 AF2_STRUCTURE_PATHS = [AF2_PRIMARY_STRUCTURE_PATH]
 
@@ -531,6 +595,26 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 color_scale="rmsd",
             ),
             NumericGlobalDescriptor(
+                name="AF2 Binder Alone Backbone RMSD",
+                description=f"RMSD between Ca backbone atoms of design and AF2 prediction of binder sequence alone using {description}",
+                unit="Å",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|binder_alone_bb_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name="AF2 Binder Alone All-atom RMSD",
+                description=f"RMSD between all atoms of design and AF2 prediction of binder sequence alone using {description}",
+                unit="Å",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|binder_alone_aa_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
                 name=f"AF2 iPAE",
                 description=f"AlphaFold2 interaction PAE, predicted aligned error of quadrants of the PAE matrix corresponding to all pairs of residues between the interacting chains (in Angstrom) using {description}",
                 unit="Å",
@@ -601,6 +685,26 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 unit="Å",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|target_aligned_binder_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz Binder Alone Backbone RMSD",
+                description=f"RMSD between Ca backbone atoms of design and Boltz prediction of binder sequence alone using {description}",
+                unit="Å",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|binder_alone_bb_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz Binder Alone All-atom RMSD",
+                description=f"RMSD between all atoms of design and Boltz prediction of binder sequence alone using {description}",
+                unit="Å",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|binder_alone_aa_rmsd",
                 min_value=0,
                 comparison="lower_is_better",
                 color_scale="rmsd",
@@ -704,6 +808,89 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 comparison="lower_is_better",
             ),
         ]
+
+
+for test, (label, description) in REFOLDING_TESTS_SEQUENCE.items():
+    if test.startswith("af2"):
+        REFOLDING_DESCRIPTORS += [
+            StructureFileDescriptor(
+                name=f"AF2 prediction ({label})",
+                description=f"Structure predicted by AlphaFold2 using {description}",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|af2_structure_path",
+                structure_type="prediction",
+                b_factor_value="plddt",
+            ),
+            NumericGlobalDescriptor(
+                name="AF2 Reference Structure All Atom RMSD",
+                description=f"Aligned RMSD between all atoms of the reference structure and the AF2 prediction of the design sequence using {description}, after aligning the sequences",
+                unit="Å",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|ref_structure_all_atom_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name="AF2 Reference Structure Backbone RMSD",
+                description=f"Aligned RMSD between backbone Ca atoms of the reference structure and the AF2 prediction of the design sequence using {description}, after aligning the sequences",
+                unit="Å",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|ref_structure_backbone_rmsd",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="rmsd",
+            ),
+            NumericGlobalDescriptor(
+                name=f"AF2 pLDDT",
+                description=f"Average pLDDT score of the whole structure (0 = worst, 100 = best) using {description}",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|plddt",
+                min_value=0,
+                max_value=100,
+                comparison="higher_is_better",
+                color_scale="plddt",
+            ),
+            NumericGlobalDescriptor(
+                name=f"AF2 PAE",
+                description=f"Average predicted absolute error of the whole structure (in Angstrom) using {description}",
+                unit="Å",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|pae",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="pae",
+            ),
+            NumericGlobalDescriptor(
+                name=f"AF2 iPAE",
+                description=f"AlphaFold2 interaction PAE, predicted aligned error of quadrants of the PAE matrix corresponding to all pairs of residues between the interacting chains (in Angstrom) using {description}",
+                unit="Å",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|ipae",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="pae",
+            ),
+            NumericGlobalDescriptor(
+                name=f"AF2 ipTM score",
+                description=f"AlphaFold2 interface predicted TM score (0 = worst, 1 = best) based on all pairs of residues between the interacting chains using {description}",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|iptm",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
+                name="AF2 pTM score",
+                description=f"Predicted TM score of the full structure (0 = worst, 1 = best) using {description}",
+                tool=f"AlphaFold2 ({label})",
+                key=f"refolding|{test}|ptm",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+        ]
+
 
 BOLTZ_PRIMARY_STRUCTURE_PATH = StructureFileDescriptor(
     name=f"Boltz-2 prediction",
@@ -818,6 +1005,26 @@ BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD = NumericGlobalDescriptor(
     unit="Å",
     tool="Boltz",
     key=f"refolding|boltz_primary|target_aligned_binder_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+BOLTZ_PRIMARY_BINDER_ALONE_BB_RMSD = NumericGlobalDescriptor(
+    name="Boltz Binder Alone Backbone RMSD",
+    description="RMSD between Ca backbone atoms of design and Boltz prediction of binder sequence alone",
+    unit="Å",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|binder_alone_bb_rmsd",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="rmsd",
+)
+BOLTZ_PRIMARY_BINDER_ALONE_AA_RMSD = NumericGlobalDescriptor(
+    name="Boltz Binder Alone All-atom RMSD",
+    description="RMSD between all atoms of design and Boltz prediction of binder sequence alone",
+    unit="Å",
+    tool="Boltz",
+    key=f"refolding|boltz_primary|binder_alone_aa_rmsd",
     min_value=0,
     comparison="lower_is_better",
     color_scale="rmsd",

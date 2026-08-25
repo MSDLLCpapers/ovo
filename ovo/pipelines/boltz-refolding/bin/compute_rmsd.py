@@ -463,6 +463,64 @@ def compute_rmsd_binder(
             f.write("\n")
 
 
+def compute_rmsd_binder_alone(
+    input_dir: str,
+    boltz_pubdir: str,
+    binder_chain: str,
+    output_metrics_path: str,
+) -> None:
+    """Compute RMSD between the designed binder and its Boltz prediction of the binder sequence alone."""
+    if isinstance(binder_chain, str) and "," in binder_chain:
+        raise ValueError(f"Expected a single binder chain ID, got: {binder_chain}")
+
+    results = []
+    for pdb_path in sorted(glob.glob(os.path.join(input_dir, "*.pdb"))):
+        name = os.path.basename(pdb_path).removesuffix(".pdb")
+        boltz_cif_path = os.path.join(boltz_pubdir, name, name + "_model_0.cif")
+        boltz_str = cif_to_pdb_str(boltz_cif_path)
+
+        with open(pdb_path) as f:
+            input_pdb_str = f.read()
+
+        binder_chain_mappings = [
+            [(binder_chain, None)],
+            [(binder_chain, None)],
+        ]
+        _, binder_alone_bb_rmsd = align_multiple_proteins_pdb(
+            [input_pdb_str, boltz_str],
+            chain_residue_mappings=binder_chain_mappings,
+            all_atom=False,
+        )
+        _, binder_alone_aa_rmsd = align_multiple_proteins_pdb(
+            [input_pdb_str, boltz_str],
+            chain_residue_mappings=binder_chain_mappings,
+            all_atom=True,
+        )
+
+        binder_plddt = get_chain_plddt(boltz_cif_path, binder_chain)
+
+        with open(
+            os.path.join(boltz_pubdir, name, "confidence_" + name + "_model_0.json"),
+            "r",
+        ) as f:
+            metrics = json.load(f)
+
+        results.append(
+            {
+                "id": name,
+                "binder_alone_bb_rmsd": binder_alone_bb_rmsd,
+                "binder_alone_aa_rmsd": binder_alone_aa_rmsd,
+                "binder_plddt": binder_plddt / 100,  # convert to 0-1 range for consistency with Boltz JSON
+                **metrics,
+            }
+        )
+
+    with open(output_metrics_path, "w") as f:
+        for result in results:
+            json.dump(result, f)
+            f.write("\n")
+
+
 def compute_rmsd_scaffold(
     input_dir: str, boltz_pubdir: str, chain: str, output_metrics_path: str, native_pdb_path: str | None = None
 ) -> None:
@@ -575,6 +633,12 @@ if __name__ == "__main__":
         help="Not used, for compatibility with run_parameters from perpare_inputs.py.",
     )
     parser.add_argument(
+        "--binder-alone",
+        action="store_true",
+        default=False,
+        help="Only the binder structure was predicted, without the target. Default: False.",
+    )
+    parser.add_argument(
         "--output_metrics_path",
         type=str,
         required=True,
@@ -602,6 +666,13 @@ if __name__ == "__main__":
             chain=args.chains,
             output_metrics_path=args.output_metrics_path,
             native_pdb_path=args.native_pdb,
+        )
+    elif args.design_type == "binder" and args.binder_alone:
+        compute_rmsd_binder_alone(
+            input_dir=args.input_dir,
+            boltz_pubdir=args.boltz_pubdir,
+            binder_chain=args.chains,
+            output_metrics_path=args.output_metrics_path,
         )
     elif args.design_type == "binder":
         compute_rmsd_binder(

@@ -167,6 +167,8 @@ def select_structure_prediction_descriptor(paths: dict[str, str]) -> StructureFi
             key="structure_prediction_method",
             format_func=lambda d: d.name,
         )
+        if not prediction_descriptor:
+            st.write(":material/arrow_upward: *Please select a structure prediction method above*")
     return prediction_descriptor
 
 
@@ -519,10 +521,15 @@ def rfdiffusion_binder_design_visualization(design_id: str):
 
         st.write(backbone_design_descriptor.description)
 
-    sequence_design_descriptor = None
-    for d in SEQUENCE_DESIGN_PATH_DESCRIPTORS:
-        if paths.get(d.key):
-            sequence_design_descriptor = d
+    if design.structure_descriptor_key in paths:
+        sequence_design_descriptor = ALL_DESCRIPTORS_BY_KEY.get(design.structure_descriptor_key)
+    else:
+        # use first available sequence design descriptor (if any) if not specified in the design
+        sequence_design_descriptor = None
+        for d in SEQUENCE_DESIGN_PATH_DESCRIPTORS:
+            if paths.get(d.key):
+                sequence_design_descriptor = d
+                break
 
     sequence_design_pdb_data = align_pdb_to_front(storage.read_file_str(paths[sequence_design_descriptor.key]), "A")
 
@@ -583,65 +590,84 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     if not prediction_descriptor:
         return
 
+    is_binder_alone = (
+        "binderalone" in prediction_descriptor.key.lower() or "binder_alone" in prediction_descriptor.key.lower()
+    )
+
     left, middle, right = st.columns(3, gap="medium")
+
+    if is_binder_alone:
+        middle, right = left, middle
+
     with left:
-        st.write("##### Input structure aligned to prediction")
+        if not is_binder_alone:
+            st.write("##### Input structure aligned to prediction")
 
-        input_pdb_str = storage.read_file_str(input_pdb_path)
-        prediction_str = storage.read_file_str(paths[prediction_descriptor.key])
+            input_pdb_str = storage.read_file_str(input_pdb_path)
+            prediction_str = storage.read_file_str(paths[prediction_descriptor.key])
 
-        # here, manual alignment is needed
-        structures, rmsd = align_multiple_proteins_pdb(
-            pdb_strs=[input_pdb_str, prediction_str], chain_residue_mappings=[None, [("B", None)]]
-        )
-        aligned_str = structures[1]
-        if prediction_descriptor.b_factor_value == "plddt":
-            aligned_str = pdb_to_mmcif(aligned_str, "-", True)
-        elif prediction_descriptor.b_factor_value == "fractional_plddt":
-            aligned_str = pdb_to_mmcif(aligned_str, "-", True, fractional_plddt=True)
+            # here, manual alignment is needed
+            structures, rmsd = align_multiple_proteins_pdb(
+                pdb_strs=[input_pdb_str, prediction_str], chain_residue_mappings=[None, [("B", None)]]
+            )
+            aligned_str = structures[1]
+            if prediction_descriptor.b_factor_value == "plddt":
+                aligned_str = pdb_to_mmcif(aligned_str, "-", True)
+            elif prediction_descriptor.b_factor_value == "fractional_plddt":
+                aligned_str = pdb_to_mmcif(aligned_str, "-", True, fractional_plddt=True)
 
-        viz.molstar(
-            viz.StructureVisualization(
-                data=structures[0],
-                representation="cartoon",
-                color="chain-id",
-                selection=workflow.selected_segments,
-            ),
-            viz.StructureVisualization(
-                data=aligned_str,
-                representation=None,
-                representations=[
-                    viz.Representation(
-                        "A",
-                        "cartoon+ball-and-stick",
-                        color="plddt",
-                        label=prediction_descriptor.name,
-                    ),
-                    viz.Representation(
-                        "B",
-                        "cartoon",
-                        label="Prediction of target chain aligned to input target chain",
-                    ),
-                ],
-            ),
-            key="full_input_aligned_to_prediction",
-            height=350,
-        )
+            viz.molstar(
+                viz.StructureVisualization(
+                    data=structures[0],
+                    representation="cartoon",
+                    color="chain-id",
+                    selection=workflow.selected_segments,
+                ),
+                viz.StructureVisualization(
+                    data=aligned_str,
+                    representation=None,
+                    representations=[
+                        viz.Representation(
+                            "A",
+                            "cartoon+ball-and-stick",
+                            color="plddt",
+                            label=prediction_descriptor.name,
+                        ),
+                        viz.Representation(
+                            "B",
+                            "cartoon",
+                            label="Prediction of target chain aligned to input target chain",
+                        ),
+                    ],
+                ),
+                key="full_input_aligned_to_prediction",
+                height=350,
+            )
 
-        st.write(
-            f"All chains from input structure aligned to {prediction_descriptor.name} of binder chain (ball and stick colored by pLDDT confidence) and target chain (white)."
-        )
+            st.write(
+                f"All chains from input structure aligned to {prediction_descriptor.name} of binder chain (ball and stick colored by pLDDT confidence) and target chain (white)."
+            )
 
     with middle:
         st.write("##### Design aligned to prediction")
 
-        structures, _ = align_multiple_proteins_pdb(
-            pdb_strs=[
-                storage.read_file_str(paths[sequence_design_descriptor.key]),
-                storage.read_file_str(paths[prediction_descriptor.key]),
-            ],
-            chain_residue_mappings=[[("B", None)] for _ in range(2)],
-        )
+        if is_binder_alone:
+            structures, _ = align_multiple_proteins_pdb(
+                pdb_strs=[
+                    filter_pdb_str(storage.read_file_str(paths[sequence_design_descriptor.key]), "A"),
+                    filter_pdb_str(storage.read_file_str(paths[prediction_descriptor.key]), "A"),
+                ],
+                chain_residue_mappings=[[("A", None)] for _ in range(2)],
+                all_atom=True,
+            )
+        else:
+            structures, _ = align_multiple_proteins_pdb(
+                pdb_strs=[
+                    storage.read_file_str(paths[sequence_design_descriptor.key]),
+                    storage.read_file_str(paths[prediction_descriptor.key]),
+                ],
+                chain_residue_mappings=[[("B", None)] for _ in range(2)],
+            )
 
         aligned_str = structures[1]
         if prediction_descriptor.b_factor_value == "plddt":
@@ -683,15 +709,20 @@ def rfdiffusion_binder_design_visualization(design_id: str):
             Agreement between {sequence_design_descriptor.name} and {prediction_descriptor.name}
             """
         )
-        # TODO can we generalize this
         if prediction_descriptor == descriptors_refolding.BOLTZ_PRIMARY_STRUCTURE_PATH:
             rmsd_descriptor = descriptors_refolding.BOLTZ_PRIMARY_TARGET_ALIGNED_BINDER_RMSD
         elif prediction_descriptor == descriptors_refolding.AF2_PRIMARY_STRUCTURE_PATH:
             rmsd_descriptor = descriptors_refolding.AF2_PRIMARY_TARGET_ALIGNED_BINDER_RMSD
+        else:
+            rmsd_descriptor = None
+            rmsd_suffix = "binder_alone_aa_rmsd" if is_binder_alone else "target_aligned_binder_rmsd"
+            key = f"{prediction_descriptor.key.rsplit('|', 1)[0]}|{rmsd_suffix}"
+            rmsd_descriptor = ALL_DESCRIPTORS_BY_KEY.get(key)
 
-        rmsd_value = get_cached_design_descriptors(design_id, [rmsd_descriptor.key])[rmsd_descriptor.key]
-        if not pd.isna(rmsd_value):
-            st.write(f"{rmsd_descriptor.name}: **{rmsd_value:.2f} Å**")
+        if rmsd_descriptor:
+            rmsd_value = get_cached_design_descriptors(design_id, [rmsd_descriptor.key])[rmsd_descriptor.key]
+            if not pd.isna(rmsd_value):
+                st.write(f"{rmsd_descriptor.name}: **{rmsd_value:.2f} Å**")
 
     with right:
         st.write("##### Predicted binding pose")
@@ -718,7 +749,12 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         )
 
         st.write(
-            "Prediction of binder (ball and stick colored by pLDDT confidence) and target (surface colored by hydrophobicity scale) :green-badge[**green** = hydroPHOBIC] :red-badge[**red** = hydroPHILIC]"
+            "Prediction of binder (ball and stick colored by pLDDT confidence) "
+            + (
+                "and target (surface colored by hydrophobicity scale) :green-badge[**green** = hydroPHOBIC] :red-badge[**red** = hydroPHILIC]"
+                if not is_binder_alone
+                else ""
+            )
         )
 
 

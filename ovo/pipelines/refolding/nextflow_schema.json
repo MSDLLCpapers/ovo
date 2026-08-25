@@ -13,7 +13,7 @@
   "properties": {
     "design_type": {
       "type": "string",
-      "enum": ["binder", "scaffold"],
+      "enum": ["binder", "scaffold", "sequence"],
       "description": "Type of the design task"
     },
     "tests": {
@@ -22,7 +22,7 @@
     },
     "input_designs": {
       "type": "string",
-      "description": "Input PDB file(s) of designs to be evaluated, a folder of PDB files (ending with /) or .txt file containing multiple PDB paths (one per line)"
+      "description": "Input PDB file(s) of designs to be evaluated, a folder of PDB files (ending with /), a .txt file containing multiple PDB paths (one per line), or a .csv file of design sequences (design_id column and one column per chain, used for sequence design type)"
     },
     "native_pdb": {
       "type": "string",

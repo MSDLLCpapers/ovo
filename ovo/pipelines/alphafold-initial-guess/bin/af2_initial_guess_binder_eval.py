@@ -7,6 +7,8 @@ from colabdesign import mk_af_model
 from colabdesign.af.alphafold.common import protein
 import json
 import jax
+from Bio import PDB
+from io import StringIO
 
 
 def add_cyclic_offset(self, offset_type=2):
@@ -94,6 +96,98 @@ def save_binder_design_pdb(self, filename=None, get_best=True):
             f.write(p_str)
 
 
+def align_multiple_proteins_pdb(
+    pdb_strs: list[str], chain_residue_mappings: list[list[tuple[str, list[int] | None]] | None], all_atom: bool = False
+) -> float:
+    """Aligns multiple protein structures based on their atoms (CA or all).
+
+    :param pdb_strs: list of PDB strings
+    :param chain_residue_mappings: list of lists of tuples with chain ID and residues to align,
+                                   if None provided, then whole chain/structure is aligned
+    :param all_atom: if True, align using all atoms from matched residues (not just CA atoms)
+    """
+    assert len(pdb_strs) == len(chain_residue_mappings), (
+        f"Expected same number of structures and chain residue mappings, got {len(pdb_strs)} != {len(chain_residue_mappings)}"
+    )
+
+    parser = PDB.PDBParser(QUIET=True)
+    structures = [parser.get_structure(f"Protein{i + 1}", StringIO(pdb_str)) for i, pdb_str in enumerate(pdb_strs)]
+    coords_list = []
+    residues_list = []
+
+    for i, (structure, mappings) in enumerate(zip(structures, chain_residue_mappings)):
+        structure_coords = []
+        structure_residues = []
+
+        if not mappings:
+            coords, res_final = get_atom_coordinates(structure, None, None, all_atom=all_atom)
+            if coords:
+                coords_list.append(coords)
+                residues_list.append(res_final)
+                continue
+            else:
+                raise ValueError(f"No atoms found in structure {i + 1}")
+
+        for chain_id, residues in mappings:
+            coords, res_final = get_atom_coordinates(structure, chain_id, residues, all_atom=all_atom)
+            if coords:
+                structure_coords.extend(coords)
+                structure_residues.extend(res_final)
+            else:
+                raise ValueError(f"No atoms found in structure {i + 1} for chain {chain_id} and residues {residues}")
+
+        coords_list.append(structure_coords)
+        residues_list.append(structure_residues)
+
+    for residues in residues_list:
+        assert len(residues) == len(residues_list[0]), (
+            f"Got different number of residues in structures: {len(residues)} != {len(residues_list[0])}"
+        )
+
+    super_imposer = PDB.Superimposer()
+
+    for i in range(1, len(structures)):
+        ref_atoms = []
+        mod_atoms = []
+        for atom_id, (ref_coords, mod_coords) in enumerate(zip(coords_list[0], coords_list[i])):
+            shared_atom_names = sorted(set(ref_coords.keys()) & set(mod_coords.keys()))
+            for atom_name in shared_atom_names:
+                atom = atom_name[0]
+                ref_atoms.append(PDB.Atom.Atom("X", ref_coords[atom_name], 1.0, 1.0, " ", "X", atom_id, atom))
+                mod_atoms.append(PDB.Atom.Atom("X", mod_coords[atom_name], 1.0, 1.0, " ", "X", atom_id, atom))
+        super_imposer.set_atoms(ref_atoms, mod_atoms)
+
+    return super_imposer.rms
+
+
+def get_atom_coordinates(
+    structure: PDB.Structure.Structure,
+    chain_id: str | None,
+    residues: list[int] | None,
+    all_atom: bool = False,
+    model_index: int = 0,
+) -> tuple[list[dict[str, np.ndarray]], list[PDB.Residue.Residue]]:
+    coords = []
+    res_final = []
+
+    model = structure[model_index]
+
+    for chain in model:
+        if chain_id and chain.id != chain_id:
+            continue
+        for residue in chain:
+            if residues and residue.id[1] not in residues:
+                continue
+            coords_dict = {}
+            for atom in residue:
+                if all_atom or atom.id == "CA":
+                    coords_dict[atom.id] = atom.coord
+            if coords_dict:
+                coords.append(coords_dict)
+                res_final.append(residue)
+    return coords, res_final
+
+
 def get_pdb_total_length(pdb_path):
     unique_residues = set()
 
@@ -139,7 +233,12 @@ if __name__ == "__main__":
         default=False,
         help="Include target-binder as single structure in initial guess template to inform about their interface",
     )
-    parser.add_argument("--blind", action="store_true", default=False, help="Do NOT use AlphaFold initial guess")
+    parser.add_argument(
+        "--no-initial-guess", "--blind", action="store_true", default=False, help="Do NOT use AlphaFold initial guess"
+    )
+    parser.add_argument(
+        "--no-templates", action="store_true", default=False, help="Do NOT use templates for target or binder"
+    )
     parser.add_argument(
         "--multimer", action="store_true", default=False, help="Use AlphaFold multimer model (default = monomer)"
     )
@@ -159,21 +258,28 @@ if __name__ == "__main__":
         default=None,
         help="Target hotspot positions - used only to compute contact loss metric (i_con), comma-separated",
     )
+    parser.add_argument(
+        "--binder-alone",
+        action="store_true",
+        default=False,
+        help="Predict only the binder structure, without the target",
+    )
     options = parser.parse_args()
 
-    if options.blind:
-        assert not options.use_binder_template, "Cannot use both --blind and --use-binder-template"
-        assert not options.use_interface_template, "Cannot use both --blind and --use-interface-template"
+    if options.no_templates:
+        assert not options.use_binder_template, "Cannot use both --no-templates and --use-binder-template"
+        assert not options.use_interface_template, "Cannot use both --no-templates and --use-interface-template"
 
     if options.use_interface_template:
         assert options.use_binder_template, "--use-interface-template requires --use-binder-template"
 
     model = mk_af_model(
-        protocol="binder",
+        protocol="fixbb" if options.binder_alone else "binder",
         data_dir=options.params,
         use_multimer=options.multimer,
         model_names=["model_1_multimer_v3" if options.multimer else "model_1_ptm"],
-        use_initial_guess=not options.blind,
+        use_initial_guess=not options.no_initial_guess,
+        use_templates=not options.no_templates,
     )
     paths = sorted(glob.glob(os.path.join(options.input_dir, "*.pdb")))
     print(f"Getting sequence lengths from {len(paths):,} PDBs")
@@ -192,32 +298,42 @@ if __name__ == "__main__":
     # to avoid spikes in duration caused by changes in input length
     paths = sorted(paths, key=lambda p: total_lengths[p])
 
+    if options.binder_alone:
+        # binder alone RMSD is computed from the design and predicted PDB files instead
+        METRICS = {old_key: new_key for old_key, new_key in METRICS.items() if old_key != "rmsd"}
+
     os.makedirs(options.output_name, exist_ok=True)
     with open(options.output_name.rstrip("/") + ".jsonl", "wt") as f:
         for i, path in enumerate(paths, start=1):
             basename = os.path.basename(path).removesuffix(".pdb")
             print(f"Predicting PDB {i:,}/{len(paths):,}: {basename}")
             start_time = time.time()
-            if options.designed_chains == "A":
-                target_chain = "B"
-            elif options.designed_chains == "B":
-                target_chain = "A"
+            if options.binder_alone:
+                model.prep_inputs(
+                    path,
+                    chain=options.designed_chains,
+                )
             else:
-                raise NotImplementedError("Expected binder chain to be A or B")
-            model.prep_inputs(
-                path,
-                # TODO add support for multiple target or binder chains
-                # We can take inspiration from here: https://github.com/sokrypton/ColabDesign/blob/4127b5ab889f5b62a56644d3d1cbdd5cb313a0d0/colabdesign/rf/refolding_test.py#L87-L98
-                # A comma-separated list can be passed here
-                binder_chain=options.designed_chains,
-                target_chain=target_chain,
-                rm_target=False,
-                rm_binder=not options.use_binder_template,
-                rm_template_ic=not options.use_interface_template,
-                # Hotspots are used for connectivity loss
-                # NOTE that rfdiffusion renumbers the target chain from 1 so you need to recalculate the position numbers
-                hotspot=options.hotspot if options.hotspot else None,
-            )
+                if options.designed_chains == "A":
+                    target_chain = "B"
+                elif options.designed_chains == "B":
+                    target_chain = "A"
+                else:
+                    raise NotImplementedError("Expected binder chain to be A or B")
+                model.prep_inputs(
+                    path,
+                    # TODO add support for multiple target or binder chains
+                    # We can take inspiration from here: https://github.com/sokrypton/ColabDesign/blob/4127b5ab889f5b62a56644d3d1cbdd5cb313a0d0/colabdesign/rf/refolding_test.py#L87-L98
+                    # A comma-separated list can be passed here
+                    binder_chain=options.designed_chains,
+                    target_chain=target_chain,
+                    rm_target=False,
+                    rm_binder=not options.use_binder_template,
+                    rm_template_ic=not options.use_interface_template,
+                    # Hotspots are used for connectivity loss
+                    # NOTE that rfdiffusion renumbers the target chain from 1 so you need to recalculate the position numbers
+                    hotspot=options.hotspot if options.hotspot else None,
+                )
             if options.cyclic:
                 add_cyclic_offset(model, offset_type=2)
             model.set_seq(mode="wildtype")
@@ -229,18 +345,43 @@ if __name__ == "__main__":
             metrics["binder_pae"] = (
                 metrics["binder_pae"] * 31.0
             )  # de-normalization of https://github.com/sokrypton/ColabDesign/blob/4c0bc6d67f8f967135ecccc135a26b3bfded25e8/colabdesign/af/loss.py#L252
-            metrics["ipae"] = metrics["ipae"] * 31.0
+            suffix = os.path.basename(options.output_name.rstrip("/"))
+            out_path = os.path.join(options.output_name, f"{basename}_{suffix}.pdb")
+            if options.binder_alone:
+                predicted_pdb_str = model.save_pdb()
+                with open(out_path, "wt") as pdb_f:
+                    pdb_f.write(predicted_pdb_str)
+                with open(path) as design_f:
+                    design_pdb_str = design_f.read()
+                print("Computing binder alone RMSD")
+                # the prediction contains the designed chain only (saved as chain A by colabdesign),
+                # so the whole predicted structure is aligned to the designed chain of the input PDB
+                binder_alone_mappings = [
+                    [(chain, None) for chain in options.designed_chains.split(",")],
+                    None,
+                ]
+                metrics["binder_alone_bb_rmsd"] = align_multiple_proteins_pdb(
+                    pdb_strs=[design_pdb_str, predicted_pdb_str],
+                    chain_residue_mappings=binder_alone_mappings,
+                    all_atom=False,
+                )
+                metrics["binder_alone_aa_rmsd"] = align_multiple_proteins_pdb(
+                    pdb_strs=[design_pdb_str, predicted_pdb_str],
+                    chain_residue_mappings=binder_alone_mappings,
+                    all_atom=True,
+                )
+            else:
+                save_binder_design_pdb(model, out_path)
+                metrics["ipae"] = metrics["ipae"] * 31.0
+                ca_pos = model.aux["atom_positions"][:, 1]  # 1 = CA index
+                ca_dist = np.sqrt(
+                    np.square(ca_pos[model._target_len :, None] - ca_pos[None, : model._target_len]).sum(axis=-1) + 1e-8
+                )
+                target_interface_res = model.aux["residue_index"][: model._target_len][ca_dist.min(axis=0) <= 8]
+                metrics["interface_target_residues"] = ",".join(f"B{pos}" for pos in target_interface_res)
             metrics["time"] = time.time() - start_time
-            ca_pos = model.aux["atom_positions"][:, 1]  # 1 = CA index
-            ca_dist = np.sqrt(
-                np.square(ca_pos[model._target_len :, None] - ca_pos[None, : model._target_len]).sum(axis=-1) + 1e-8
-            )
-            target_interface_res = model.aux["residue_index"][: model._target_len][ca_dist.min(axis=0) <= 8]
-            metrics["interface_target_residues"] = ",".join(f"B{pos}" for pos in target_interface_res)
             metrics_str = " | ".join(f"{k} = {v:.2f}" for k, v in metrics.items() if isinstance(v, float))
             print(" Prediction done in {:.1f}s | {}".format(metrics["time"], metrics_str))
             json.dump(metrics, f)
             f.write("\n")
             f.flush()
-            suffix = os.path.basename(options.output_name.rstrip("/"))
-            save_binder_design_pdb(model, os.path.join(options.output_name, f"{basename}_{suffix}.pdb"))

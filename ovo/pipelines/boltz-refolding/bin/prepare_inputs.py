@@ -118,10 +118,13 @@ def prepare_inputs_binder(
     target_template_chains: str | None = None,
     binder_chain: str | list[str] = "A",
     template_force_threshold: float | None = None,
+    binder_alone: bool = False,
 ):
     """
     Prepares input files for Boltz. Converts PDB files (outputs of Protein/Ligand MPNN) to YAML format.
     Currently the code assumes the target can be a same sequence with multiple ids, e.g. homo-k-mers.
+
+    If binder_alone is True, only the binder chain is predicted, without the target chains.
     """
 
     if isinstance(binder_chain, list):
@@ -149,6 +152,11 @@ def prepare_inputs_binder(
         structures[name] = (binder_seq, target_seqs)
 
     target_chains = sorted(target_chains_set)
+
+    if binder_alone:
+        assert target_template is None, "Cannot use a target template when predicting the binder alone"
+        # Drop the target chains, only the binder sequence is predicted
+        structures = {name: (binder_seq, []) for name, (binder_seq, _) in structures.items()}
 
     if target_template is not None:
         target_template = convert_to_boltz_cif(target_template)
@@ -273,6 +281,12 @@ if __name__ == "__main__":
         help="Design type for refolding tests. Either 'scaffold' or 'binder'. Default: None.",
     )
     parser.add_argument(
+        "--binder-alone",
+        action="store_true",
+        default=False,
+        help="Predict only the binder structure, without the target. Default: False.",
+    )
+    parser.add_argument(
         "--template_chains",
         type=str,
         default=None,
@@ -294,6 +308,7 @@ if __name__ == "__main__":
             target_template=None if args.no_template else args.template,
             target_template_chains=args.template_chains,
             template_force_threshold=args.template_force_threshold,
+            binder_alone=args.binder_alone,
         )
     elif args.design_type == "scaffold":
         prepare_inputs_scaffold(

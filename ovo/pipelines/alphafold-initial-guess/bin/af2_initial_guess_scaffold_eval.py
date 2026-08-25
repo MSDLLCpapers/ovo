@@ -173,6 +173,7 @@ def align_multiple_proteins_pdb(
             if coords:
                 coords_list.append(coords)
                 residues_list.append(res_final)
+                continue
             else:
                 raise ValueError(f"No atoms found in structure {i + 1}")
 
@@ -275,6 +276,9 @@ if __name__ == "__main__":
         "--no-templates", action="store_true", default=False, help="Do NOT use templates for fixed regions"
     )
     parser.add_argument(
+        "--no-initial-guess", action="store_true", default=False, help="Do NOT use initial guess initialization"
+    )
+    parser.add_argument(
         "--multimer", action="store_true", default=False, help="Use AlphaFold multimer model (default = monomer)"
     )
     parser.add_argument(
@@ -289,7 +293,7 @@ if __name__ == "__main__":
         data_dir=options.params,
         use_templates=not options.no_templates,
         use_multimer=options.multimer,
-        use_initial_guess=True,
+        use_initial_guess=not options.no_initial_guess,
     )
     paths = sorted(glob.glob(os.path.join(options.input_dir, "*.pdb")))
     print(f"Getting info from {len(paths):,} PDBs")

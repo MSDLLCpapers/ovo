@@ -9,9 +9,11 @@ from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_design_ids,
     get_cached_available_descriptors,
+    get_cached_num_cyclic,
 )
 from ovo.core.database import Pool, DesignJob
 from ovo.core.database.descriptors_refolding import REFOLDING_DESCRIPTORS
+from ovo.app.pages.designs.explorer import design_visualization_fragment
 from ovo.core.database.models_refolding import (
     REFOLDING_TESTS_BY_TYPE,
     RefoldingSupportedDesignWorkflow,
@@ -74,6 +76,9 @@ def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
         descriptor_keys=[d.key for d in descriptors],
     )
 
+    st.subheader("Designs")
+    design_visualization_fragment(design_ids)
+
 
 @st.fragment
 @st.dialog("Refolding submission", width="medium")
@@ -82,7 +87,6 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
     content = st.empty()
     with content.container():
         num_designs = len(design_ids)
-        st.write(f"""Submit refolding evaluation for {num_designs:,} {"design" if num_designs == 1 else "designs"}""")
 
         pools = db.select(Pool, id__in=pool_ids)
         design_workflows_by_pool_id = {
@@ -133,11 +137,22 @@ def submit_refolding_dialog(pool_ids: list[str], design_ids: list[str]):
             if st.checkbox(f"**{label}** {description}", key=test):
                 tests.append(test)
 
+        num_cyclic = get_cached_num_cyclic(design_ids)
+        if num_cyclic:
+            if num_cyclic != len(design_ids):
+                st.error(
+                    "Cannot submit cyclic and non-cyclic designs together "
+                    f"({num_cyclic}/{len(design_ids)} designs are cyclic in this selection)"
+                )
+                return
+            st.write(":material/info: Workflow will predict macrocyclic designs")
+
         workflows = RefoldingWorkflow.from_designs(
             pool_ids=pool_ids,
             design_ids=design_ids,
             tests=tests,
             design_type=design_type,
+            cyclic=bool(num_cyclic),
         )
 
         scheduler_key = scheduler_selectbox(workflows)

@@ -45,9 +45,16 @@ workflow Refolding {
                     } else if (template == "tt") {
                       // default binder
                       expected_design_type = "binder"
+                    } else if (template == "binderalone") {
+                      // binder alone, no template
+                      args += " --no-templates --no-initial-guess --binder-alone "
+                      expected_design_type = "binder"
                     } else if (template == "nt") {
                       args += " --no-templates"
                       expected_design_type = "scaffold"
+                    } else if (template == "seq") {
+                      // sequence only, no structure input at all
+                      expected_design_type = "sequence"
                     } else if (template == "tbt") {
                       args += " --use-binder-template"
                       expected_design_type = "binder"
@@ -90,8 +97,8 @@ workflow Refolding {
                     def args = ""
                     def expected_design_type = null
 
-                    // Match naming convention: boltz<1|2>_<scaffold|binder>_<nt|tt>
-                    def matcher_new = (test =~ /boltz([12])_(scaffold|binder)_(nt|tt)/)
+                    // Match naming convention: boltz<1|2>_<scaffold|binder>_<nt|tt|alone>
+                    def matcher_new = (test =~ /boltz([12])_(scaffold|binder)_(nt|tt|alone)/)
 
                     if (matcher_new.matches()) {
                         def design_type_suffix
@@ -105,6 +112,12 @@ workflow Refolding {
                         // Set template args based on suffix
                         if (template == "nt") {
                             args += " --no-template "
+                        } else if (template == "alone") {
+                            // binder alone, no target and no template
+                            if (design_type != "binder") {
+                                throw new IllegalArgumentException("Template type 'alone' (binder alone) only valid for binder design_type, got: ${design_type}")
+                            }
+                            args += " --no-template --binder-alone "
                         } else if (template == "tt") {
                             if (design_type != "binder") {
                                 throw new IllegalArgumentException("Template type 'tt' (target template) only valid for binder design_type, got: ${design_type}")
@@ -112,7 +125,7 @@ workflow Refolding {
                             // Use target template (default behavior, no special args needed)
                         }
                     } else {
-                        throw new IllegalArgumentException("Test '${test}' does not match expected pattern: boltz<1|2>_<scaffold|binder>_<nt|tt>")
+                        throw new IllegalArgumentException("Test '${test}' does not match expected pattern: boltz<1|2>_<scaffold|binder>_<nt|tt|alone>")
                     }
 
                     boltz_tests.add([test, design_type, args])
@@ -203,8 +216,16 @@ workflow {
     }
     indexes = Channel.of(1..(1000000.intdiv(params.batch_size)))
 	def inputBatches
+	def batches
 	def nativePdb = params.native_pdb ? params.native_pdb : "${projectDir}/lib/NO_FILE"
-    if (params.input_designs.endsWith('.txt')) {
+    if (params.input_designs.endsWith('.csv')) {
+        // Sequence csv input, divide rows into batches (chunk files keep the .csv extension).
+        // The csv chunk is passed directly as the design input, no design structure directory is needed.
+        batches = Channel
+          .fromPath(params.input_designs)
+          .splitText(by: params.batch_size, file: true, keepHeader: true)
+          .merge(indexes, { design_csv, idx -> ["contig1_batch${idx}", design_csv, nativePdb] })
+    } else if (params.input_designs.endsWith('.txt')) {
         inputBatches = Channel
           .fromList(file(params.input_designs).readLines())
           .collate(params.batch_size)
@@ -221,13 +242,16 @@ workflow {
           .fromPath(params.input_designs)
           .map( design_path -> ["contig1_batch1", design_path, nativePdb] )
     } else {
-        throw new IllegalArgumentException("Input designs must be a pdb file, a directory ending with /, or a txt file (one path to pdb per line), got: ${params.input_designs}")
+        throw new IllegalArgumentException("Input designs must be a pdb file, a directory ending with /, a txt file (one path to pdb per line), or a csv file of sequences, got: ${params.input_designs}")
     }
 
-    createDirs(inputBatches)
+    if (inputBatches) {
+        createDirs(inputBatches)
+        batches = createDirs.out
+    }
 
     Refolding(
-      createDirs.out.map({ batch_name, batch_design_dir, native_pdb -> [
+      batches.map({ batch_name, batch_design_dir, native_pdb -> [
         batch_name: batch_name,
         batch_design_dir: batch_design_dir,
         native_pdb: native_pdb,

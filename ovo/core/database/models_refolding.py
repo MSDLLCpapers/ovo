@@ -42,6 +42,7 @@ class RefoldingWorkflow(DescriptorWorkflow):
     tests: List[str] = None
     design_type: str = None
     native_pdb_path: str = None
+    cyclic: bool = False
 
     def get_pipeline_name(self) -> str:
         return "ovo.refolding"

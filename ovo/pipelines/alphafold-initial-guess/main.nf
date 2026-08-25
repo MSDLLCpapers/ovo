@@ -56,7 +56,7 @@ process AlphaFoldInitialGuess {
     ${pdb_dir} \
 	${meta.batch_name}/${meta.test} \
 	--params ./alphafold_params \
-	${design_type == "scaffold" && "${native_pdb}" != "NO_FILE" ? "--native-pdb ${native_pdb}" : ""} \
+	${design_type != "binder" && "${native_pdb}" != "NO_FILE" ? "--native-pdb ${native_pdb}" : ""} \
 	${run_parameters}
   """
 
