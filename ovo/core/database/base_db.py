@@ -163,6 +163,14 @@ class DBEngine(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def get_labelings_for_design_ids(self, design_ids: list[str]) -> dict[str, list[Labeling]]:
+        """Get all labelings of the given designs, returning a mapping from design ID to its labelings.
+
+        Designs without any labelings are not present in the returned mapping.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
     def get_available_labels_for_design_ids(self, design_ids: list[str]) -> list[str]:
         """Get unique labels available for the given design IDs (union)."""
         raise NotImplementedError()

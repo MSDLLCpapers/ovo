@@ -138,10 +138,10 @@ def get_wide_descriptor_table(
         df.insert(0, seq_column, pd.Series(sequences_by_design_id))
 
     # Add design labels (comma separated) as a column
+    labelings_by_design_id = db.get_labelings_for_design_ids(design_ids)
     design_labels_dict = {}
     for design_id in design_ids:
-        labelings = db.get_labelings_for_design(design_id)
-        labels = [labeling.label for labeling in labelings]
+        labels = [labeling.label for labeling in labelings_by_design_id.get(design_id, [])]
         design_labels_dict[design_id] = ",".join(labels) if labels else None
     design_labels_series = pd.Series(design_labels_dict)
 
@@ -909,8 +909,10 @@ def export_design_descriptors_excel(df: pd.DataFrame, output_path=None) -> Bytes
         labels_excel_col = labels_level_index
         design_ids = df.index.get_level_values(0).tolist()
 
+        labelings_by_design_id = db.get_labelings_for_design_ids(design_ids)
+
         for row_idx, design_id in enumerate(design_ids, start=row_offset):
-            labelings = db.get_labelings_for_design(design_id)
+            labelings = labelings_by_design_id.get(design_id, [])
             if labelings:
                 # Create comment text with label: explanation pairs
                 comment_parts = []

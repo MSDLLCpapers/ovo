@@ -100,7 +100,7 @@ def get_cached_descriptor_jobs_for_design_ids(
 
 
 @clear_when_modified(DescriptorValue)
-@st.cache_data(max_entries=100, ttl="1h")
+@st.cache_data(max_entries=100, ttl="1h", show_spinner="Gathering available descriptors...")
 def get_cached_available_descriptors(
     design_ids: Collection[str], exclude_required_jobs: bool = True
 ) -> dict[str, Descriptor]:

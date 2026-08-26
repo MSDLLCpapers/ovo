@@ -681,6 +681,38 @@ class SqlDBEngine(CacheClearingEngine):
             )
             return query.all()
 
+    def get_labelings_for_design_ids(self, design_ids: list[str]) -> dict[str, list[Labeling]]:
+        """Get all labelings of the given designs using a single query per batch of design IDs."""
+        if not design_ids:
+            return {}
+
+        from collections import defaultdict
+
+        with self._create_session() as session:
+            # Batch design_ids to avoid SQLite parameter limit
+            design_ids = list(design_ids)
+            batches = (
+                [design_ids]
+                if not self._in_clause_items_limit
+                else [
+                    design_ids[i : i + self._in_clause_items_limit]
+                    for i in range(0, len(design_ids), self._in_clause_items_limit)
+                ]
+            )
+
+            labelings_by_design_id = defaultdict(list)
+            for batch in batches:
+                query = (
+                    session.query(DesignLabeling.design_id, Labeling)
+                    .join(Labeling, Labeling.id == DesignLabeling.labeling_id)
+                    .filter(DesignLabeling.design_id.in_(batch))
+                    .order_by(Labeling.created_date_utc)  # from least recent to most recent
+                )
+                for design_id, labeling in query.all():
+                    labelings_by_design_id[design_id].append(labeling)
+
+            return dict(labelings_by_design_id)
+
     def get_available_labels_for_design_ids(self, design_ids: list[str]) -> list[str]:
         """Get unique labels available for the given design IDs (union)."""
         if not design_ids:

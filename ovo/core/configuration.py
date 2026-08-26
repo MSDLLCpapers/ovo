@@ -98,9 +98,12 @@ class ConfigProps(BaseNestedConfigModel):
             "docx",
             "csv",
             "xlsx",
+            "pdf",
+            "pptx",
             "json",
             "pdb",
             "cif",
+            "pse",
             "zip",
             "gz",
             "tar",
@@ -108,6 +111,9 @@ class ConfigProps(BaseNestedConfigModel):
             "fasta",
             "tsv",
             "html",
+            "png",
+            "jpg",
+            "jpeg",
         ]
     )
 
