@@ -683,6 +683,7 @@ class SqlDBEngine(CacheClearingEngine):
 
     def get_labelings_for_design_ids(self, design_ids: list[str]) -> dict[str, list[Labeling]]:
         """Get all labelings of the given designs using a single query per batch of design IDs."""
+        design_ids = list(design_ids)
         if not design_ids:
             return {}
 
@@ -690,7 +691,6 @@ class SqlDBEngine(CacheClearingEngine):
 
         with self._create_session() as session:
             # Batch design_ids to avoid SQLite parameter limit
-            design_ids = list(design_ids)
             batches = (
                 [design_ids]
                 if not self._in_clause_items_limit

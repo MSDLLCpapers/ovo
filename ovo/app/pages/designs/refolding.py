@@ -126,7 +126,7 @@ def submit_refolding_dialog(design_ids: list[str]):
             )
             if not st.checkbox("Acknowledge"):
                 return
-            design_type = st.selectbox("Select design type", options=REFOLDING_TESTS_BY_TYPE.keys(), key="design_type")
+            design_type = st.selectbox("Select design type", options=REFOLDING_TESTS_BY_TYPE.keys(), key="design_type", index=None)
             if not design_type:
                 return
         else:
