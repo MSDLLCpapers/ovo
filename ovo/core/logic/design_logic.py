@@ -152,7 +152,11 @@ def format_pool_status(job: DesignJob, processed: bool, update_status: bool = Tr
         except:
             traceback.print_exc()
             return "Unknown Scheduler"
-        return f"⏳{scheduler.get_status_label(job.job_id)}"
+        try:
+            return f"⏳{scheduler.get_status_label(job.job_id)}"
+        except:
+            traceback.print_exc()
+            return "Unknown Status"
     return "In progress"
 
 
