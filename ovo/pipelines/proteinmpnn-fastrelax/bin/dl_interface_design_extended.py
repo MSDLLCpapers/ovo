@@ -2,6 +2,7 @@
 
 import os
 import sys
+import traceback
 
 from pyrosetta import *
 from pyrosetta.rosetta import *
@@ -548,7 +549,12 @@ class StructManager:
 struct_manager = StructManager(args)
 proteinmpnn_runner = ProteinMPNN_runner(args, struct_manager)
 
+# Number of structures processed in this run, structures already listed in the checkpoint are not counted
+num_processed = 0
+num_failed = 0
+
 for pdb in struct_manager.iterate():
+    num_processed += 1
     if args.debug:
         proteinmpnn_runner.run_model(pdb, args)
 
@@ -562,8 +568,17 @@ for pdb in struct_manager.iterate():
             sys.exit("Script killed by Control+C, exiting")
 
         except:
+            num_failed += 1
             seconds = int(time.time() - t0)
-            print("Struct with tag %s failed in %i seconds with error: %s" % (pdb, seconds, sys.exc_info()[0]))
+            print("Struct with tag %s failed in %i seconds:" % (pdb, seconds))
+            # Print the full traceback, the failures are tolerated so this is the only record of what went wrong
+            traceback.print_exc()
 
     # We are done with one pdb, record that we finished
+    # Note that failed structures are checkpointed as well, so they are not retried when the script is rerun
     struct_manager.record_checkpoint(pdb)
+
+if num_processed and num_failed == num_processed:
+    raise ValueError("All structures failed to process, please check the error messages above for more information")
+elif num_failed > 0:
+    print(f"Finished processing {num_processed} structures with {num_failed} failures")

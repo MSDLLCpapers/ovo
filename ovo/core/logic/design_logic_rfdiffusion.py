@@ -338,7 +338,7 @@ def process_rfdiffusion_design(
 
         mpnn_full_source_path = os.path.join(source_dir, batch_name, mpnn_source_path + ".pdb")
         if not storage.file_exists(mpnn_full_source_path):
-            # skip designs that were filtered out before MPNN step
+            # skip designs that were filtered out before MPNN step, or failed during MPNN step (e.g. in fastrelax)
             # TODO read backbone_metrics.csv to know why they were filtered out,
             #  and only skip those with passed_filters=False, instead of checking file existence.
             #  The csv would need to be read from the correct batch folder, and only once per batch, not per design
