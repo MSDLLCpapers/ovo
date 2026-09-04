@@ -519,15 +519,6 @@ for test, (label, description) in REFOLDING_TESTS_SCAFFOLD.items():
                 comparison="higher_is_better",
             ),
             NumericGlobalDescriptor(
-                name="Boltz Ligand ipTM score",
-                description=f"Boltz interface predicted TM score for ligand interactions (0 = worst, 1 = best) using {description}",
-                tool=f"Boltz ({label})",
-                key=f"refolding|{test}|ligand_iptm",
-                min_value=0,
-                max_value=1,
-                comparison="higher_is_better",
-            ),
-            NumericGlobalDescriptor(
                 name="Boltz Protein ipTM score",
                 description=f"Boltz interface predicted TM score for protein-protein interactions (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
@@ -739,7 +730,7 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
             ),
             NumericGlobalDescriptor(
                 name="Boltz ipTM score",
-                description=f"Boltz interface predicted TM score (0 = worst, 1 = best) based on all pairs of residues between the interacting chains using {description}",
+                description=f"Interface predicted TM score of the binder with the target, averaged over the target chains weighted by their number of residues (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|iptm",
                 min_value=0,
@@ -747,17 +738,8 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 comparison="higher_is_better",
             ),
             NumericGlobalDescriptor(
-                name="Boltz Ligand ipTM score",
-                description=f"Boltz interface predicted TM score for ligand interactions (0 = worst, 1 = best) using {description}",
-                tool=f"Boltz ({label})",
-                key=f"refolding|{test}|ligand_iptm",
-                min_value=0,
-                max_value=1,
-                comparison="higher_is_better",
-            ),
-            NumericGlobalDescriptor(
                 name="Boltz Protein ipTM score",
-                description=f"Boltz interface predicted TM score for protein-protein interactions (0 = worst, 1 = best) using {description}",
+                description=f"Interface predicted TM score for protein-protein interactions, which is the ipTM score itself since a refolding prediction contains no ligands (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|protein_iptm",
                 min_value=0,
@@ -774,6 +756,70 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
                 comparison="higher_is_better",
             ),
             NumericGlobalDescriptor(
+                name="Boltz iPAE",
+                description=f"Average predicted aligned error between the residues of the binder and of the target using {description}",
+                unit="Å",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|ipae",
+                min_value=0,
+                comparison="lower_is_better",
+                color_scale="pae",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz ipSAE",
+                description=f"Interface Score of the Aligned Error of the binder with the target, an ipTM score that only counts confidently predicted residue pairs and that judges each residue against how much of the other chain it is actually placed against, so a large target cannot inflate it. The strictest of the three ipSAE variants and the one to rank designs by (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|ipsae",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz ipSAE d0chn (chain length)",
+                description=f"The same score as ipSAE, but graded on how big the two chains are rather than on how big the confident part of the interface is. The bigger the complex, the more error is tolerated, so this is the most forgiving of the three variants and the only one directly comparable to the ipTM score. Read it next to ipSAE: if it is much higher, the part of the interface the model is actually sure about is far smaller than the chains, which is what a big padded target looks like (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|ipsae_d0chn",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz ipSAE d0dom (domain length)",
+                description=f"The same score as ipSAE, but graded on how big the confidently predicted part of the two chains is, throwing away the residues the model has no idea about. Stricter than the chain length variant, because padding the target no longer helps, but still more forgiving than ipSAE, which grades every residue on its own. A middle ground, useful for telling apart a design with one small confident patch from one with a broad confident interface (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|ipsae_d0dom",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz pDockQ",
+                description=f"Predicted DockQ score of the binder with the target, from the interface pLDDT and the number of interface residue pairs (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|pdockq",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz pDockQ2",
+                description=f"Predicted DockQ score of the binder with the target, from the interface pLDDT and the predicted aligned error of the interface residue pairs (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|pdockq2",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
+                name="Boltz LIS",
+                description=f"Local Interaction Score of the binder with the target, from the predicted aligned error of the residue pairs below 12 Å (0 = worst, 1 = best) using {description}",
+                tool=f"Boltz ({label})",
+                key=f"refolding|{test}|lis",
+                min_value=0,
+                max_value=1,
+                comparison="higher_is_better",
+            ),
+            NumericGlobalDescriptor(
                 name="Boltz Binder pLDDT",
                 description=f"Average pLDDT confidence score of the binder chain (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
@@ -784,7 +830,7 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
             ),
             NumericGlobalDescriptor(
                 name="Boltz ipLDDT",
-                description=f"Average pLDDT score when upweighting interface tokens (0 = worst, 1 = best) using {description}",
+                description=f"Average pLDDT score when upweighting the residues at the interface of the binder with the target (0 = worst, 1 = best) using {description}",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|complex_iplddt",
                 min_value=0,
@@ -801,7 +847,8 @@ for test, (label, description) in REFOLDING_TESTS_BINDER.items():
             ),
             NumericGlobalDescriptor(
                 name="Boltz ipDE",
-                description=f"Predicted distance error of the complex interface using {description}",
+                description=f"Predicted distance error between the residues of the binder and of the target that are in contact using {description}",
+                unit="Å",
                 tool=f"Boltz ({label})",
                 key=f"refolding|{test}|complex_ipde",
                 min_value=0,
@@ -940,25 +987,18 @@ BOLTZ_PRIMARY_PTM_SCORE = NumericGlobalDescriptor(
 )
 BOLTZ_PRIMARY_IPTM_SCORE = NumericGlobalDescriptor(
     name="Boltz ipTM score",
-    description=f"Boltz interface predicted TM score (0 = worst, 1 = best) based on all pairs of residues between the interacting chains",
+    description="Interface predicted TM score of the binder with the target, averaged over the target chains "
+    "weighted by their number of residues (0 = worst, 1 = best)",
     tool="Boltz",
     key=f"refolding|boltz_primary|iptm",
     min_value=0,
     max_value=1,
     comparison="higher_is_better",
 )
-BOLTZ_PRIMARY_LIGAND_IPTM_SCORE = NumericGlobalDescriptor(
-    name="Boltz Ligand ipTM score",
-    description=f"Boltz interface predicted TM score for ligand interactions (0 = worst, 1 = best)",
-    tool="Boltz",
-    key=f"refolding|boltz_primary|ligand_iptm",
-    min_value=0,
-    max_value=1,
-    comparison="higher_is_better",
-)
 BOLTZ_PRIMARY_PROTEIN_IPTM_SCORE = NumericGlobalDescriptor(
     name="Boltz Protein ipTM score",
-    description=f"Boltz interface predicted TM score for protein-protein interactions (0 = worst, 1 = best)",
+    description="Interface predicted TM score for protein-protein interactions, which is the ipTM score itself "
+    "since a refolding prediction contains no ligands (0 = worst, 1 = best)",
     tool="Boltz",
     key=f"refolding|boltz_primary|protein_iptm",
     min_value=0,
@@ -976,7 +1016,8 @@ BOLTZ_PRIMARY_PLDDT = NumericGlobalDescriptor(
 )
 BOLTZ_PRIMARY_IPLDDT = NumericGlobalDescriptor(
     name="Boltz ipLDDT",
-    description=f"Average pLDDT score when upweighting interface tokens (0 = worst, 1 = best)",
+    description="Average pLDDT score when upweighting the residues at the interface of the binder with the target "
+    "(0 = worst, 1 = best)",
     tool="Boltz",
     key=f"refolding|boltz_primary|complex_iplddt",
     min_value=0,
@@ -993,7 +1034,8 @@ BOLTZ_PRIMARY_PDE = NumericGlobalDescriptor(
 )
 BOLTZ_PRIMARY_IPDE = NumericGlobalDescriptor(
     name="Boltz ipDE",
-    description=f"Predicted distance error of the complex interface",
+    description="Predicted distance error between the residues of the binder and of the target that are in contact",
+    unit="Å",
     tool="Boltz",
     key=f"refolding|boltz_primary|complex_ipde",
     min_value=0,
@@ -1038,6 +1080,84 @@ BOLTZ_PRIMARY_COMPLEX_RMSD = NumericGlobalDescriptor(
     min_value=0,
     comparison="lower_is_better",
     color_scale="rmsd",
+)
+BOLTZ_PRIMARY_IPAE = NumericGlobalDescriptor(
+    name="Boltz iPAE",
+    description="Average predicted aligned error between the residues of the binder and of the target",
+    unit="Å",
+    tool="Boltz",
+    key="refolding|boltz_primary|ipae",
+    min_value=0,
+    comparison="lower_is_better",
+    color_scale="pae",
+)
+BOLTZ_PRIMARY_IPSAE = NumericGlobalDescriptor(
+    name="Boltz ipSAE",
+    description="Interface Score of the Aligned Error of the binder with the target, an ipTM score that only counts "
+    "confidently predicted residue pairs and that judges each residue against how much of the other chain it is "
+    "actually placed against, so a large target cannot inflate it. The strictest of the three ipSAE variants and the "
+    "one to rank designs by (0 = worst, 1 = best)",
+    tool="Boltz",
+    key="refolding|boltz_primary|ipsae",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_IPSAE_D0CHN = NumericGlobalDescriptor(
+    name="Boltz ipSAE d0chn (chain length)",
+    description="The same score as ipSAE, but graded on how big the two chains are rather than on how big the "
+    "confident part of the interface is. The bigger the complex, the more error is tolerated, so this is the most "
+    "forgiving of the three variants and the only one directly comparable to the ipTM score. Read it next to ipSAE: "
+    "if it is much higher, the part of the interface the model is actually sure about is far smaller than the chains, "
+    "which is what a big padded target looks like (0 = worst, 1 = best)",
+    tool="Boltz",
+    key="refolding|boltz_primary|ipsae_d0chn",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_IPSAE_D0DOM = NumericGlobalDescriptor(
+    name="Boltz ipSAE d0dom (domain length)",
+    description="The same score as ipSAE, but graded on how big the confidently predicted part of the two chains is, "
+    "throwing away the residues the model has no idea about. Stricter than the chain length variant, because padding "
+    "the target no longer helps, but still more forgiving than ipSAE, which grades every residue on its own. A middle "
+    "ground, useful for telling apart a design with one small confident patch from one with a broad confident "
+    "interface (0 = worst, 1 = best)",
+    tool="Boltz",
+    key="refolding|boltz_primary|ipsae_d0dom",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_PDOCKQ = NumericGlobalDescriptor(
+    name="Boltz pDockQ",
+    description="Predicted DockQ score of the binder with the target, from the interface pLDDT and the number of "
+    "interface residue pairs (0 = worst, 1 = best)",
+    tool="Boltz",
+    key="refolding|boltz_primary|pdockq",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_PDOCKQ2 = NumericGlobalDescriptor(
+    name="Boltz pDockQ2",
+    description="Predicted DockQ score of the binder with the target, from the interface pLDDT and the predicted "
+    "aligned error of the interface residue pairs (0 = worst, 1 = best)",
+    tool="Boltz",
+    key="refolding|boltz_primary|pdockq2",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
+BOLTZ_PRIMARY_LIS = NumericGlobalDescriptor(
+    name="Boltz LIS",
+    description="Local Interaction Score of the binder with the target, from the predicted aligned error of the "
+    "residue pairs below 12 Å (0 = worst, 1 = best)",
+    tool="Boltz",
+    key="refolding|boltz_primary|lis",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
 )
 BOLTZ_PRIMARY_BINDER_PLDDT = NumericGlobalDescriptor(
     name="Boltz Binder pLDDT",

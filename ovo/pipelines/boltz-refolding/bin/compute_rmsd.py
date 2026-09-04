@@ -6,7 +6,7 @@ import numpy as np
 import glob
 import argparse
 from io import StringIO
-from Bio import PDB, Align, SeqIO
+from Bio import PDB, Align
 
 
 aa3to1 = {
@@ -183,15 +183,21 @@ def get_aligned_structure_as_string(structure) -> str:
     return io.getvalue()
 
 
-def cif_to_pdb_str(cif_path: str) -> str:
-    """Load a CIF file and return its PDB representation as a string."""
-    parser = PDB.MMCIFParser(QUIET=True)
-    structure = parser.get_structure("struct", cif_path)
-    pdb_buffer = StringIO()
-    io = PDB.PDBIO()
-    io.set_structure(structure)
-    io.save(pdb_buffer)
-    return pdb_buffer.getvalue()
+def read_prediction(prediction_dir: str, name: str) -> str:
+    """Read the published prediction of one design.
+
+    The predictions are published by calculate_metrics.py, which converts them from the mmCIF files
+    of Boltz and puts a split target back under the chain IDs and residue numbering of the design.
+    """
+    test_name = os.path.basename(prediction_dir.rstrip("/"))
+    with open(os.path.join(prediction_dir, f"{name}_{test_name}.pdb")) as f:
+        return f.read()
+
+
+def read_metrics(metrics_path: str) -> dict[str, dict]:
+    """Read a JSONL metrics file as a dict keyed by design ID."""
+    with open(metrics_path) as f:
+        return {metrics["id"]: metrics for metrics in map(json.loads, f) if metrics}
 
 
 def parse_remark_lines(stripped_remark_lines: list[str]) -> dict[str, str]:
@@ -289,14 +295,14 @@ def get_motif_residues(remark_dict: dict[str, str]) -> tuple[list[tuple[str, lis
     return input_motif_residues, output_motif_residues
 
 
-def get_chain_plddt(cif_path: str, chain_id: str) -> float:
-    """Extract mean pLDDT for a specific chain from a CIF file.
+def get_chain_plddt(pdb_str: str, chain_id: str) -> float:
+    """Extract mean pLDDT for a specific chain of a predicted structure.
 
-    pLDDT values are stored in the B-factor column of the CIF file.
+    pLDDT values are stored in the B-factor column.
     Returns the mean pLDDT across all residues in the chain (0-100).
     """
-    parser = PDB.MMCIFParser(QUIET=True)
-    structure = parser.get_structure("struct", cif_path)
+    parser = PDB.PDBParser(QUIET=True)
+    structure = parser.get_structure("struct", StringIO(pdb_str))
 
     # Collect pLDDT values per residue (average across atoms in each residue)
     residue_plddts = []
@@ -314,7 +320,7 @@ def get_chain_plddt(cif_path: str, chain_id: str) -> float:
         break  # Only use first model
 
     if not residue_plddts:
-        raise ValueError(f"No residues found in chain {chain_id} in {cif_path}")
+        raise ValueError(f"No residues found in chain {chain_id} of the prediction")
 
     # Return mean pLDDT across all residues
     return float(np.mean(residue_plddts))
@@ -372,60 +378,59 @@ def trim_pdb_str(pdb_input_string: str, target_chain: str, start_res: int = 1, e
     return stringIO.getvalue()
 
 
-def convert_predicted_cifs_to_pdbs(boltz_pubdir: str, output_pdb_dir: str) -> None:
-    """Convert all predicted CIF files in the Boltz output directory to PDB format for easier downstream analysis."""
-    cif_files = sorted(glob.glob(os.path.join(boltz_pubdir, "*", "*_model_0.cif")))
-    test_name = os.path.basename(output_pdb_dir.rstrip("/"))
-    for cif_file in cif_files:
-        pdb_str = cif_to_pdb_str(cif_file)
-        design_name = os.path.basename(cif_file).removesuffix("_model_0.cif")
-        with open(os.path.join(output_pdb_dir, f"{design_name}_{test_name}.pdb"), "w") as f:
-            f.write(pdb_str)
+def get_target_chain_ids(pdb_str: str, binder_chain: str) -> list[str]:
+    """Return the non-binder chain IDs of a structure, in the order they appear in it."""
+    chain_ids = []
+    for chain in PDB.PDBParser(QUIET=True).get_structure("struct", StringIO(pdb_str))[0]:
+        if chain.id != binder_chain and chain.id not in chain_ids:
+            chain_ids.append(chain.id)
+    return chain_ids
+
+
+def get_target_sequence(pdb_str: str, chain_ids: list[str]) -> str:
+    """Return the residues of the given chains as one sequence, in the order the chains are given."""
+    structure = PDB.PDBParser(QUIET=True).get_structure("struct", StringIO(pdb_str))[0]
+    return "".join(
+        aa3to1.get(residue.resname, "X") for chain_id in chain_ids for residue in structure[chain_id] if "CA" in residue
+    )
 
 
 def compute_rmsd_binder(
     input_dir: str,
-    boltz_pubdir: str,
+    prediction_dir: str,
     binder_chain: str,
+    boltz_metrics: dict[str, dict],
     output_metrics_path: str,
 ) -> None:
-    # Auto-detect target chains from the first PDB file
-    # Target chains are defined as all chains that are not the binder chain
     all_pdbs = sorted(glob.glob(os.path.join(input_dir, "*.pdb")))
-    first_pdb = all_pdbs[0]
-
-    # Use SeqIO to parse chains (same logic as prepare_inputs.py)
-    chains = list(SeqIO.parse(first_pdb, "pdb-atom"))
-    all_chain_ids = set()
-    for chain in chains:
-        chain_id = chain.annotations["chain"]
-        all_chain_ids.add(chain_id)
-
-    target_chains_list = sorted([chain_id for chain_id in all_chain_ids if chain_id != binder_chain])
-
-    if not target_chains_list:
-        raise ValueError(f"No target chains found in {first_pdb}. All chains are binder chain '{binder_chain}'.")
-
-    print(f"Auto-detected target chains: {target_chains_list}")
-    print(f"Binder chain: {binder_chain}")
 
     results = []
     for pdb_path in all_pdbs:
         name = os.path.basename(pdb_path).removesuffix(".pdb")
-        boltz_cif_path = os.path.join(boltz_pubdir, name, name + "_model_0.cif")
-        boltz_str = cif_to_pdb_str(boltz_cif_path)
+        # The target of a prediction is already back under the chain IDs and residue numbering of
+        # the design, a split target chain is merged back by calculate_metrics.py
+        predicted_str = read_prediction(prediction_dir, name)
 
         with open(pdb_path) as f:
             input_pdb_str = f.read()
 
-        # Build chain residue mappings for all target chains
-        target_chain_mappings = [(chain_id, None) for chain_id in target_chains_list]
+        design_target_chains = get_target_chain_ids(input_pdb_str, binder_chain)
+        if not design_target_chains:
+            raise ValueError(f"No target chains found in {pdb_path}, all chains are binder chain '{binder_chain}'")
+        design_target_sequence = get_target_sequence(input_pdb_str, design_target_chains)
+        predicted_target_sequence = get_target_sequence(predicted_str, design_target_chains)
+        if design_target_sequence != predicted_target_sequence:
+            raise ValueError(
+                f"Target of {name} does not match its prediction:\n"
+                f"  design: {design_target_sequence}\n"
+                f"  prediction: {predicted_target_sequence}"
+            )
 
         aligned_pdbs, full_rmsd = align_multiple_proteins_pdb(
-            [input_pdb_str, boltz_str],
+            [input_pdb_str, predicted_str],
             chain_residue_mappings=[
-                target_chain_mappings,
-                target_chain_mappings,
+                [(chain_id, None) for chain_id in design_target_chains],
+                [(chain_id, None) for chain_id in design_target_chains],
             ],
             all_atom=True,
         )
@@ -438,14 +443,7 @@ def compute_rmsd_binder(
         diff = mpnn_coords - aligned_coords
         target_aligned_binder_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1))).item()
 
-        # Extract binder pLDDT from the Boltz prediction CIF file
-        binder_plddt = get_chain_plddt(boltz_cif_path, binder_chain)
-
-        with open(
-            os.path.join(boltz_pubdir, name, "confidence_" + name + "_model_0.json"),
-            "r",
-        ) as f:
-            metrics = json.load(f)
+        binder_plddt = get_chain_plddt(predicted_str, binder_chain)
 
         results.append(
             {
@@ -453,7 +451,7 @@ def compute_rmsd_binder(
                 "complex_rmsd": full_rmsd,
                 "target_aligned_binder_rmsd": target_aligned_binder_rmsd,
                 "binder_plddt": binder_plddt / 100,  # convert to 0-1 range for consistency with Boltz JSON
-                **metrics,
+                **boltz_metrics[name],
             }
         )
 
@@ -465,8 +463,9 @@ def compute_rmsd_binder(
 
 def compute_rmsd_binder_alone(
     input_dir: str,
-    boltz_pubdir: str,
+    prediction_dir: str,
     binder_chain: str,
+    boltz_metrics: dict[str, dict],
     output_metrics_path: str,
 ) -> None:
     """Compute RMSD between the designed binder and its Boltz prediction of the binder sequence alone."""
@@ -476,8 +475,7 @@ def compute_rmsd_binder_alone(
     results = []
     for pdb_path in sorted(glob.glob(os.path.join(input_dir, "*.pdb"))):
         name = os.path.basename(pdb_path).removesuffix(".pdb")
-        boltz_cif_path = os.path.join(boltz_pubdir, name, name + "_model_0.cif")
-        boltz_str = cif_to_pdb_str(boltz_cif_path)
+        boltz_str = read_prediction(prediction_dir, name)
 
         with open(pdb_path) as f:
             input_pdb_str = f.read()
@@ -497,13 +495,7 @@ def compute_rmsd_binder_alone(
             all_atom=True,
         )
 
-        binder_plddt = get_chain_plddt(boltz_cif_path, binder_chain)
-
-        with open(
-            os.path.join(boltz_pubdir, name, "confidence_" + name + "_model_0.json"),
-            "r",
-        ) as f:
-            metrics = json.load(f)
+        binder_plddt = get_chain_plddt(boltz_str, binder_chain)
 
         results.append(
             {
@@ -511,7 +503,7 @@ def compute_rmsd_binder_alone(
                 "binder_alone_bb_rmsd": binder_alone_bb_rmsd,
                 "binder_alone_aa_rmsd": binder_alone_aa_rmsd,
                 "binder_plddt": binder_plddt / 100,  # convert to 0-1 range for consistency with Boltz JSON
-                **metrics,
+                **boltz_metrics[name],
             }
         )
 
@@ -522,13 +514,19 @@ def compute_rmsd_binder_alone(
 
 
 def compute_rmsd_scaffold(
-    input_dir: str, boltz_pubdir: str, chain: str, output_metrics_path: str, native_pdb_path: str | None = None
+    input_dir: str,
+    prediction_dir: str,
+    chain: str,
+    boltz_metrics: dict[str, dict],
+    output_metrics_path: str,
+    native_pdb_path: str | None = None,
 ) -> None:
     assert len(chain) == 1, f'Expected a single chain ID for scaffold design, got "{chain}", {len(chain)=}.'
 
     # Load native PDB if provided
     native_pdb_str = None
-    if native_pdb_path:
+    # NO_FILE is the placeholder passed by the refolding pipeline when no native structure is known
+    if native_pdb_path and os.path.basename(native_pdb_path) != "NO_FILE":
         with open(native_pdb_path, "r") as f:
             native_pdb_str = f.read()
         print(f"Loaded native PDB from: {native_pdb_path}")
@@ -536,8 +534,7 @@ def compute_rmsd_scaffold(
     results = []
     for pdb_input_file_path in glob.glob(os.path.join(input_dir, "*.pdb")):
         name = os.path.basename(pdb_input_file_path).removesuffix(".pdb")
-        boltz_cif_path = os.path.join(boltz_pubdir, name, name + "_model_0.cif")
-        boltz_str = cif_to_pdb_str(boltz_cif_path)
+        boltz_str = read_prediction(prediction_dir, name)
 
         with open(pdb_input_file_path) as f:
             input_pdb_str = f.read()
@@ -551,16 +548,10 @@ def compute_rmsd_scaffold(
             all_atom=True,
         )
 
-        with open(
-            os.path.join(boltz_pubdir, name, "confidence_" + name + "_model_0.json"),
-            "r",
-        ) as f:
-            metrics = json.load(f)
-
         result = {
             "id": name,
             "design_rmsd": full_rmsd,
-            **metrics,
+            **boltz_metrics[name],
         }
 
         # Calculate native motif RMSD if native PDB is provided
@@ -595,10 +586,16 @@ if __name__ == "__main__":
         help="Path to directory containing [Protein/Ligand]MPNN structure files.",
     )
     parser.add_argument(
-        "--boltz_pubdir",
+        "--prediction_dir",
         type=str,
         required=True,
-        help="Path to the directory containing Boltz prediction MMCIF files.",
+        help="Path to the directory containing the prediction PDB files published by calculate_metrics.py.",
+    )
+    parser.add_argument(
+        "--input_metrics_path",
+        type=str,
+        required=True,
+        help="Path to the metrics file written by calculate_metrics.py (JSONL format), merged into the output metrics.",
     )
     parser.add_argument(
         "--design_type",
@@ -645,12 +642,6 @@ if __name__ == "__main__":
         help="Path to the output metrics file (JSONL format).",
     )
     parser.add_argument(
-        "--output_pdb_dir",
-        type=str,
-        required=True,
-        help="Path to the output directory for PDB files.",
-    )
-    parser.add_argument(
         "--native_pdb",
         type=str,
         required=False,
@@ -658,31 +649,31 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    os.makedirs(args.output_pdb_dir, exist_ok=True)
+    boltz_metrics = read_metrics(args.input_metrics_path)
     if args.design_type == "scaffold":
         compute_rmsd_scaffold(
             input_dir=args.input_dir,
-            boltz_pubdir=args.boltz_pubdir,
+            prediction_dir=args.prediction_dir,
             chain=args.chains,
+            boltz_metrics=boltz_metrics,
             output_metrics_path=args.output_metrics_path,
             native_pdb_path=args.native_pdb,
         )
     elif args.design_type == "binder" and args.binder_alone:
         compute_rmsd_binder_alone(
             input_dir=args.input_dir,
-            boltz_pubdir=args.boltz_pubdir,
+            prediction_dir=args.prediction_dir,
             binder_chain=args.chains,
+            boltz_metrics=boltz_metrics,
             output_metrics_path=args.output_metrics_path,
         )
     elif args.design_type == "binder":
         compute_rmsd_binder(
             input_dir=args.input_dir,
-            boltz_pubdir=args.boltz_pubdir,
+            prediction_dir=args.prediction_dir,
             binder_chain=args.chains,
+            boltz_metrics=boltz_metrics,
             output_metrics_path=args.output_metrics_path,
         )
     else:
         raise ValueError(f"Unsupported design type: {args.design_type}")
-
-    # convert cif to pdb and move to batch_dir/test_name/design_id_test_name.pdb
-    convert_predicted_cifs_to_pdbs(args.boltz_pubdir, args.output_pdb_dir)

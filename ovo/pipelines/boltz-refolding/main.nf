@@ -22,6 +22,9 @@ process BoltzRefolding {
     def mols_tar_file = "${boltz_models_path}/mols.tar"
     def mols_dir = "${boltz_models_path}/mols"
     def boltz_version = meta.test.contains("_") ? meta.test.tokenize("_")[0] : params.boltz_version
+    // A native structure is not available for designs uploaded from PDB files, in which case
+    // the refolding pipeline passes a NO_FILE placeholder (see refolding/main.nf)
+    def nativePdbProvided = "${native_pdb}" != "NO_FILE"
     """
     set -euxo pipefail
 
@@ -54,14 +57,14 @@ process BoltzRefolding {
             --input_dir "${input_dir}" \
             --output_dir "${meta.batch_name}/boltz/yaml_inputs/" \
             --design_type scaffold \
-            --template "${native_pdb}" \
+            ${nativePdbProvided ? "--template \"${native_pdb}\"" : ""} \
             ${run_parameters}
     elif [[ ${design_type} == "binder" ]]; then
         python3 "${moduleDir}/bin/prepare_inputs.py" \
             --input_dir "${input_dir}" \
             --output_dir "${meta.batch_name}/boltz/yaml_inputs/" \
             --design_type binder \
-            --template "${native_pdb}" \
+            --template_from_design \
             ${run_parameters}
     else 
         echo "Unknown design type: ${design_type}" >&2
@@ -73,14 +76,23 @@ process BoltzRefolding {
         --accelerator \$ACCELERATOR \
         --model "${boltz_version}"
 
-    python3 "${moduleDir}/bin/compute_rmsd.py" \
+    python3 "${moduleDir}/bin/calculate_metrics.py" \
         --input_dir "${input_dir}" \
         --boltz_pubdir "boltz_results_yaml_inputs/predictions/" \
         --boltz_version "${boltz_version}" \
         --design_type ${design_type} \
-        --output_metrics_path "${meta.batch_name}/${meta.test}.jsonl" \
+        --output_metrics_path "boltz_metrics.jsonl" \
         --output_pdb_dir "${meta.batch_name}/${meta.test}/" \
-        --native_pdb "${native_pdb}" \
+        ${run_parameters}
+
+    python3 "${moduleDir}/bin/compute_rmsd.py" \
+        --input_dir "${input_dir}" \
+        --prediction_dir "${meta.batch_name}/${meta.test}/" \
+        --input_metrics_path "boltz_metrics.jsonl" \
+        --boltz_version "${boltz_version}" \
+        --design_type ${design_type} \
+        --output_metrics_path "${meta.batch_name}/${meta.test}.jsonl" \
+        ${nativePdbProvided ? "--native_pdb ${native_pdb}" : ""} \
         ${run_parameters}
 
     """

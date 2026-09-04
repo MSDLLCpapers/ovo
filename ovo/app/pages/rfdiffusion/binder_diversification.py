@@ -31,6 +31,7 @@ from ovo.core.database.models_rfdiffusion import (
     RFdiffusionBinderDesignWorkflow,
     RFdiffusionWorkflow,
     MODEL_WEIGHTS_BINDER,
+    RFdiffusionParams,
 )
 from ovo.app.components.submission_components import show_rfdiffusion_advanced_settings
 from ovo.core.database import descriptors_rfdiffusion, descriptors_refolding
@@ -84,10 +85,10 @@ You can run this workflow as a next step after the RFdiffusion binder design wor
 the methods and computed metrics are the same.
 
 ### Features
-                
+
 View and filter your designs based on descriptors at {jobs_page.title}. All designs and descriptors are also available
 for download. Most relevant descriptors are listed below:
-   
+
 #### Backbone metrics
 
 - Computed for the RFdiffusion backbone design
@@ -120,7 +121,7 @@ for download. Most relevant descriptors are listed below:
     <sup>[4]</sup> (residue–residue matrix) averaged over binder→binder and binder→target residue values.
 
 We also include AF2 binder pLDDT and pTM scores.
-        
+
 In RFdiffusion,<sup>[1]</sup> in silico success for binder design was defined as AF2&nbsp;Binder&nbsp;pLDDT >&nbsp;80,
 AF2&nbsp;Interface&nbsp;PAE <&nbsp;10 and AF2&nbsp;monomer&nbsp;RMSD <&nbsp;1.0 (we do not include this metric with the
 binder predicted in isolation, you could use AF2&nbsp;Binder&nbsp;RMSD which includes the pose RMSD in the complex).
@@ -128,7 +129,7 @@ binder predicted in isolation, you could use AF2&nbsp;Binder&nbsp;RMSD which inc
 These descriptors are computed for all designs. Additionally, you can run ProteinQC for the accepted designs at
 {designs_page.title}, computing descriptors of predicted solubility, electrostatic and hydrophobic patch area, and more.
 
-                
+
 ### Limitations
 <!--Binder diversification is -->
 - Only one target chain is supported. You may circumvent this by merging multiple chains into a single chain in your
@@ -240,10 +241,13 @@ def initialize_workflow_input() -> RFdiffusionBinderDesignWorkflow | None:
         "Design IDs to be diversified",
         placeholder="Enter design IDs separated by spaces, commas, or lines",
         value="\n".join(workflow.design_ids),
+        key="design_ids_input",
     )
     design_ids = [design_id.strip() for design_id in design_ids_raw.replace(",", " ").split()]
+    # deduplicate but keep original order
+    design_ids = list(dict.fromkeys(design_ids))
 
-    if st.button("Confirm"):
+    if st.button("Confirm") or (design_ids and design_ids != workflow.design_ids):
         designs: list[Design] = db.select(Design, id__in=design_ids)
         if not designs:
             st.error("No designs found for the provided IDs.")
@@ -254,7 +258,7 @@ def initialize_workflow_input() -> RFdiffusionBinderDesignWorkflow | None:
         pool_ids = sorted(set(design.pool_id for design in designs))
 
         # Get rfdiffusion params (use arbitrary pool in case of multiple pools)
-        rfdiffusion_params = None
+        rfdiffusion_params: RFdiffusionParams | None = None
         source_workflow_names = set()
         for pool_id in pool_ids:
             pool = db.get(Pool, pool_id)
@@ -267,49 +271,64 @@ def initialize_workflow_input() -> RFdiffusionBinderDesignWorkflow | None:
             if rfdiffusion_params is None:
                 rfdiffusion_params = deepcopy(design_job.workflow.rfdiffusion_params)
 
-        assert source_workflow_names, "Designs do not come from RFdiffusion binder design workflow"
-        assert len(source_workflow_names) == 1, (
-            f"Expected all designs to come from the same workflow, got: {', '.join(source_workflow_names)}"
-        )
-        source_workflow_name = source_workflow_names.pop()
-        if source_workflow_name != workflow.name:
-            # Designs can come from a subclass of the current workflow, create appropriate workflow instance
-            workflow = WorkflowTypes.get(source_workflow_name)()
-            st.session_state.workflows[__file__] = workflow
         workflow.input_name = design_ids[0] if len(design_ids) == 1 else f"{len(design_ids)} designs"
         workflow.design_ids = design_ids
-        workflow.rfdiffusion_params = rfdiffusion_params
-        # Use ProteinMPNN path, the RFdiffusion PDB does not have any sidechain coords (even on the target chain)
-        workflow.rfdiffusion_params.input_pdb_paths = [design.structure_path for design in designs]
-        # Do not preserve the original hotspots - they are not correct anymore.
-        # We could parse them from the standardized PDB but from which design? The first one?
-        # We should just expose it to the user in the UI so they get visibility on it.
-        workflow.rfdiffusion_params.hotspots = None
+
+        if (
+            not source_workflow_names
+            or not rfdiffusion_params
+            or rfdiffusion_params.backbone_generator != "rfdiffusion"
+        ):
+            # Designs do not come from RFdiffusion1 workflow, just set the paths
+            workflow.rfdiffusion_params.input_pdb_paths = [design.structure_path for design in designs]
+        else:
+            assert len(source_workflow_names) == 1, (
+                f"Expected all designs to come from the same workflow, got: {', '.join(source_workflow_names)}"
+            )
+            source_workflow_name = source_workflow_names.pop()
+            if source_workflow_name != workflow.name:
+                # Designs can come from a subclass of the current workflow, create appropriate workflow instance
+                workflow = WorkflowTypes.get(source_workflow_name)()
+                st.session_state.workflows[__file__] = workflow
+            workflow.rfdiffusion_params = rfdiffusion_params
+            # Use ProteinMPNN path, the RFdiffusion PDB does not have any sidechain coords (even on the target chain)
+            workflow.rfdiffusion_params.input_pdb_paths = [design.structure_path for design in designs]
+            # Do not preserve the original hotspots - they are not correct anymore.
+            # We could parse them from the standardized PDB but from which design? The first one?
+            # We should just expose it to the user in the UI so they get visibility on it.
+            workflow.rfdiffusion_params.hotspots = None
 
     st.markdown("##### Or upload a custom structure")
 
-    uploaded_file = st.file_uploader(
+    uploaded_files = st.file_uploader(
         "Upload a structure file with binder chain (A) and target chain (B)",
         type=["pdb", "pdb1", "cif", "mmcif"],
         key="input_pdb_file",
+        accept_multiple_files=True,
     )
-    # Check if a file has just been uploaded
-    if uploaded_file is not None:
-        pdb_input_bytes = uploaded_file.getvalue()
-        filename, ext = os.path.splitext(safe_filename(uploaded_file.name))
+    if uploaded_files:
+        filenames = []
+        workflow.design_ids = []
+        workflow.rfdiffusion_params.input_pdb_paths = []
+        for uploaded_file in uploaded_files:
+            pdb_input_bytes = uploaded_file.getvalue()
+            filename, ext = os.path.splitext(safe_filename(uploaded_file.name))
+            filenames.append(filename)
 
-        if ext.lower() in (".cif", ".mmcif"):
-            result = mmcif_to_pdb(pdb_input_bytes.decode("utf-8"))
-            pdb_input_bytes = result.pdb_string.encode("utf-8")
-            for warning in result.warnings:
-                st.warning(warning)
-            st.warning("The uploaded CIF file has been converted to PDB format.")
-        workflow.input_name = filename
-        workflow.rfdiffusion_params.input_pdb = storage.store_file_str(
-            pdb_input_bytes.decode("utf-8"),
-            f"project/{st.session_state.project.id}/inputs/{get_hashed_path_for_bytes(pdb_input_bytes)}/{workflow.input_name}.pdb",
-            overwrite=False,
-        )
+            if ext.lower() in (".cif", ".mmcif"):
+                result = mmcif_to_pdb(pdb_input_bytes.decode("utf-8"))
+                pdb_input_bytes = result.pdb_string.encode("utf-8")
+                for warning in result.warnings:
+                    st.warning(warning)
+                st.warning("The uploaded CIF file has been converted to PDB format.")
+            workflow.rfdiffusion_params.input_pdb_paths.append(
+                storage.store_file_str(
+                    pdb_input_bytes.decode("utf-8"),
+                    f"project/{st.session_state.project.id}/inputs/{get_hashed_path_for_bytes(pdb_input_bytes)}/{filename}.pdb",
+                    overwrite=False,
+                )
+            )
+        workflow.input_name = filenames[0] if len(filenames) == 1 else f"{len(filenames)} structures"
 
     if workflow.rfdiffusion_params.input_pdb_paths:
         return workflow
