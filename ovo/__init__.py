@@ -37,8 +37,11 @@ try:
 
     config = load_config(home_dir=GLOBAL_OVO_HOME or os.getenv("OVO_HOME") or DEFAULT_OVO_HOME)
 
-    db = SqlDBEngine(db_url=config.db.url, verbose=config.db.verbose, read_only=config.props.read_only)
-    db.init()
+    if os.environ.get("OVO_NO_DB", "").lower() not in ["1", "true", "yes"]:
+        db = SqlDBEngine(db_url=config.db.url, verbose=config.db.verbose, read_only=config.props.read_only)
+        db.init()
+    else:
+        db = None
 
     storage = Storage(
         storage_root=config.storage.path,
