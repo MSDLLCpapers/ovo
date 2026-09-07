@@ -32,11 +32,27 @@ from ovo.core.logic.filtering_logic import filter_designs_by_thresholds
 from ovo.core.logic.job_logic import update_job_status, format_job_duration
 from ovo.core.utils.pdb import mmcif_to_pdb
 
+# note: bulk submission config import/export lives in ovo.core.logic.bulk_submission_logic
 
-def get_design_jobs_table(
-    project_id: str = None, round_ids: list[str] = None, update=True, **pool_filters
-) -> pd.DataFrame:
-    """Get pandas DataFrame with job and pool metadata and workflow parameter information."""
+
+def get_pool_jobs(
+    project_id: str = None,
+    round_ids: list[str] = None,
+    job_filters: dict = None,
+    **pool_filters,
+) -> tuple[list[DesignJob], dict[str, Pool]]:
+    """Select the design jobs of the pools matching the given filters.
+
+    Args:
+        job_filters: Extra db.select filters for the DesignJobs, e.g. {"job_result": False} for the
+                     failed ones (None=in-progress, True=completed) or
+                     {"job_started_date_utc__gte": datetime} for the recently started ones.
+        pool_filters: db.select filters for the Pools, on top of project_id and round_ids.
+
+    Returns:
+        The jobs, newest first, and the pool of each of them by job ID. Pools without a job are
+        left out, as are the jobs filtered out by job_filters.
+    """
     id_filters = {}
     if project_id is not None:
         project_round_ids = db.select_unique_values(Round, "id", project_id=project_id)
@@ -51,16 +67,54 @@ def get_design_jobs_table(
 
     pools = db.select(Pool, **id_filters, **pool_filters)
     pools_by_job_id = {p.design_job_id: p for p in pools if p.design_job_id is not None}
-    jobs = db.select(DesignJob, order_by="-created_date_utc", id__in=pools_by_job_id.keys())
+    jobs = db.select(DesignJob, order_by="-created_date_utc", id__in=pools_by_job_id.keys(), **(job_filters or {}))
+    return jobs, pools_by_job_id
 
-    # Update job.job_result. If job failed, it will be saved to the DB.
-    # If job was successful, it's only updated in the job object, we will save it to DB later (after the designs have been processed)
+
+def count_designs_by_pool(pool_ids: Collection[str]) -> tuple[dict[str, int], dict[str, int]]:
+    """Count the accepted designs and all the designs of each of the given pools, by pool ID."""
+    accepted_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=pool_ids, accepted=True)
+    total_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=pool_ids)
+    return accepted_by_pool, total_by_pool
+
+
+def update_job_statuses(jobs: list[DesignJob], callback: Callable[[DesignJob], None] = None) -> None:
+    """Poll the scheduler for the result of each job that is still in progress.
+
+    If a job failed, it will be saved to the DB. If a job was successful, it's only updated in the
+    job object, we will save it to DB later (after the designs have been processed).
+
+    Args:
+        callback: Called with each job that was polled, to report the progress.
+    """
     for job in jobs:
-        if job.job_result is None and update:
+        if job.job_result is None:
             update_job_status(job)
+            if callback:
+                callback(job)
 
-    accepted_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=[p.id for p in pools], accepted=True)
-    total_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=[p.id for p in pools])
+
+def get_design_jobs_table(
+    project_id: str = None,
+    round_ids: list[str] = None,
+    update=True,
+    job_filters: dict = None,
+    **pool_filters,
+) -> pd.DataFrame:
+    """Get pandas DataFrame with job and pool metadata and workflow parameter information.
+
+    Args:
+        update: Whether to poll the scheduler for the status of the jobs that are still in progress.
+        job_filters: See :func:`get_pool_jobs`.
+        pool_filters: See :func:`get_pool_jobs`.
+    """
+    jobs, pools_by_job_id = get_pool_jobs(
+        project_id=project_id, round_ids=round_ids, job_filters=job_filters, **pool_filters
+    )
+    if update:
+        update_job_statuses(jobs)
+
+    accepted_by_pool, total_by_pool = count_designs_by_pool([p.id for p in pools_by_job_id.values()])
 
     rows = []
     for job in jobs:
@@ -108,8 +162,7 @@ def get_pools_table(project_id: str = None, round_ids: list[str] = None):
 
     pools = db.select(Pool, **id_filters, order_by="-created_date_utc")
 
-    accepted_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=[p.id for p in pools], accepted=True)
-    total_by_pool = db.count_distinct(Design, group_by="pool_id", pool_id__in=[p.id for p in pools])
+    accepted_by_pool, total_by_pool = count_designs_by_pool([p.id for p in pools])
     failed_job_ids = db.select_unique_values(
         DesignJob, "id", job_result=False, id__in=[p.design_job_id for p in pools if p.design_job_id]
     )
@@ -137,19 +190,26 @@ def get_pools_table(project_id: str = None, round_ids: list[str] = None):
     return df
 
 
+# Status labels of format_pool_status that callers match on, e.g. to offer the results of a job that
+# has finished but whose designs have not been opened yet (READY_STATUS)
+READY_STATUS = "✅ Ready"
+DONE_STATUS = "Done"
+FAILED_STATUS = "Failed"
+
+
 def format_pool_status(job: DesignJob, processed: bool, update_status: bool = True):
     job_result = job.job_result
-    if processed == True and job_result is None:
+    if processed and job_result is None:
         return None
-    if job_result == True:
-        return "✅ Ready" if not processed else "Done"
-    elif job_result == False:
-        return "Failed"
+    if job_result is True:
+        return READY_STATUS if not processed else DONE_STATUS
+    elif job_result is False:
+        return FAILED_STATUS
     if update_status:
         # Get status label from scheduler
         try:
             scheduler = get_scheduler(job.scheduler_key)
-        except:
+        except Exception:
             traceback.print_exc()
             return "Unknown Scheduler"
         try:
@@ -187,9 +247,9 @@ def submit_design_workflow(
     :param round_id: ID of the Round to associate the Pool with
     :param pool_name: Name of the Pool to create
     :param pool_description: Description of the Pool to create
-    :param return_existing: If a Pool with the same name and parameters already exists in this round, return it instead of raising an error
+    :param return_existing: If a Pool with the same name and parameters already exists in this round, return it instead of raising an error. Only applies when its job has not failed, see resume_failed.
     :param pipeline_name: Override the pipeline name to submit, e.g. ovo.rfdiffusion-end-to-end or a github url with @version
-    :param resume_failed: If a Pool with the same name already exists in this round but its job has failed, submit the job again.
+    :param resume_failed: If a Pool with the same name already exists in this round but its job has failed, submit the job again. Raises an error if not enabled.
     :param submission_args: Extra submission arguments to override in the scheduler, e.g. {"profile": "conda"} or {"stub": True}
     :return: Tuple of (DesignJob, Pool)
     """
@@ -231,7 +291,11 @@ def submit_design_workflow(
                 design_job.job_id = scheduler.resume(design_job.job_id)
                 db.save(design_job)
             else:
-                print("Use resume_failed=True to resubmit the job, or choose a different pool name to submit a new job")
+                raise ValueError(
+                    f"Pool with name '{pool_name}' already exists in this round but its job has FAILED. "
+                    f"Use resume_failed=True (--resume-failed in the CLI) to resubmit the job, "
+                    f"or choose a different pool name to submit a new job."
+                )
         else:
             print("Pool with same name and params already exists in this round, returning existing pool")
         return design_job, pool
@@ -456,6 +520,17 @@ def set_designs_accepted(
         design.accepted = design.id in accepted_design_ids
 
 
+def get_descriptor_job_id_for_key(descriptor_job_id: str | dict | None, descriptor_key: str) -> str | None:
+    """Return the descriptor job to read a descriptor key from, out of the caller's descriptor_job_id.
+
+    ``descriptor_job_id`` is either one job ID for all keys, or {job ID: keys of that job} as the
+    descriptor selection produces it, or None to read the key from any job.
+    """
+    if isinstance(descriptor_job_id, dict):
+        return next((job_id for job_id, keys in descriptor_job_id.items() if descriptor_key in keys), None)
+    return descriptor_job_id
+
+
 def collect_storage_paths(
     download_fields: dict[str, tuple[Base, str]],
     design_ids: list,
@@ -478,14 +553,8 @@ def collect_storage_paths(
             # Regular field like structure_path
             subfield_name = None
 
-        descriptor_job_filter = {}
-        if isinstance(descriptor_job_id, dict):
-            for job_id, keys in descriptor_job_id.items():
-                if field_name in keys:
-                    descriptor_job_filter["descriptor_job_id"] = job_id
-                    break
-        elif isinstance(descriptor_job_id, str):
-            descriptor_job_filter["descriptor_job_id"] = descriptor_job_id
+        field_job_id = get_descriptor_job_id_for_key(descriptor_job_id, field_name)
+        descriptor_job_filter = {"descriptor_job_id": field_job_id} if field_job_id else {}
 
         if issubclass(Model, Design):
             # Get field values from Design objects
@@ -534,6 +603,59 @@ def collect_storage_paths(
         storage_paths[design_id] = list(set(storage_paths[design_id]))
 
     return storage_paths
+
+
+def collect_storage_paths_by_group(
+    download_fields: dict[str, tuple[Base, str]],
+    design_ids: list[str],
+    default_group: str = "",
+    group_by: str = None,
+    group_by_fmt: str = "{}",
+    group_by_values: dict[str, object] = None,
+    descriptor_job_id: str | dict[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
+    """Collect the storage paths to export and arrange them into zip directories.
+
+    Without ``group_by`` everything lands in one directory (``default_group``). With it, each
+    design's files land in a directory named after that design's value of the ``group_by``
+    descriptor — designs missing the descriptor go to "other", and files that belong to the workflow
+    input rather than a design go to "inputs".
+
+    :param download_fields: Fields to export, from
+                            ``ovo.core.logic.import_export_logic.resolve_download_fields``
+    :param design_ids: Designs to export files for
+    :param default_group: Zip directory to use when not grouping ("" for the zip root)
+    :param group_by: Optional descriptor key to group the files by
+    :param group_by_fmt: Format string applied to each group_by value to make the directory name
+    :param group_by_values: Optional pre-loaded {design_id: value} for group_by (the web app passes cached)
+    :param descriptor_job_id: Optional descriptor job ID to filter by, or {job id: [descriptor keys]}
+    :return: {zip directory: [storage path, ...]}
+    """
+    storage_paths_by_design = collect_storage_paths(download_fields, design_ids, descriptor_job_id=descriptor_job_id)
+    if not storage_paths_by_design:
+        return {}
+
+    if group_by is None:
+        return {default_group: sorted({path for paths in storage_paths_by_design.values() for path in paths})}
+
+    if group_by_values is None:
+        group_by_job_id = get_descriptor_job_id_for_key(descriptor_job_id, group_by)
+        group_by_values = (
+            db.select_descriptor_values(group_by, design_ids=design_ids, descriptor_job_id=group_by_job_id)
+            .dropna()
+            .to_dict()
+        )
+
+    storage_paths_by_group = defaultdict(list)
+    for design_id, paths in storage_paths_by_design.items():
+        if design_id is None:
+            group_value = "inputs"
+        elif design_id not in group_by_values:
+            group_value = "other"
+        else:
+            group_value = group_by_fmt.format(group_by_values[design_id])
+        storage_paths_by_group[group_value].extend(paths)
+    return dict(storage_paths_by_group)
 
 
 def create_designs_from_dataframe(

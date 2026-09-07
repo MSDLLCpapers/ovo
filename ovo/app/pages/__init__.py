@@ -45,6 +45,18 @@ def get_pages():
 builtin_workflow_pages: list[WorkflowPage] = [
     WorkflowPage(
         module_name="ovo",
+        title="📦 Bulk submission",
+        path="app/pages/bulk/bulk_submission.py",
+        category="General",
+        labels=["Bulk", "Grid search"],
+        short_description="""
+        Submit multiple design workflows at once from a single YAML or JSON config.
+        Supports grid parameter expansion (Cartesian product) to run sweeps over any parameter
+        across all registered workflow types.
+        """,
+    ),
+    WorkflowPage(
+        module_name="ovo",
         title="🏗️ RFdiffusion scaffold design",
         path="app/pages/rfdiffusion/scaffold_design.py",
         category="RFdiffusion",
@@ -102,13 +114,13 @@ builtin_workflow_pages: list[WorkflowPage] = [
         labels=["BindCraft", "Binder design"],
         thumbnail="app/assets/workflows/binder_design.png",
         short_description="""
-        BindCraft designs linear peptide or miniprotein binders by iteratively optimizing binder sequences 
-        with AlphaFold2 backpropagation (ColabDesign) in a multistage design phase, 
-        redesigning non-interface residues with SolubleMPNN or ProteinMPNN for improved solubility, 
+        BindCraft designs linear peptide or miniprotein binders by iteratively optimizing binder sequences
+        with AlphaFold2 backpropagation (ColabDesign) in a multistage design phase,
+        redesigning non-interface residues with SolubleMPNN or ProteinMPNN for improved solubility,
         and filtering designs using AlphaFold2 monomer reprediction plus PyRosetta scoring.
-        Users input a target structure, choose hotspots and a design protocol (Default, Beta-sheet, Peptide), 
-        set binder length and stopping criteria, and receive accepted binder sequences 
-        and complex structures along with Rosetta ddG, 
+        Users input a target structure, choose hotspots and a design protocol (Default, Beta-sheet, Peptide),
+        set binder length and stopping criteria, and receive accepted binder sequences
+        and complex structures along with Rosetta ddG,
         AlphaFold2 refolding metrics and other descriptors.
         """,
     ),

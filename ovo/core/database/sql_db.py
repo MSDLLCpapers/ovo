@@ -260,6 +260,12 @@ class SqlDBEngine(CacheClearingEngine):
             elif k.endswith("__ne"):
                 descriptor_key = k[:-4]
                 filters.append(getattr(model, descriptor_key) != v)
+            elif k.endswith("__gte"):
+                descriptor_key = k[:-5]
+                filters.append(getattr(model, descriptor_key) >= v)
+            elif k.endswith("__lte"):
+                descriptor_key = k[:-5]
+                filters.append(getattr(model, descriptor_key) <= v)
             else:
                 filters.append(getattr(model, k) == v)
         return filters

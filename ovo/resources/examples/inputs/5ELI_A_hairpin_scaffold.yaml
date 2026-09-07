@@ -1,0 +1,42 @@
+submissions:
+- pool_name: "CLI hairpin scaffold test"
+  pool_description: ""
+  workflow:
+    name: RFdiffusion scaffold design
+    rfdiffusion_params:
+      input_pdb_paths:
+      - 5ELI_A.pdb
+      contigs:
+      - A111-114/10/A117-119
+      hotspots: null
+      model_weights: null
+      timesteps: 1
+      partial_diffusion: false
+      num_designs: 1
+      cyclic_offset: false
+      batch_size: 50
+      contigmap_length: null
+      inpaint_seq: null
+      backbone_filters: null
+      run_parameters: ""
+      backbone_generator: rfdiffusion
+      rfd3_unindex: null
+      rfd3_select_fixed_atoms: null
+      rfd3_select_hotspots: null
+      rfd3_ligand: null
+      rfd3_infer_ori_strategy: null
+      rfd3_is_non_loopy: null
+      rfd3_ori_token: null
+      rfd3_inner_batch_size: 1
+      rfd3_spec_overrides: null
+      custom_backbones: null
+    protein_mpnn_params:
+      num_sequences: 2
+      fastrelax_cycles: 0
+      omit_aa: CX
+      sampling_temp: 0.1
+      bias_aa: ""
+      run_parameters: --seed 42
+    refolding_params:
+      primary_test: af2_model_1_ptm_ft_3rec
+      esmfold_fp16: false

@@ -33,7 +33,15 @@ NUM_SEQUENCES_CAPTION = (
 )
 
 
-def pool_submission_inputs(page_key: str):
+def pool_submission_inputs(page_key: str, inputs_are_prefixes: bool = False):
+    """Show the round, pool name and pool description inputs, storing them in the session state.
+
+    :param inputs_are_prefixes: If True, the typed name and description are prefixed to those of each
+        submission instead of naming and describing a single pool (see
+        :meth:`~ovo.core.logic.bulk_submission_logic.BulkSubmission.get_pool_name`) — so the typed
+        name cannot be checked against the existing pools of the round here, the caller has to check
+        the final names it derives from it
+    """
     rounds_by_id = get_or_create_project_rounds(project_id=st.session_state.project.id)
     round_ids = list(rounds_by_id.keys())
 
@@ -65,20 +73,22 @@ def pool_submission_inputs(page_key: str):
 
     with st.columns([2, 1])[0]:
         pool_name = st.text_input(
-            "Pool name",
-            placeholder="Name your submission",
+            "Pool name prefix" if inputs_are_prefixes else "Pool name",
+            placeholder="Prefix the pool names of your submissions" if inputs_are_prefixes else "Name your submission",
             value=pool_name,
             key="input_pool_name",
         )
         previous_pools = db.select(Pool, round_id=round_id, limit=3, order_by="-created_date_utc")
         if previous_pools:
             st.write(f"*Previous pool names: {', '.join([p.name for p in previous_pools if p.name])}*")
-        if db.count(Pool, round_id=round_id, name=pool_name):
+        if not inputs_are_prefixes and db.count(Pool, round_id=round_id, name=pool_name):
             st.error(f"Pool '{pool_name}' already exists in this round, please choose a different name.")
 
     pool_description = st.text_area(
-        "Pool description (optional)",
-        placeholder="Describe your submission here",
+        "Pool description prefix (optional)" if inputs_are_prefixes else "Pool description (optional)",
+        placeholder="Prefix the pool descriptions of your submissions"
+        if inputs_are_prefixes
+        else "Describe your submission here",
         key="input_pool_description",
         value=pool_description,
     )
@@ -102,13 +112,12 @@ def shorten_absolute_file_paths(v, max_length=40):
     return truncate_middle(v, max_length)
 
 
-def format_param_table(
-    project_name: str,
-    round_name: str,
-    pool_name: str,
-    pool_description: str | None,
-    values: pd.Series,
-):
+def format_param_values(values: pd.Series) -> pd.Series:
+    """Format a workflow's table row for display: lists joined, long paths shortened, empties dropped.
+
+    Split out of :func:`format_param_table` so a caller reviewing many workflows can format their
+    values once and only re-attach the pool name and description, which change on every rerun.
+    """
     # concatenate list values into comma-separated strings
     values = values.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
     # shorten long file paths to /path/to/.../filename.ext
@@ -117,6 +126,24 @@ def format_param_table(
     values = values[~values.isnull() & (values != "")]
     # add index names
     values.index.names = ("Category", "Parameter")
+    return values
+
+
+def format_param_table(
+    project_name: str,
+    round_name: str,
+    pool_name: str,
+    pool_description: str | None,
+    values: pd.Series,
+    format_values: bool = True,
+):
+    """Return the review table column of one workflow: where it is submitted, then its parameters.
+
+    :param values: The workflow's table row, formatted by :func:`format_param_values` unless
+        ``format_values`` is False (pass False if it was formatted already)
+    """
+    if format_values:
+        values = format_param_values(values)
 
     return pd.concat(
         [
@@ -127,7 +154,7 @@ def format_param_table(
                     ("Pool", "Name"): pool_name,
                     ("Pool", "Description"): pool_description or "",
                 },
-                name="Value",
+                name=values.name,
             ),
             values,
         ]

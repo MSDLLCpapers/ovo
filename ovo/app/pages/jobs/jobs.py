@@ -2,10 +2,12 @@ import streamlit as st
 
 from ovo import db
 from ovo.app.components.custom_elements import refresh_button
+from ovo.app.components.download_component import download_bulk_config_button
 from ovo.app.components.navigation import project_round_selector
 from ovo.app.pages.jobs.design_job_detail import design_job_detail
 from ovo.app.utils.page_init import initialize_page
 from ovo.core.database.models import Pool, Round
+from ovo.core.logic.design_logic import READY_STATUS
 from ovo.app.utils.cached_db import get_cached_design_jobs_table
 
 
@@ -50,6 +52,13 @@ def overview():
         st.write("No jobs submitted yet in this round")
         return
 
+    # Read before the distinct filter below, which drops the status column when every job shares a status
+    ready_pool_ids = (
+        table.loc[table[("Job", "status")] == READY_STATUS, ("Pool", "id")].tolist()
+        if ("Job", "status") in table.columns
+        else []
+    )
+
     if show_distinct:
         table = table[table.columns[table.astype(str).nunique() > 1]]
 
@@ -67,11 +76,26 @@ def overview():
         on_select="rerun",
     )
 
-    selected_ids = table[("Pool", "id")].iloc[selection["selection"]["rows"]].tolist()
-    label = "All job" if not selected_ids else "Selected job"
-    if st.button(f"{label} results :material/arrow_forward_ios:", key=f"open_round_{key}"):
-        st.query_params["pool_ids"] = ",".join(selected_ids if selected_ids else table[("Pool", "id")])
-        st.rerun()
+    with st.container(horizontal=True):
+        if ready_pool_ids:
+            if st.button("✅ Open new results :material/arrow_forward_ios:", key=f"open_new_round_{key}"):
+                st.query_params["pool_ids"] = ",".join(ready_pool_ids)
+                st.rerun()
+
+        selected_ids = table[("Pool", "id")].iloc[selection["selection"]["rows"]].tolist()
+        label = "Open all job" if not selected_ids else "Open selected job"
+        if st.button(f"{label} results :material/arrow_forward_ios:", key=f"open_round_{key}"):
+            st.query_params["pool_ids"] = ",".join(selected_ids if selected_ids else table[("Pool", "id")])
+            st.rerun()
+
+        download_bulk_config_button(
+            pool_ids=selected_ids if selected_ids else table[("Pool", "id")].tolist(),
+            key=f"download_bulk_{key}",
+        )
+
+    if ready_pool_ids:
+        count = "A new result is" if len(ready_pool_ids) == 1 else f"{len(ready_pool_ids)} new results are"
+        st.success(f"{count} ready! Click 'Results' or 'Open new results' above to process them.")
 
 
 if "pool_ids" in st.query_params:

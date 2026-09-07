@@ -119,7 +119,10 @@ try:
             importlib.reload(submodule)
 
     # Additional imports at the bottom to avoid circular dependencies
-    from ovo.core.logic import design_logic, descriptor_logic, job_logic, project_logic, import_export_logic
+    from ovo.core.logic import design_logic, descriptor_logic, job_logic, project_logic
+
+    # these build on the modules above, so they are imported after them
+    from ovo.core.logic import import_export_logic, bulk_submission_logic, pool_logic
 
 except OVONotInitializedError as e:
     if ("init" in sys.argv and "home" in sys.argv) or "-h" in sys.argv or "--help" in sys.argv:

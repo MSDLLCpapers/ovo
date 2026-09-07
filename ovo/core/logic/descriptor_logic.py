@@ -845,22 +845,49 @@ def update_and_process_descriptors(
 
 
 def export_proteinqc_excel(design_ids: list[str], output_path: str = None):
-    df = get_wide_descriptor_table(
+    # TODO add numbers of yellow and orange flags
+    return export_design_descriptors_excel(
         design_ids=design_ids,
         descriptor_keys=[d.key for d in PROTEINQC_MAIN_DESCRIPTORS],
-        nested=False,
-        human_readable=False,
+        output_path=output_path,
     )
-    # TODO add numbers of yellow and orange flags
-    return export_design_descriptors_excel(df, output_path=output_path)
 
 
-def export_design_descriptors_excel(df: pd.DataFrame, output_path=None) -> BytesIO | None:
+def export_design_descriptors_excel(
+    df: pd.DataFrame = None,
+    output_path=None,
+    design_ids: list[str] = None,
+    descriptor_keys: Collection[str] = None,
+    sort_by: str = None,
+    descriptor_job_id: str | dict[str, list[str]] = None,
+) -> BytesIO | None:
     """Export Excel file with design descriptors for the given design ids.
+
+    Either pass a ``df`` built by :func:`get_wide_descriptor_table` (with ``nested=False`` and
+    ``human_readable=False``, so its descriptor columns are descriptor keys), or pass ``design_ids``
+    and let it build that table itself.
 
     :param df: Dataframe with any values, descriptor columns should be descriptor keys
     :param output_path: If given, write the Excel file to this path. If None, return the bytes of the Excel file.
+    :param design_ids: Designs to include as rows, as an alternative to ``df``
+    :param descriptor_keys: Descriptors to include as columns (all available ones if None)
+    :param sort_by: Optional descriptor key to sort by, prefixed with "-" for descending
+    :param descriptor_job_id: Optional descriptor job ID to filter by, or {job id: [descriptor keys]}
     """
+    if (df is None) == (design_ids is None):
+        raise ValueError("Provide either a df or design_ids to build it from, not both")
+    if df is None:
+        df = get_wide_descriptor_table(
+            design_ids=design_ids,
+            descriptor_keys=descriptor_keys,
+            nested=False,
+            human_readable=False,
+            descriptor_job_id=descriptor_job_id,
+        )
+    if sort_by is not None and not df.empty:
+        ascending = not sort_by.startswith("-")
+        df = df.sort_values(by=sort_by.removeprefix("-"), ascending=ascending)
+
     assert df.columns.nlevels == 1, "Expected nested=False dataframe with single-level columns"
     # Set index to include non-descriptor columns
     meta_cols = [col for col in df.columns if col not in ALL_DESCRIPTORS_BY_KEY]

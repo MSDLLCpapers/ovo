@@ -14,6 +14,24 @@ import re
 app = typer.Typer(pretty_exceptions_enable=False, help="Schedule and monitor OVO jobs")
 
 
+@app.command(name="list")
+def list_schedulers():
+    """List available schedulers."""
+    from ovo import config as ovo_config
+    from rich.table import Table
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Key", no_wrap=True)
+    table.add_column("Name")
+    table.add_column("Args", style="dim")
+
+    for key, scheduler_config in ovo_config.schedulers.items():
+        default_marker = " [bold](default)[/bold]" if key == ovo_config.default_scheduler else ""
+        table.add_row(key + default_marker, scheduler_config.name, str(scheduler_config.submission_args or ""))
+
+    console.print(table)
+
+
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(
     pipeline_name: str = typer.Argument(default=None, help="Pipeline to submit"),
@@ -353,7 +371,7 @@ def jupyter(
 def format_help(schema):
     from ovo import config
 
-    params_str = "Available schedulers:\n\n"
+    params_str = "Available schedulers (see 'ovo scheduler list'):\n\n"
     for scheduler_key, scheduler_config in config.schedulers.items():
         params_str += (
             f" --scheduler {scheduler_key} ({scheduler_config.name}, args: {scheduler_config.submission_args})\n"

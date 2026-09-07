@@ -1,3 +1,24 @@
+"""Getting data out of OVO (and back in): whole projects, and the downloads for a set of designs.
+
+Two related things live here:
+
+- **Project import/export** — :func:`export_project` / :func:`import_project` move a whole project
+  (database rows plus storage files) between OVO instances.
+- **Design downloads** — :func:`resolve_download_fields` and friends decide what to offer for a set
+  of designs the user has selected. Front-end agnostic: these are the
+  computations that used to sit inside the download buttons in
+  ``ovo/app/components/download_component.py``, so the same downloads can be produced without a
+  browser. The download functions that read from the database accept the already-loaded objects as
+  optional arguments (``design_jobs``, ``available_descriptors``), because the web app has cached
+  versions of those reads (``ovo/app/utils/cached_db.py``) and should not repeat them.
+  Collecting the files of the resolved download fields lives next to the designs, in
+  ``ovo.core.logic.design_logic.collect_storage_paths_by_group``.
+
+Exporting previously submitted workflows as a bulk submission config lives in
+``ovo.core.logic.bulk_submission_logic`` instead (``export_bulk_config_for_pools``), next to the
+import side of that same format.
+"""
+
 import os
 import shutil
 import tempfile
@@ -10,20 +31,43 @@ from ovo.core.configuration import ConfigProps, load_config, save_default_config
 from ovo.core.database import SqlDBEngine, DBEngine, DataclassType
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.database.models import (
+    Base,
     Project,
     Round,
     Pool,
     Design,
     DesignJob,
+    DesignWorkflow,
     DescriptorJob,
+    Workflow,
     DescriptorValue,
     FileDescriptor,
     ProjectArtifact,
+    WorkflowTypes,
     Labeling,
     DesignLabeling,
 )
+from ovo.core.logic.descriptor_logic import get_available_descriptors
 from ovo.core.storage import Storage
 from ovo.core.utils.formatting import safe_filename
+
+# Download field of :func:`resolve_download_fields` that is generated instead of read from storage,
+# see ``ovo.core.logic.bulk_submission_logic.export_bulk_config_for_pools``
+BULK_CONFIG_DOWNLOAD_LABEL = "Bulk submission config"
+
+
+def can_export_bulk_config(workflow: Workflow | None) -> bool:
+    """Whether a workflow can be exported as a bulk submission config.
+
+    Excludes non-design workflows (e.g. descriptor workflows). An UnknownWorkflow is included: the
+    placeholder an uninstalled plugin leaves behind still holds the raw config dict it was stored
+    with, so its parameters can be exported (submitting it back needs the plugin installed again).
+
+    is_instance, not isinstance: the callers pass workflows out of the Streamlit cache, where
+    isinstance can return False for a workflow of that very class after a live reload.
+    """
+    return workflow is not None and workflow.is_instance(DesignWorkflow)
+
 
 # Configuration for import/export operations (Project handled separately)
 IMPORT_EXPORT_CONFIGS = [
@@ -392,3 +436,106 @@ def import_project(
         check_conflicts=True,
         count_only=count_only,
     )
+
+
+def get_download_filename_prefix(pool_ids: list[str], design_ids: list[str]) -> str:
+    """Generate a filename prefix for downloads based on pools and design IDs.
+
+    :param pool_ids: List of Pool IDs
+    :param design_ids: List of design IDs
+    :return: Filename prefix string (e.g., "ovo_pool1_pool2" or "ovo_5_pools")
+    """
+    if len(design_ids) <= 3:
+        return "_".join(design_ids)
+    return get_pools_filename_prefix(pool_ids)
+
+
+def get_pools_filename_prefix(pool_ids: list[str]) -> str:
+    """Generate a filename prefix for a download of whole pools, e.g. "ovo_pool1_pool2" or "ovo_5_pools".
+
+    Too many pool IDs make for an unusable filename, so they are only listed up to a limit.
+    """
+    if len(pool_ids) < 10:
+        return "ovo_" + "_".join(pool_ids)
+    return f"ovo_{len(pool_ids)}_pools"
+
+
+def merge_job_descriptors(available_descriptors: dict, descriptor_keys_by_job_id: dict[str, list[str]] = None) -> dict:
+    """Add the descriptors of the given descriptor jobs to the ones already available on the designs.
+
+    Some descriptors only make sense in the context of a specific descriptor job (the same key can be
+    computed by several jobs), so they are not returned by ``get_available_descriptors`` and have to
+    be merged in from ``{job id: [descriptor key]}``. Descriptors already available win.
+    """
+    if not descriptor_keys_by_job_id:
+        return available_descriptors
+    assert isinstance(descriptor_keys_by_job_id, dict), (
+        f"Expected a dict of descriptor keys by job ID, got {type(descriptor_keys_by_job_id)}"
+    )
+    return {
+        **{k: ALL_DESCRIPTORS_BY_KEY[k] for keys in descriptor_keys_by_job_id.values() for k in keys},
+        **available_descriptors,
+    }
+
+
+def resolve_download_fields(
+    pools: list[Pool],
+    design_ids: list[str],
+    descriptor_keys_by_job_id: dict[str, list[str]] = None,
+    design_jobs: list[DesignJob] = None,
+    available_descriptors: dict = None,
+) -> dict[str, tuple[Base, str]]:
+    """Return the downloadable file fields for a set of pools, as {label: (Model, field_name)}.
+
+    Merges three sources, which is why this cannot be read off a single workflow type:
+
+    - the base ``DesignWorkflow`` fields, if any pool has no design job (e.g. an uploaded pool)
+    - each pool's own workflow type's ``get_download_fields()``
+    - every ``FileDescriptor`` actually present on these designs
+
+    Plus :data:`BULK_CONFIG_DOWNLOAD_LABEL`, which is not a stored file but is generated on demand by
+    ``export_bulk_config_for_pools``, so it has to be handled separately by the caller.
+
+    :param pools: Pools the designs belong to
+    :param design_ids: Designs whose available file descriptors should be included
+    :param descriptor_keys_by_job_id: Optional {job id: [descriptor keys]} whose descriptors to include
+                                      even if not yet present on the designs
+    :param design_jobs: Optional pre-loaded design jobs for these pools (the web app passes cached ones)
+    :param available_descriptors: Optional pre-loaded {key: Descriptor} for these designs (ditto)
+    """
+    # label -> (Model, field_name)
+    # for example: {"pdb files": (Design, "structure_path")}
+    download_fields = {}
+    if any(not pool.design_job_id for pool in pools):
+        # Some pools don't have a design job (e.g. uploaded designs), so we need to include the basic fields
+        download_fields.update(DesignWorkflow.get_download_fields())
+
+    if design_jobs is None:
+        design_job_ids = [pool.design_job_id for pool in pools if pool.design_job_id]
+        design_jobs = db.select(DesignJob, id__in=design_job_ids, order_by="-created_date_utc")
+
+    for design_job in design_jobs:
+        WorkflowType = (
+            WorkflowTypes.get(design_job.workflow.name) if design_job and design_job.workflow else DesignWorkflow
+        )
+        for label, v in WorkflowType.get_download_fields().items():
+            if label in download_fields:
+                assert download_fields[label] == v, (
+                    f"Conflicting download field for key '{label}': {download_fields[label]} != {v}"
+                )
+
+        download_fields.update(WorkflowType.get_download_fields())
+
+    # Add available file descriptor paths
+    if available_descriptors is None:
+        available_descriptors = get_available_descriptors(design_ids)
+    available_descriptors = merge_job_descriptors(available_descriptors, descriptor_keys_by_job_id)
+
+    for file_descriptor in available_descriptors.values():
+        if isinstance(file_descriptor, FileDescriptor):
+            download_fields[file_descriptor.name] = (DescriptorValue, file_descriptor.key)
+
+    if any(can_export_bulk_config(design_job.workflow) for design_job in design_jobs):
+        download_fields[BULK_CONFIG_DOWNLOAD_LABEL] = (DesignJob, "workflow")
+
+    return download_fields

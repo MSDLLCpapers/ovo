@@ -199,14 +199,14 @@ def display_ranking_results(job: DescriptorJob, selected_design_is: list[str]):
     rank_column_name = (RANK.tool, RANK.name)
 
     # Get descriptor used for ranking
-    descriptor_job_id = {
+    descriptor_keys_by_job_id = {
         job.id: [RANK.key],
         None: workflow.descriptor_keys,  # hack to put the important descriptor columns at the beginning
     }
     descriptors_df = get_wide_descriptor_table(
         design_ids=overlap_design_ids,
         descriptor_keys=[d.key for d in descriptors],
-        descriptor_job_id=descriptor_job_id,
+        descriptor_job_id=descriptor_keys_by_job_id,
         nested=True,
     )
     descriptors_df = descriptors_df.sort_values(by=rank_column_name, ascending=True)
@@ -218,7 +218,7 @@ def display_ranking_results(job: DescriptorJob, selected_design_is: list[str]):
     download_job_designs_component(
         ranked_design_ids,
         pools,
-        descriptor_job_id=descriptor_job_id,
+        descriptor_keys_by_job_id=descriptor_keys_by_job_id,
         group_by=RANK.key,
         group_by_fmt="rank_{}",
         group_by_flatten=True,

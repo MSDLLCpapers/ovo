@@ -6,12 +6,11 @@ import pandas as pd
 import streamlit as st
 
 from ovo import get_username, config, db
+from ovo.app.components.download_component import download_bulk_config_button
 from ovo.app.components.navigation import ROUND_IDS_QUERY_PARAM
 from ovo.app.components.submission_components import get_next_round_name
 from ovo.core.database.models import Design, Pool, Round
-from ovo.core.database.models_proteinqc import ProteinQCWorkflow
-from ovo.core.logic.descriptor_logic import submit_descriptor_workflow
-from ovo.core.logic.design_logic import create_designs_from_structure_files, create_designs_from_dataframe
+from ovo.core.logic.pool_logic import PoolUpload, create_pool_from_uploads
 from ovo.app.utils.cached_db import get_cached_round, get_cached_pool_count
 from ovo.core.logic.round_logic import get_or_create_project_rounds, get_or_create_archived_round, ARCHIVED_ROUND_NAME
 from ovo.core.utils.export import parse_tabular_file
@@ -188,7 +187,7 @@ def create_new_pool():
         )
 
         if name and db.count(Pool, round_id=round_id, name=name):
-            st.error(f"A pool with this name already exists in this round. Please choose a different name.")
+            st.error("A pool with this name already exists in this round. Please choose a different name.")
 
         description = st.text_area(
             "Pool description (optional)",
@@ -240,79 +239,40 @@ def create_new_pool():
             )
 
     if submit:
-        if structure_files and chains:
-            assert re.match(r"^[A-Z]+$", chains), f"Invalid chains '{chains}'"
-
-        content.empty()
-
-        username = get_username()
-        new_round = None
-
-        if round_id == "__new__":
-            new_round = Round(project_id=project_id, name=new_round_name.strip(), author=username)
-            round_id = new_round.id
-
-        # Create pool
-        pool = Pool(id=Pool.generate_id(), author=username, round_id=round_id, name=name, description=description)
-
-        conversion_warnings = []
-        if tabular_files and tabular_config:
-            # Handle tabular files
-            st.text("Processing sequence data...")
-            designs = create_designs_from_dataframe(
-                **tabular_config,
-                pool_id=pool.id,
-            )
-
-            # Get list of all unique chains from the designs for descriptor computation
-            chains = sorted(
-                set(chain for design in designs for chain in design.spec.chains for chain in chain.chain_ids)
-            )
-
-        # Handle structure files
-        elif structure_files and chains:
-            st.text("Uploading designs...")
-            designs, conversion_warnings = create_designs_from_structure_files(
-                structure_files=structure_files,
-                chains=list(chains),
-                pool=pool,
-                project_id=project_id,
-            )
-        else:
+        if not (tabular_files and tabular_config) and not (structure_files and chains):
             st.error("No valid files to process")
             return
 
-        if conversion_warnings:
+        content.empty()
+
+        result = create_pool_from_uploads(
+            PoolUpload(
+                project_id=project_id,
+                pool_name=name,
+                round_id=None if round_id == "__new__" else round_id,
+                new_round_name=new_round_name,
+                description=description,
+                structure_files=structure_files if not tabular_config else None,
+                chains=chains if not tabular_config else None,
+                dataframe=tabular_config["df"] if tabular_config else None,
+                id_column=tabular_config["id_column"] if tabular_config else None,
+                column_chains=tabular_config["column_chains"] if tabular_config else None,
+            ),
+            callback=st.text,
+        )
+
+        if result.conversion_warnings:
             st.warning("Some CIF files were converted to PDB format.")
-            for warning in conversion_warnings:
+            for warning in result.conversion_warnings:
                 st.warning(warning)
 
-        if len(designs) > 1:
-            st.text(f"Saving {len(designs):,} designs to DB...")
-
-        db.save_all(designs + ([new_round] if new_round else []) + [pool])
-
-        # Trigger sequence composition computation with local conda scheduler
-        try:
-            st.text("Submitting descriptor job...")
-            submit_descriptor_workflow(
-                workflow=ProteinQCWorkflow(
-                    tools=["seq_composition"],
-                    chains=list(chains),
-                    design_ids=[design.id for design in designs],
-                    batch_size=100,
-                ),
-                scheduler_key=config.local_scheduler,
-                project_id=project_id,
-            )
-        except Exception as e:
-            traceback.print_exc()
-            st.warning(f"Error submitting descriptor workflow: {e}")
+        if result.descriptor_job_error:
+            st.warning(f"Error submitting descriptor workflow: {result.descriptor_job_error}")
             time.sleep(1)
 
         # Activate the selected round and pool
-        st.query_params[ROUND_IDS_QUERY_PARAM] = round_id
-        st.query_params["pool_ids"] = pool.id
+        st.query_params[ROUND_IDS_QUERY_PARAM] = result.pool.round_id
+        st.query_params["pool_ids"] = result.pool.id
 
         st.session_state.files = None
         st.text("✅ Done")
@@ -324,6 +284,7 @@ def pool_actions_menu(pool_ids: list[str], project_id: str, round_id: str | None
     """Render an "Actions" menu with pool management actions.
 
     `pool_ids` is a list of selected pool IDs to operate on. If not selected, only actions related to the round are shown.
+    Downloading the bulk submission config is the only action available on a read-only server.
 
     If ``round_id`` is provided (i.e. a single round is active), a "Rename round" action is included.
     Extra keyword arguments are forwarded to the ``st.menu_button``.
@@ -334,25 +295,30 @@ def pool_actions_menu(pool_ids: list[str], project_id: str, round_id: str | None
     round_is_empty = round_id is not None and get_cached_pool_count(round_id=round_id) == 0
 
     noun = "pool" if len(pool_ids) == 1 else "pools"
+    bulk_config_action = ":material/download: Download bulk submission config"
     edit_action = f":material/edit: Edit {noun}"
     archive_action = f":material/drive_file_move: Archive {noun}"
     rename_round_action = ":material/edit_note: Rename round"
     delete_round_action = ":material/delete: Delete round"
 
     options = []
+    # These actions modify the project, so they are left out on a read-only server
+    if not config.props.read_only:
+        if pool_ids:
+            options.append(edit_action)
+            if not is_archived_round:
+                options.append(archive_action)
+        if round_id is not None:
+            options.append(rename_round_action)
+            if round_is_empty:
+                options.append(delete_round_action)
     if pool_ids:
-        options.append(edit_action)
-        if not is_archived_round:
-            options.append(archive_action)
-    if round_id is not None:
-        options.append(rename_round_action)
-        if round_is_empty:
-            options.append(delete_round_action)
+        options.append(bulk_config_action)
 
     action = st.menu_button(
         "Actions",
         options=options or [None],
-        disabled=config.props.read_only or not options,
+        disabled=not options,
         key=f"pool_actions_{'_'.join(pool_ids)}_{round_id}",
         **button_kwargs,
     )
@@ -365,6 +331,19 @@ def pool_actions_menu(pool_ids: list[str], project_id: str, round_id: str | None
         rename_round_dialog(round_id)
     elif action == delete_round_action:
         delete_round_dialog(round_id)
+    elif action == bulk_config_action:
+        download_bulk_config_dialog(pool_ids)
+
+
+@st.dialog("Download bulk submission config")
+def download_bulk_config_dialog(pool_ids: list[str]):
+    noun = "pool" if len(pool_ids) == 1 else "pools"
+    st.write(
+        f"Download the workflows of the selected {noun} as a bulk submission config, "
+        "including their input files. Upload it on the Bulk submission page to resubmit them, "
+        "optionally after editing the parameters or adding a grid of values."
+    )
+    download_bulk_config_button(pool_ids, key=f"download_bulk_config_dialog_{'_'.join(pool_ids)}")
 
 
 @st.dialog("Edit pools", width="large")

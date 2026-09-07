@@ -3,6 +3,8 @@ from copy import copy
 from dataclasses import dataclass, field
 from typing import Callable
 
+import pandas as pd
+
 # from ovo import db
 from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, DesignJob, Design, Base
 from ovo.core.database.models_refolding import RefoldingSupportedDesignWorkflow
@@ -91,6 +93,13 @@ class BindCraftBinderDesignWorkflow(DesignWorkflow, RefoldingSupportedDesignWork
     # dict chains, key: chain, value: contig, e.g. {A: A1-100/102-110/112-130, B: B23-202}
     chains: dict | None = None
 
+    def to_dict(self, clean: bool = False) -> dict:
+        data = super().to_dict(clean=clean)
+        if clean:
+            for ui_state_field in ("input_name", "selected_segments", "chains"):
+                data.pop(ui_state_field, None)
+        return data
+
     def get_input_pdb_paths(self):
         return [self.get_input_pdb_path()]
 
@@ -135,6 +144,20 @@ class BindCraftBinderDesignWorkflow(DesignWorkflow, RefoldingSupportedDesignWork
         from ovo.app.components.workflow_summary import bindcraft_workflow_summary
 
         bindcraft_workflow_summary(jobs)
+
+    def get_table_row(self, **kwargs) -> pd.Series:
+        row = super().get_table_row(**kwargs)
+        return pd.concat(
+            [
+                pd.Series(
+                    {
+                        ("Workflow", "input"): self.input_name,
+                    },
+                    **kwargs,
+                ),
+                row,
+            ]
+        )
 
     @classmethod
     def get_download_fields(cls):

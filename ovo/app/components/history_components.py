@@ -66,10 +66,13 @@ def history_dropdown_component(
 
 def format_label(pool_id: str, pools_by_id: dict[str, Pool]):
     delta = datetime.now(timezone.utc).replace(tzinfo=None) - pools_by_id[pool_id].created_date_utc
-    return "{id} | {name} | {when_created}".format(
+    label = "{id} | {name} | {when_created}".format(
         id=pool_id,
         name=pools_by_id[pool_id].name,
         # NOTE: we need to use "a moment ago" for times less than 1 hour
         # to avoid the streamlit selectbox being re-created and discarding user's selection
         when_created=timeago.format(delta) if delta.total_seconds() > 3600 else "a moment ago",
     )
+    if pools_by_id[pool_id].description:
+        label += f" | {pools_by_id[pool_id].description}"
+    return label

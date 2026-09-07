@@ -129,6 +129,12 @@ class RFdiffusionParams(WorkflowParams):
         super().validate()
         if not self.input_pdb:
             raise ValueError("No input pdb provided")
+        if not isinstance(self.contigs, list):
+            if isinstance(self.contigs, str):
+                raise ValueError(
+                    "Contigs must be provided as a list of strings, not a single string. For bulk grid submission, provide a list of lists."
+                )
+            raise ValueError(f"Expected list, got {type(self.contigs).__name__}: {self.contigs}")
         for contig in self.contigs:
             if "/0 " not in contig and " " in contig:
                 raise ValueError(
@@ -347,6 +353,13 @@ class RFdiffusionWorkflow(DesignWorkflow, RefoldingSupportedDesignWorkflow):
     # IDs of designs used for partial diffusion (unless custom upload was used)
     # Corresponds to order of contigs in rfdiffusion_params.contigs field
     design_ids: list[str] = field(default_factory=list)
+
+    def to_dict(self, clean: bool = False) -> dict:
+        data = super().to_dict(clean=clean)
+        if clean:
+            for ui_state_field in ("input_name", "preview_job_id", "selected_segments", "design_ids"):
+                data.pop(ui_state_field, None)
+        return data
 
     def get_table_row(self, **kwargs) -> pd.Series:
         """Get all values of all param fields, skip fields with metadata.show_to_user=False, return pd.Series"""

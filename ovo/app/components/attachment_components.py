@@ -12,7 +12,7 @@ from ovo.core.database.models import (
     DescriptorJob,
 )
 from ovo.core.utils.formatting import safe_filename
-from ovo.app.components.download_component import get_download_filename_prefix
+from ovo.core.logic.import_export_logic import get_download_filename_prefix
 
 
 def add_project_attachments(project: Project):
@@ -206,7 +206,7 @@ def download_distance_matrix_artifacts(
     filename = f"{filename_prefix}_distance_matrix_{clustering_method}.csv.gz"
 
     st.download_button(
-        label=f"Download distance matrix",
+        label="Download distance matrix",
         data=lambda path=artifact.file_path: storage.read_file_bytes(path),
         file_name=filename,
         key=f"download_distance_matrix_{job.id}",

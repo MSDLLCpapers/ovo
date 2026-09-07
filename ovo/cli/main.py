@@ -5,6 +5,7 @@ from ovo.cli import init
 from ovo.cli import module
 from ovo.cli import app as app_cli
 from ovo.cli import scheduler_cli
+from ovo.cli import workflow_cli
 from ovo.cli.common import OVOCliError, print_ovo_logo
 
 
@@ -17,6 +18,7 @@ app.add_typer(init.app, name="init")
 app.add_typer(module.app, name="")
 app.add_typer(app_cli.app, name="")
 app.add_typer(scheduler_cli.app, name="scheduler")
+app.add_typer(workflow_cli.app, name="workflow")
 
 
 def main():

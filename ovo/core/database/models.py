@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import MappedAsDataclass
 from sqlalchemy.orm import mapped_column
 
-from ovo.core.database.encoder import DataclassType
+from ovo.core.database.encoder import DataclassEncoder, DataclassType
 from ovo.core.database.db_proxy import DBProxy
 from ovo.core.scheduler.base_scheduler import Scheduler
 from ovo.core.utils.formatting import generate_id, generate_unique_id
@@ -248,6 +248,20 @@ class WorkflowTypes:
                 workflow_names.append(n)
         return workflow_names
 
+    @classmethod
+    def get_design_workflow_types(cls) -> dict[str, type["DesignWorkflow"]]:
+        """Get {name: class} of every registered, submittable design workflow type.
+
+        Excludes non-design workflows (e.g. descriptor workflows) and UnknownWorkflow, which is the
+        placeholder for a workflow type that is no longer registered. Includes plugin workflow types,
+        since they register themselves here on import.
+        """
+        return {
+            name: cls.get(name)
+            for name in cls.get_subclass_names(DesignWorkflow)
+            if not cls.get(name).is_subclass(UnknownWorkflow)
+        }
+
 
 @dataclass
 class Workflow:
@@ -336,6 +350,15 @@ class Workflow:
 
         return fields
 
+    def to_dict(self, clean: bool = False) -> dict:
+        """Serialize the workflow to a dict of all its fields, the inverse of :meth:`from_dict`.
+
+        With clean=True, fields that only hold UI state are left out, so the result is a config that
+        can be edited and submitted again - see the overrides in the workflow types that have such
+        fields. Those UI state fields are a hack, new workflow types should not add any.
+        """
+        return json.loads(json.dumps(self, cls=DataclassEncoder))
+
     def get_table_row(self, **kwargs) -> pd.Series:
         """Get all values of all param fields, skip fields with metadata.show_to_user=False, return pd.Series"""
         if param_fields := self.get_param_fields(human_readable=True):
@@ -366,7 +389,7 @@ class Workflow:
             try:
                 params.validate()
             except Exception as e:
-                raise ValueError(f"Validation failed for workflow.{field_name} ({type(params).__name__}: {e}") from e
+                raise ValueError(f"Validation failed for workflow.{field_name} ({type(params).__name__}): {e}") from e
 
     def get_time_estimate(self, scheduler: Scheduler) -> str:
         return "Time estimate: No time estimate available for this workflow"
@@ -573,6 +596,13 @@ class UnknownWorkflow(DesignWorkflow, DescriptorWorkflow):
         self.acceptance_thresholds = {}
         self.chains = []
         self.design_ids = []
+
+    def to_dict(self, clean: bool = False) -> dict:
+        """Return the raw dict this placeholder was stored with, so the params of a workflow whose
+        plugin was uninstalled stay recoverable. Its non-param fields come along, and clean has no
+        effect: without the class, there is no way to tell which of its fields were UI state.
+        """
+        return json.loads(json.dumps(self.data, cls=DataclassEncoder))
 
     def run(self, execdir: str, scheduler: "Scheduler") -> None:
         """Execute workflow as a task (for TaskScheduler workflows).

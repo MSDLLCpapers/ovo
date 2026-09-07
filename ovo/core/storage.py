@@ -1,3 +1,4 @@
+import posixpath
 import shutil
 import warnings
 import zipfile
@@ -38,7 +39,14 @@ class Storage:
         disk_cache_limit_bytes=200 * 1024 * 1024,
         memory_cache_limit_per_file_bytes=5 * 1024 * 1024,
     ):
-        self.storage_root: str = storage_root
+        # Absolute local path or URI, with no trailing slash, so that resolve_path can join onto it
+        # and is_storage_path can compare against it as a string prefix
+        assert os.path.isabs(storage_root) or "://" in storage_root, (
+            f"Storage root must be an absolute path or a URI, got: {storage_root}"
+        )
+        # Note that we always strip the trailing slash from the storage root
+        self.storage_root: str = storage_root.rstrip("/")
+        assert self.storage_root, "Storage root cannot be empty"
         self.aws: AWSSessionManager | None = aws
         self.verbose = verbose
         self.num_copy_threads = num_copy_threads
@@ -279,11 +287,28 @@ class Storage:
             else:
                 return sorted(os.listdir(abs_path))
 
-    def file_exists(self, storage_path) -> bool:
+    def is_storage_path(self, storage_path: str) -> bool:
+        """Check whether the path points inside the storage root.
+
+        Relative paths always do (unless they traverse up), absolute paths and S3 URIs only if they start with the storage root.
+
+        :param storage_path: relative (within storage root) or absolute path to the source file
+        :return: True if the file is inside the storage root, False otherwise
+        """
+        # resolve_path normalizes, so '<storage root>/../secret' cannot pass as a storage path
+        abs_path = self.resolve_path(storage_path).removeprefix("zip://")
+        return abs_path.startswith(self.storage_root + "/")
+
+    def file_exists(self, storage_path, storage_only: bool = False) -> bool:
         """Search for the file in the local filesystem or in the S3 bucket
         :param storage_path: relative (within storage root) or absolute path to the source file
+        :param storage_only: if True, only look inside the storage root, so a path pointing to a file
+            outside of it returns False even if that file exists (see :meth:`is_storage_path`)
         :return: True if the file exists, False otherwise
         """
+        if storage_only and not self.is_storage_path(storage_path):
+            return False
+
         abs_path = self.resolve_path(storage_path)
 
         scheme, bucket, key = self.parse_path(abs_path)
@@ -380,18 +405,33 @@ class Storage:
         return pickle.loads(file_content)
 
     def resolve_path(self, storage_path: str) -> str:
-        """Resolve the storage path to an absolute path in the local filesystem or S3 bucket.
+        """Resolve the storage path to an absolute, normalized path in the local filesystem or S3 bucket.
+
+        The '..' and '.' segments are always resolved, which keeps :meth:`is_storage_path` honest,
+        since it compares the result against the storage root as a string prefix.
+
         :param storage_path: relative (within storage root) or absolute path to the source file
         :return: absolute path to the file in the local filesystem or S3 bucket
         """
-        scheme, _, _ = self.parse_path(storage_path)
-        if scheme == "zip":
-            abspath = os.path.join(self.storage_root, storage_path.removeprefix("zip://"))
-            return f"zip://{abspath}"
-        if not os.path.isabs(storage_path) and not scheme:
-            # Convert relative path to absolute
-            return os.path.join(self.storage_root, storage_path)
-        return storage_path
+        path = str(storage_path)  # callers also pass a Path object
+
+        if path.startswith("zip://"):
+            # zip://path/to/zipfile.zip:internal/path - only the zip file part is a storage path
+            return "zip://" + self.resolve_path(path.removeprefix("zip://"))
+
+        # A full URI, recognized by :// substring rather than by its parsed scheme, as a relative path inside a
+        # zip file ('name.zip:file.pdb') would parse as a 'name.zip' scheme
+        if "://" in path:
+            # Normalized in the key only, as os.path and posixpath would collapse the '//' of the scheme
+            scheme, netloc, key = self.parse_path(path)
+            return f"{scheme}://{netloc}/{posixpath.normpath(key).lstrip('/')}"
+
+        if not os.path.isabs(path):
+            # A relative path is resolved against the storage root, which is a local path or a URI itself
+            return self.resolve_path(os.path.join(self.storage_root, path))
+
+        # Already an absolute local path, only collapse its '..', '.' and duplicate '/' segments
+        return os.path.normpath(path)
 
     def _basename(self, path: str) -> str:
         """Get the base name (filename) from a path, supporting both regular paths and zip paths"""

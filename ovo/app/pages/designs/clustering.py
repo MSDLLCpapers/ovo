@@ -299,7 +299,7 @@ def clustering_fragment(pool_ids: list[str], design_ids: list[str] | None = None
     extra_col = download_job_designs_component(
         design_ids,
         pools,
-        descriptor_job_id={job.id: [d.key for d in descriptors]},
+        descriptor_keys_by_job_id={job.id: [d.key for d in descriptors]},
         group_by=cluster_id_descriptor.key,
         group_by_fmt="cluster_{}",
         key="cluster",
