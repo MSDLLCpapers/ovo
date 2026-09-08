@@ -6,6 +6,7 @@ from typing import Dict
 
 from ovo.core.database.models import Descriptor
 
+from ovo.app.components.descriptor_dialog import detail_button
 from ovo.app.components.descriptor_scatterplot import format_descriptor_name
 from ovo.app.utils.protein_qc_plots import (
     format_threshold_value,
@@ -41,7 +42,7 @@ class HistogramSettings:
 
 @st.fragment()
 def descriptor_explorer(
-    descriptors_df: pd.DataFrame, descriptors_by_key: Dict[str, Descriptor], single_design: bool = False
+    descriptors_df: pd.DataFrame, descriptors_by_key: Dict[str, Descriptor], design_id: str | None = None
 ):
     if descriptors_df.empty:
         st.warning("No designs found")
@@ -51,7 +52,7 @@ def descriptor_explorer(
         st.warning("No descriptors found for the selected designs.")
         return
 
-    key_prefix = "design_expl" if single_design else "descriptor_expl"
+    key_prefix = "descriptor_expl"
 
     settings = HistogramSettings.from_query_params(descriptors_by_key, key_prefix)
 
@@ -84,10 +85,7 @@ def descriptor_explorer(
     # Write the descriptor description and thresholds
     st.write(f"*{settings.descriptor.description}*")
 
-    if single_design:
-        avg_col, warning_col, error_col = st.columns(3)
-    else:
-        avg_col, median_col, warning_col, error_col = st.columns(4)
+    avg_col, median_col, warning_col, error_col = st.columns(4)
 
     # If there are missing values, show warning message that the distribution is only for the non-missing values
     if len(descriptor_values) > len(nonnull_descriptor_values):
@@ -99,15 +97,11 @@ def descriptor_explorer(
     with avg_col:
         avg_value = np.mean(descriptor_values)
         avg_value = format_threshold_value(settings.descriptor.name, avg_value)
-        label = (
-            "" if single_design else "Average "
-        ) + settings.descriptor.name  # f'Average {settings.descriptor.name}'
-        st.metric(label, avg_value)
-    if not single_design:
-        with median_col:
-            median_value = np.median(descriptor_values)
-            median_value = format_threshold_value(settings.descriptor.name, median_value)
-            st.metric(f"Median {settings.descriptor.name}", median_value)
+        st.metric(f"Average {settings.descriptor.name}", avg_value)
+    with median_col:
+        median_value = np.median(descriptor_values)
+        median_value = format_threshold_value(settings.descriptor.name, median_value)
+        st.metric(f"Median {settings.descriptor.name}", median_value)
     with warning_col:
         warning_value = format_threshold_value(settings.descriptor.name, settings.descriptor.warning_value)
         st.metric("Warning threshold", warning_value)
@@ -121,10 +115,13 @@ def descriptor_explorer(
         values=descriptor_values,
         precomputed_histogram_height=200,
         pool_histogram_height=200,
+        value=descriptor_values.loc[design_id] if design_id else None,
+        value_label=design_id,
     )
 
     st.altair_chart(
         fig,
-        width="stretch" if single_design else "content",
+        width="content",
         key=f"descriptor_histogram_{key_prefix}",
     )
+    detail_button(settings.descriptor, descriptor_values, design_id, key_prefix="descriptor_explorer")

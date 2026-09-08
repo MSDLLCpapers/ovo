@@ -130,8 +130,6 @@ def residue_number_descriptor_detail_table(descriptor: Descriptor, descriptor_va
         width="small",
         help=f"Number of {descriptor.name} present in the design",
     )
-    formatted_strings = {
-        design_id: f"{design_id} | #residues={row['# residues present']}" for design_id, row in df.iterrows()
-    }
+    formatted_strings = {design_id: f"#residues={row['# residues present']}" for design_id, row in df.iterrows()}
     format_func = lambda design_id: formatted_strings.get(design_id, str(design_id))
     return df, column_config, caption, format_func

@@ -95,7 +95,7 @@ def proteinqc_fragment(pool_ids: list[str], design_ids: list[str] | None = None)
     )
 
     st.subheader("Descriptor explorer")
-    descriptor_explorer(descriptors_df, numeric_descriptors_by_key, single_design=False)
+    descriptor_explorer(descriptors_df, numeric_descriptors_by_key, design_id=design_id)
 
 
 @st.fragment

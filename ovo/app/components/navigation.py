@@ -385,7 +385,8 @@ def design_navigation_selector(
             disabled=idx == len(design_ids) - 1,
         )
 
-        design_indexes = {design_id: i for i, design_id in enumerate(design_ids, start=1)}
+        start_idx = 0 if allow_all else 1
+        design_indexes = {design_id: i for i, design_id in enumerate(design_ids, start=start_idx)}
 
         def format_func(design_id):
             if design_id == "ALL":

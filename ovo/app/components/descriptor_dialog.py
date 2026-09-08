@@ -6,6 +6,7 @@ import streamlit as st
 from ovo import storage, CategoricalResidueDescriptor, ResidueNumberDescriptor, NumericGlobalDescriptor, Descriptor
 from ovo import viz
 from ovo.app.components.descriptor_table import residue_number_descriptor_detail_table
+from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.workflow_visualization_components import visualize_design_sequence
 from ovo.app.utils.cached_db import get_cached_design, get_cached_pool
@@ -20,42 +21,34 @@ def on_dismiss_dialog():
     st.query_params.pop("dialog", None)
 
 
-@st.dialog("Detail", on_dismiss=on_dismiss_dialog)
+@st.dialog("Detail", on_dismiss=on_dismiss_dialog, width="large")
 def detail_descriptor_dialog(descriptor, descriptor_values: pd.Series, design_id: str = None):
-    st.markdown(
-        """
-    <style>
-    div[role="dialog"] {
-        width: 80vw !important;
-        max-width: 1200px !important;
-        height: auto;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
     st.write(f"**{descriptor.name}**: {descriptor.description}")
 
     col1, col2 = st.columns([2, 3.5])
 
     with col1:
-        table_data, format_func = detail_table(descriptor, descriptor_values)
+        table_data, format_func, selected_design_id = detail_table(descriptor, descriptor_values, design_id=design_id)
         if table_data is None:
             return
 
     with col2:
-        detail_design(descriptor, descriptor_values, table_data, format_func, design_id=design_id)
+        if selected_design_id is not None:
+            design_id = selected_design_id
+        detail_design(descriptor, descriptor_values, format_func=format_func, design_id=design_id)
 
 
-def detail_button(descriptor, descriptor_values: pd.Series, design_id: str = None):
-    if st.button("Show more", key=f"{descriptor.name}_btn"):
+def detail_button(descriptor, descriptor_values: pd.Series, design_id: str = None, key_prefix: str = ""):
+    button_key = f"{key_prefix}_{descriptor.name}_btn" if key_prefix else f"{descriptor.name}_btn"
+    if st.button("Show more", key=button_key):
         st.query_params["dialog"] = descriptor.key
     if st.query_params.get("dialog") == descriptor.key:
         detail_descriptor_dialog(descriptor, descriptor_values, design_id=design_id)
 
 
-def detail_table(descriptor, descriptor_values: pd.Series):
+def detail_table(
+    descriptor, descriptor_values: pd.Series, design_id: str | None = None
+) -> tuple[pd.DataFrame | None, Callable | None, str | None]:
     table_data = pd.DataFrame({"value": descriptor_values})
     table_data.index.name = "Design ID"
     styler = None
@@ -79,7 +72,7 @@ def detail_table(descriptor, descriptor_values: pd.Series):
         }
 
         def format_func(design_id):
-            return f"{design_id} | {descriptor.name} = {table_data.value.loc[design_id]}"
+            return f"{descriptor.name} = {table_data.value.loc[design_id]}"
 
     elif isinstance(descriptor, NumericGlobalDescriptor):
         caption = f"Designs sorted by **{descriptor.name}**"
@@ -117,7 +110,7 @@ def detail_table(descriptor, descriptor_values: pd.Series):
         }
 
         def format_func(design_id):
-            return f"{design_id} | {descriptor.name} = {table_data.value.loc[design_id]:.2f}"
+            return f"{descriptor.name} = {table_data.value.loc[design_id]:.2f}"
 
     elif isinstance(descriptor, ResidueNumberDescriptor):
         table_data, column_config, caption, format_func = residue_number_descriptor_detail_table(
@@ -129,41 +122,58 @@ def detail_table(descriptor, descriptor_values: pd.Series):
         return None, None
 
     st.caption(caption)
-    st.dataframe(
+    if design_id is not None and design_id in table_data.index:
+        selected_design_idx = table_data.index.get_loc(design_id)
+    else:
+        selected_design_idx = 0
+    selection_default = {"selection": {"rows": [selected_design_idx]}} if selected_design_idx is not None else None
+    selected = st.dataframe(
         styler if styler is not None else table_data,
         column_config=column_config,
         width="stretch",
+        height="stretch",
+        selection_mode="single-row-required",
+        on_select="rerun",
+        selection_default=selection_default,
     )
-    return table_data, format_func
+    if selected["selection"]["rows"]:
+        selected_design_row = selected["selection"]["rows"][0]
+        selected_design_id = table_data.index[selected_design_row]
+    else:
+        selected_design_id = None
+    return table_data, format_func, selected_design_id
 
 
 def detail_design(
     descriptor: Descriptor,
     descriptor_values: pd.Series,
-    table_data: pd.DataFrame,
     format_func: Callable,
     design_id: str = None,
 ):
-    design_id = st.selectbox(
-        "Select design:",
-        options=table_data.index,
-        key="design_id_select",
-        format_func=format_func,
-        index=0 if design_id is None or design_id not in table_data.index else table_data.index.get_loc(design_id),
+    if not design_id:
+        st.write("Select a design from the table to view details")
+        return
+
+    design_labeling_fragment(
+        design_id,
+        key_suffix=f"descriptor_dialog_{design_id}",
+        allow_edit=False,  # TODO re-enable this when nested dialogs are supported in Streamlit
     )
 
-    value = descriptor_values.loc[design_id]
-    flag = get_flag_color(value, descriptor)
-    if flag:
-        icon = FLAG_ICONS.get(flag, "")
-        if flag == "missing":
-            st.markdown(f":grey-background[{icon} Value missing]")
-        else:
-            # TODO explain thresholds
-            #  and maybe compare to percentile in PDB ({descriptor.name} = 123, higher than 95% of PDB)
-            st.markdown(f":{flag}-background[{icon} {flag.title()} flag]")
+    with st.container(horizontal=True, gap="xsmall"):
+        value = descriptor_values.loc[design_id]
+        flag = get_flag_color(value, descriptor)
+        if flag:
+            icon = FLAG_ICONS.get(flag, "")
+            if flag == "missing":
+                st.markdown(f":grey-background[{icon} Value missing]")
+            else:
+                # TODO explain thresholds
+                #  and maybe compare to percentile in PDB ({descriptor.name} = 123, higher than 95% of PDB)
+                st.markdown(f":{flag}-background[{icon} {flag.title()} flag]")
 
-    # TODO: Allow labeling designs - nested dialogs are currently not supported
+        st.markdown(format_func(design_id))
+
     # design_labeling_fragment(design_id)
     visualize_design_sequence(design_id)
 

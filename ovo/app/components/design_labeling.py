@@ -33,7 +33,13 @@ def show_explanation_input(label: str, input_label: str = "Explanation for this 
 
 
 @st.fragment
-def design_labeling_fragment(design_ids: str | list[str], key_suffix: str = "", header: str = None, show_header=True):
+def design_labeling_fragment(
+    design_ids: str | list[str],
+    key_suffix: str = "",
+    header: str = None,
+    show_header=True,
+    allow_edit=True,
+):
     if isinstance(design_ids, str):
         design_ids = [design_ids]
     is_bulk = len(design_ids) > 1
@@ -136,7 +142,7 @@ def design_labeling_fragment(design_ids: str | list[str], key_suffix: str = "", 
 
                 st.html("<style>\n{}\n</style>".format("\n".join(styles)))
 
-                if st.button(
+                if allow_edit and st.button(
                     label="Edit labels",
                     type="tertiary",
                     key=f"label_button_{design_ids_key}_{key_suffix}",
