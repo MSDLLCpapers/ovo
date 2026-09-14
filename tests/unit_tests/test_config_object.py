@@ -1,3 +1,4 @@
+import os
 from io import StringIO
 
 import pytest
@@ -52,3 +53,7 @@ def test_config_without_env_uses_yaml(monkeypatch):
     data["dir"] = DEFAULT_OVO_HOME
     config = OVOConfig(**data)
     assert config.local_scheduler == data["local_scheduler"]
+
+
+def test_unit_test_home_dotenv_loaded_into_environment():
+    assert "OVO_TEST_ENV_FROM_DOTENV" in os.environ

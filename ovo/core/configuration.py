@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 from io import StringIO
 from pathlib import Path
 from typing import Literal
@@ -362,3 +363,28 @@ def save_default_config(
         f.write(OVOConfig.default_nextflow_config())
 
     return config_path
+
+
+def load_dotenv_simple(path: str, override: bool = False):
+    """Load KEY=value lines from path into os.environ
+
+    Blank lines and # comments are skipped, an optional `export ` prefix is dropped, and values are
+    unquoted with shell rules (so quoted values keep their spaces and trailing comments). Existing
+    environment variables win unless override=True. A missing file is not an error.
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return
+
+    values = {}
+    for line in lines:
+        line = line.strip().removeprefix("export ")
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = " ".join(shlex.split(value, comments=True))
+
+    # Update environment variables
+    os.environ.update(values if override else {k: v for k, v in values.items() if k not in os.environ})

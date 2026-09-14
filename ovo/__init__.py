@@ -9,6 +9,7 @@ from ovo.core.configuration import (
     GLOBAL_OVO_HOME,
     get_shell_config_path,
     get_source_command,
+    load_dotenv_simple,
 )
 from ovo.core.plugins import plugins
 from ovo.cli.common import console, OVONotInitializedError
@@ -23,6 +24,7 @@ import importlib.metadata
 
 __version__ = importlib.metadata.version("ovo")
 
+
 try:
     if sys.platform == "win32":
         console.print(
@@ -35,7 +37,15 @@ try:
             )
         )
 
-    config = load_config(home_dir=GLOBAL_OVO_HOME or os.getenv("OVO_HOME") or DEFAULT_OVO_HOME)
+    # Load .env files before reading the config, so that OVO_HOME and any OVO_* config override
+    # (e.g. OVO_DB__URL holding database credentials) are picked up. This runs for both the CLI and
+    # the web app, since every entry point imports the ovo package. The .env in the current
+    # directory takes precedence over the one in OVO_HOME, and both lose to real env variables.
+    load_dotenv_simple(".env")
+    ovo_home = GLOBAL_OVO_HOME or os.getenv("OVO_HOME") or DEFAULT_OVO_HOME
+    load_dotenv_simple(os.path.join(ovo_home, ".env"))
+
+    config = load_config(home_dir=ovo_home)
 
     if os.environ.get("OVO_NO_DB", "").lower() not in ["1", "true", "yes"]:
         db = SqlDBEngine(db_url=config.db.url, verbose=config.db.verbose, read_only=config.props.read_only)

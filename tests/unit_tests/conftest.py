@@ -14,6 +14,8 @@ if os.path.exists(TEST_HOME_DIR):
 # Initialize OVO config.yml in test-results directory
 subprocess.run(["ovo", "init", "home", TEST_HOME_DIR, "-y", "--no-env"])
 assert os.path.exists(os.path.join(TEST_HOME_DIR, "config.yml")), "OVO init home failed"
+with open(os.path.join(TEST_HOME_DIR, ".env"), "w", encoding="utf-8") as f:
+    f.write("OVO_TEST_ENV_FROM_DOTENV=loaded_from_unit_test_home\n")
 os.environ["OVO_HOME"] = TEST_HOME_DIR
 os.environ["NO_VERIFY_SSL"] = "1"
 
