@@ -116,6 +116,7 @@ def submit_refolding_dialog(design_ids: list[str]):
                 Running refolding on custom PDB files requires:
                 
                 - Designed chain should be chain A
+                - If target chains are present, they should be merged into chain B. Chain breaks must be indicated with jumps in residue numbering.
                 - The uploaded structure should be the designed structure, not a predicted structure, 
                   since the goal of the refolding workflow is to compare the design to the prediction.
                 - In case of AlphaFold2 evaluation of scaffold designs, the PDB file needs to be standardized in OVO format, 
