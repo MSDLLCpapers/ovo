@@ -73,7 +73,7 @@ def pool_submission_inputs(page_key: str, inputs_are_prefixes: bool = False):
 
     with st.columns([2, 1])[0]:
         pool_name = st.text_input(
-            "Pool name prefix" if inputs_are_prefixes else "Pool name",
+            "Pool name prefix (optional)" if inputs_are_prefixes else "Pool name",
             placeholder="Prefix the pool names of your submissions" if inputs_are_prefixes else "Name your submission",
             value=pool_name,
             key="input_pool_name",
