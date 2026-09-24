@@ -15,12 +15,17 @@ def createCsvBatches(inputPath, batchSize) {
     def numRows = dataLines.size()
     def numBatches = Math.ceil(numRows / batchSize).intValue()
 
+    // Batches are inputs to the pipeline, so they live in the execution directory,
+    // not in the work directory root that is shared by every run
+    def batchDir = file("${workflow.launchDir}/csv_batches")
+    batchDir.mkdirs()
+
     def csvBatches = []
     for (int i = 0; i < numBatches; i++) {
         def startIdx = i * batchSize
         def endIdx = Math.min((i + 1) * batchSize, numRows)
         def batchLines = [header] + dataLines[startIdx..<endIdx]
-        def batchFile = file("${workflow.workDir}/csv_batch_${i}.csv")
+        def batchFile = batchDir.resolve("csv_batch_${i}.csv")
         batchFile.text = batchLines.join('\n')
         csvBatches << batchFile
     }
