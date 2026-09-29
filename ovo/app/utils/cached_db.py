@@ -15,6 +15,7 @@ from ovo.core.database.models import (
     DescriptorJob,
     Labeling,
     DesignLabeling,
+    DesignWorkflow,
     WorkflowTypes,
 )
 import streamlit as st
@@ -228,6 +229,28 @@ def get_cached_design_jobs(design_job_ids: Collection[str]) -> list[DesignJob]:
 @st.cache_data(max_entries=100, ttl="10m")
 def get_cached_design_job(design_job_id: str) -> DesignJob:
     return db.get(DesignJob, id=design_job_id)
+
+
+@clear_when_modified(Pool, DesignJob)
+@st.cache_data(max_entries=100, ttl="10m")
+def get_cached_workflow_types_by_design(design_ids: Collection[str]) -> dict[str, type[DesignWorkflow]]:
+    """Get the workflow type that created each of the given designs
+
+    Designs of a pool without a design job or with an unknown workflow get the generic DesignWorkflow.
+
+    :return: mapping of design ID to workflow type
+    """
+    pool_id_by_design = {design_id: Design.design_id_to_pool_id(design_id) for design_id in design_ids}
+    job_id_by_pool = {pool.id: pool.design_job_id for pool in get_cached_pools(list(set(pool_id_by_design.values())))}
+    workflow_type_by_job = {}
+    for job in get_cached_design_jobs([job_id for job_id in job_id_by_pool.values() if job_id]):
+        WorkflowType = type(job.workflow) if job.workflow else None
+        if WorkflowType and issubclass(WorkflowType, DesignWorkflow):
+            workflow_type_by_job[job.id] = WorkflowType
+    return {
+        design_id: workflow_type_by_job.get(job_id_by_pool.get(pool_id), DesignWorkflow)
+        for design_id, pool_id in pool_id_by_design.items()
+    }
 
 
 # note: caching is managed by nested function - only when no jobs are in progress

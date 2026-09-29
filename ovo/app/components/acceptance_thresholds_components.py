@@ -48,9 +48,20 @@ def thresholds_and_histograms_component(
     if not descriptor_keys:
         st.write("No dynamic acceptance thresholds are configured for this workflow.")
 
+    # by default, only show enabled thresholds, but allow the user to include disabled ones
+    num_enabled_thresholds = sum([t.enabled for t in selected_thresholds.values()])
+    if num_enabled_thresholds != len(selected_thresholds):
+        with st.container(horizontal=True):
+            st.write(f"{num_enabled_thresholds}/{len(selected_thresholds)} available thresholds are currently enabled")
+            if not st.checkbox("Show all available thresholds"):
+                descriptor_keys = [k for k in descriptor_keys if selected_thresholds[k].enabled]
+                for k in selected_thresholds:
+                    if not selected_thresholds[k].enabled:
+                        new_thresholds[k] = selected_thresholds[k]
+
     columns = wrapped_columns(len(descriptor_keys), wrap=max_items_row, divider=True, gap="large")
     for descriptor_key, column in zip(descriptor_keys, columns):
-        with column:
+        with column, st.container(gap=8):
             descriptor = ALL_DESCRIPTORS_BY_KEY[descriptor_key]
 
             plot_container = st.container()
@@ -208,7 +219,7 @@ def descriptor_histogram_component(descriptor_values: pd.Series, descriptor: Des
         x=descriptor_values,
         labels={"x": descriptor.name},
         nbins=50,
-        height=250,
+        height=200,
         width=500,
         color_discrete_sequence=["#1f77b4"] if threshold.enabled else ["#888888"],
     )

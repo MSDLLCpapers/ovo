@@ -570,9 +570,7 @@ def interface_design_visualization_fragment(
             )
 
     # Use the navigation selector component
-    design_id = design_navigation_selector(
-        selected_design_ids, key="interface_selected_design", fmt=labels_by_design_id
-    )
+    design_id = design_navigation_selector(selected_design_ids, fmt=labels_by_design_id)
 
     design_labeling_fragment(design_id, key_suffix=f"interface_{design_id}")
 

@@ -6,7 +6,16 @@ from typing import Callable
 import pandas as pd
 
 from ovo.core.database import descriptors_refolding, descriptors_rfdiffusion
-from ovo.core.database.models import DesignWorkflow, WorkflowParams, WorkflowTypes, Design, Threshold, Base, DesignJob
+from ovo.core.database.models import (
+    AlignmentOption,
+    DesignWorkflow,
+    WorkflowParams,
+    WorkflowTypes,
+    Design,
+    Threshold,
+    Base,
+    DesignJob,
+)
 from ovo.core.database.models_refolding import (
     RefoldingSupportedDesignWorkflow,
     RefoldingWorkflow,
@@ -17,6 +26,7 @@ from ovo.core.utils.residue_selection import (
     parse_partial_diffusion_binder_contig,
     create_partial_diffusion_binder_contig,
     parse_contig_for_input_structure,
+    parse_contig_for_output_structure,
 )
 
 # Valid keys for RFD3 DesignInputSpecification (from rfd3.inference.input_parsing).
@@ -543,6 +553,25 @@ class RFdiffusionScaffoldDesignWorkflow(RFdiffusionWorkflow):
     )
 
     @classmethod
+    def get_alignment_options(cls, design: Design, chain_ids: list[str]) -> dict[str, AlignmentOption]:
+        """Add aligning on the scaffolded motif, the part of the design that comes from the input structure"""
+        options = super().get_alignment_options(design, chain_ids)
+        contig = " ".join(chain.contig for chain in design.spec.chains if chain.contig)
+        if not contig:
+            return options
+
+        motif_mapping = [
+            (segment.chain, list(range(segment.start, segment.end + 1)))
+            for segment in parse_contig_for_output_structure(contig)
+            # only segments taken from the input structure are the motif, the rest was generated
+            if segment.input_chain and segment.chain in chain_ids
+        ]
+        if motif_mapping:
+            # the motif is only a few residues, aligning on all of their atoms is more precise than on Cα only
+            options["On motif"] = AlignmentOption(motif_mapping, representation="cartoon+ball-and-stick", all_atom=True)
+        return options
+
+    @classmethod
     def visualize_single_design_structures(cls, design_id: str):
         """Visualize single design structures in Streamlit"""
         from ovo.app.components.workflow_visualization_components import rfdiffusion_scaffold_design_visualization
@@ -672,15 +701,6 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
         target_contig = self.get_target_contig(contig_index=contig_index)
         assert target_contig, "Target contig must be set before setting binder contig"
         self.rfdiffusion_params.contigs[contig_index] = binder_contig + "/0 " + target_contig
-
-    @classmethod
-    def visualize_multiple_designs_structures(cls, design_ids: list[str]):
-        """Visualize multiple design structures in Streamlit"""
-        from ovo.app.components.workflow_visualization_components import (
-            rfdiffusion_multiple_binder_designs_visualization,
-        )
-
-        rfdiffusion_multiple_binder_designs_visualization(design_ids)
 
     @classmethod
     def visualize_single_design_structures(cls, design_id: str):

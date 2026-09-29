@@ -4,6 +4,10 @@ from copy import deepcopy
 import streamlit as st
 
 from ovo import viz
+from ovo.app.components.workflow_visualization_components import (
+    representation_type_selectbox,
+    representation_color_selectbox,
+)
 from ovo.app.utils.cached_db import get_cached_num_cyclic, get_cached_common_chain_ids
 from ovo.core.database import WorkflowTypes, Workflow
 from ovo.core.utils.residue_selection import parse_selections, from_segments_to_hotspots, ContigSegment
@@ -146,35 +150,10 @@ def sequence_selection_fragment(
                 st.info("No glycosylation motif found.")
 
     with mid:
-        representation_types = {
-            "cartoon": "Cartoon",
-            "cartoon+ball-and-stick": "Cartoon + Side chains",
-            "cartoon+ball-and-stick+label": "Cartoon + Side chains + Label",
-            "molecular-surface": "Molecular Surface",
-        }
-        representation_type = st.selectbox(
-            "Representation type",
-            options=list(representation_types.keys()),
-            index=list(representation_types.keys()).index(representation_type),
-            format_func=lambda x: representation_types[x],
-            key="representation_type_input",
-            label_visibility="collapsed",
-        )
+        representation_type = representation_type_selectbox(representation_type)
 
     with right:
-        colors = {
-            "chain-id": "Color by chain",
-            "hydrophobicity": "Color by hydrophobicity (green = hydrophobic, red = hydrophilic)",
-            "residue-charge": "Color by residue charge (blue = positive, red = negative)",
-        }
-        color = st.selectbox(
-            "Color scheme",
-            options=list(colors.keys()),
-            index=list(colors.keys()).index(color),
-            format_func=lambda x: colors[x],
-            key="color_scheme_input",
-            label_visibility="collapsed",
-        )
+        color = representation_color_selectbox(color)
 
     if selection_help:
         st.write(selection_help)

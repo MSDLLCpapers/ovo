@@ -1,12 +1,18 @@
+import math
 import os
 import traceback
+from dataclasses import dataclass
 
 import pandas as pd
 import streamlit as st
+from cmap import Colormap
 from streamlit.elements.metric import DeltaColor
 
-from ovo import db, storage, Threshold, UnknownWorkflow, WorkflowTypes, DesignWorkflow
-from ovo.app.components.custom_elements import wrapped_columns
+from ovo import storage, Threshold, UnknownWorkflow, WorkflowTypes, DesignWorkflow
+from ovo.app.components.navigation import DEFAULT_SELECTED_DESIGN_KEY, get_jobs_url, design_navigation_selector
+from ovo.core.database.models import AlignmentOption
+from ovo.app.components.custom_elements import simple_tabs, wrapped_columns
+from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.app.components.descriptor_scatterplot import format_descriptor_name
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.core.database import (
@@ -30,6 +36,7 @@ from ovo.core.database.descriptors import (
 )
 
 from ovo import viz
+from ovo.core.plugins import load_variable, get_extension_points
 from ovo.core.utils.pdb import (
     align_multiple_proteins_pdb,
     pdb_to_mmcif,
@@ -45,6 +52,8 @@ from ovo.app.utils.cached_db import (
     get_cached_design_job,
     get_cached_designs,
     get_cached_available_descriptors,
+    get_cached_descriptor_values,
+    get_cached_workflow_types_by_design,
 )
 from ovo.core.utils.residue_selection import (
     from_segments_to_hotspots,
@@ -123,17 +132,44 @@ def show_design_metrics(
     return descriptor_values
 
 
-def show_design(design_id: str, shared_workflow_name: str = None):
+def single_design_tab(design_ids: list[str]):
+    """Show design selector dropdown and visualize the design in detail
+
+    Used as default tab at bottom of Explorer page and other pages
+    """
+    design_id = design_navigation_selector(design_ids)
+    design_labeling_fragment(design_id, key_suffix="single_design")
+    show_design(design_id)
+
+
+def show_design(design_id: str):
+    """Visualize a single design in detail using the workflow-specific visualization method if available
+
+    Shows the design structure, sequence, and download button.
+    """
     design = get_cached_design(design_id)
     pool = get_cached_pool(design.pool_id)
-    design_job = get_cached_design_job(pool.design_job_id)
-    if not shared_workflow_name and pool.design_job_id:
-        shared_workflow_name = design_job.workflow.name if design_job and design_job.workflow else None
 
-    if design_job.workflow and design_job.workflow.is_instance(UnknownWorkflow):
-        st.warning(f"Workflow metadata failed to load: {design_job.workflow.error}")
+    WorkflowType = DesignWorkflow
+    link = ""
+    if pool.design_job_id:
+        design_job = get_cached_design_job(pool.design_job_id)
+        link = f'<a href="{get_jobs_url(st.session_state.project.id, pool.id)}">↑ Show job</a>'
+        if design_job.workflow:
+            if design_job.workflow.is_instance(UnknownWorkflow):
+                st.warning(
+                    f"Falling back to basic structure and sequence visualization, "
+                    f"failed to load workflow information: {design_job.workflow.error}"
+                )
+            else:
+                WorkflowType = WorkflowTypes.get(design_job.workflow.name)
 
-    WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow
+    st.markdown(
+        f"**Pool:** {pool.name} {link}",
+        unsafe_allow_html=True,
+    )
+    if pool.description:
+        st.write(f"**Pool description:** {pool.description}")
 
     try:
         WorkflowType.visualize_single_design_structures(design_id)
@@ -400,47 +436,383 @@ def rfdiffusion_scaffold_design_visualization(design_id: str | None):
         )
 
 
-def rfdiffusion_multiple_binder_designs_visualization(all_design_ids: list[str], max_examples: int = 20):
-    if len(all_design_ids) > max_examples:
-        st.warning(
-            f"Showing only first {max_examples} out of {len(all_design_ids):,} selected designs for performance reasons."
+DESIGN_STRUCTURE_OPTION = "Design structure"
+# target chains are shared by all designs, showing them in one neutral color keeps the designed chains apart
+TARGET_CHAIN_COLOR = "#eeeeee"
+GRID_COLUMNS = 3
+GRID_ROWS = 2
+
+
+@dataclass
+class DesignTab:
+    title: str
+    path: str
+
+
+@st.fragment
+def show_designs_fragment(design_ids: list[str]):
+    if not design_ids:
+        st.warning("No designs to show")
+        return
+
+    workflow_types = set(get_cached_workflow_types_by_design(design_ids).values())
+    tabs = {}
+    for WorkflowType in workflow_types:
+        tabs.update(WorkflowType.get_design_tabs())
+
+    # enable plugins to implement additional tabs by declaring an extension point
+    for design_tab in get_extension_points("ovo.design_tab", DesignTab):
+        title = design_tab.title
+        n = 1
+        while title in tabs:
+            title = f"{design_tab.title} ({n})"
+            n += 1
+        tabs[title] = load_variable(design_tab.path)
+
+    tab_name = simple_tabs(list(tabs), key="design_tab")
+    tabs[tab_name](design_ids)
+
+
+def get_structure_options(design_ids: list[str]) -> dict[str, dict[str, str]]:
+    """Get the structures available for the given designs
+
+    Options are the main design structure plus all structure descriptors available for the given designs.
+
+    :return: mapping of structure label to a mapping of design ID to storage path
+    """
+    structure_descriptors = [
+        d for d in get_cached_available_descriptors(design_ids).values() if isinstance(d, StructureFileDescriptor)
+    ]
+    options = {DESIGN_STRUCTURE_OPTION: {design.id: design.structure_path for design in get_cached_designs(design_ids)}}
+    for descriptor in structure_descriptors:
+        options[descriptor.name] = get_cached_descriptor_values(descriptor.key, design_ids).dropna().to_dict()
+
+    available = {label: {i: path for i, path in paths.items() if path} for label, paths in options.items()}
+    return {label: paths for label, paths in available.items() if paths}
+
+
+def multiple_designs_grid_tab(design_ids: list[str], key: str = "multi_design_grid"):
+    """Paginated grid of individual structure viewers, one per design"""
+    options = get_structure_options(design_ids)
+    if not options:
+        st.info("No structure types available for the selected designs.")
+        return
+
+    columns = st.columns(4, vertical_alignment="center")
+
+    with columns[1]:
+        label = st.selectbox(
+            "Structure type",
+            options=list(options),
+            key=f"{key}_structure",
+            label_visibility="collapsed",
         )
 
-    example_design_ids = all_design_ids[:max_examples]
-    example_designs: list[Design] = get_cached_designs(example_design_ids)
-    # TODO add caching
-    backbone_paths = (
-        db.select_descriptor_values(descriptors_rfdiffusion.RFDIFFUSION_STRUCTURE_PATH.key, example_design_ids)
-        .dropna()
-        .to_dict()
+    paths = options[label]
+
+    shown_design_ids = [design_id for design_id in design_ids if design_id in paths]
+    if not shown_design_ids:
+        st.info(f"No {label} available for the selected designs.")
+        return
+    if skipped := len(design_ids) - len(shown_design_ids):
+        st.warning(f"Skipping {skipped:,} designs without a {label}.")
+
+    per_page = GRID_COLUMNS * GRID_ROWS
+    num_pages = math.ceil(len(shown_design_ids) / per_page)
+
+    with columns[0]:
+        page = st.pagination(num_pages, key=f"{key}_page", width="stretch") if num_pages > 1 else 1
+        page_design_ids = shown_design_ids[(page - 1) * per_page : page * per_page]
+
+    with columns[2]:
+        representation_type = representation_type_selectbox(key=f"{key}_representation")
+
+    with columns[3]:
+        color = representation_color_selectbox(key=f"{key}_color")
+
+    with storage.bulk_read_context():
+        pdb_strs = {design_id: storage.read_file_str(paths[design_id]) for design_id in page_design_ids}
+
+    columns = wrapped_columns(len(page_design_ids), wrap=GRID_COLUMNS, gap="medium")
+    for i, (design_id, column) in enumerate(zip(page_design_ids, columns)):
+        with column:
+            # the fragment header is a subheader that wraps to its own row in a narrow grid column,
+            # so we show the design ID as a caption next to the labels instead
+            with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+                st.caption(design_id, width="content")
+                design_labeling_fragment(
+                    design_id, key_suffix="grid", allow_edit=False, show_header=False, compact=True
+                )
+            viz.molstar(
+                viz.StructureVisualization(
+                    data=pdb_strs[design_id],
+                    color=color,
+                    representation=representation_type,
+                ),
+                # the key is the grid position, so switching pages reloads the data of the same viewers
+                key=f"{key}_{i}",
+                height="300px",
+            )
+
+
+def multiple_designs_alignment_tab(
+    design_ids: list[str],
+    max_examples: int = 15,
+    key: str = "multi_design_alignment",
+):
+    """Superposition of any combination of designs and their structures
+
+    Every selected structure of every selected design is superposed in one viewer, so a single design can be
+    compared across all of its structures (design, prediction, backbone, ...) and multiple designs can be
+    compared on one structure - or any mix of both.
+    """
+    options = get_structure_options(design_ids)
+    if not options:
+        st.info("No structure types available for the selected designs.")
+        return
+
+    selected_design_ids = st.multiselect(
+        "Designs to align",
+        options=design_ids,
+        key=f"{key}_designs",
+        default=st.query_params[DEFAULT_SELECTED_DESIGN_KEY]
+        if st.query_params.get(DEFAULT_SELECTED_DESIGN_KEY) in design_ids
+        else None,
     )
-    left, right = st.columns(2, gap="medium")
+    if not selected_design_ids:
+        st.info("Select the designs you want to align.")
+        return
+
+    selected_labels = st.multiselect(
+        "Structure types",
+        options=list(options),
+        # default to the design structure only, to keep the viewer readable
+        default=list(options)[:1],
+        key=f"{key}_structures",
+    )
+    if not selected_labels:
+        st.info("Select at least one structure type to align.")
+        return
+
+    structures = [
+        (design_id, label, options[label][design_id])
+        for design_id in selected_design_ids
+        for label in selected_labels
+        if design_id in options[label]
+    ]
+    if not structures:
+        st.info("None of the selected designs have any of the selected structure types.")
+        return
+    if len(structures) > max_examples:
+        st.warning(
+            f"Showing only first {max_examples} out of {len(structures):,} selected structures for performance reasons."
+        )
+        structures = structures[:max_examples]
+
+    align_structures_component(structures, key=key)
+
+    sequences = pd.DataFrame(
+        [
+            {"Design": design.id, "Chains": ", ".join(chain.chain_ids), "Sequence": chain.sequence}
+            for design in get_cached_designs(selected_design_ids)
+            for chain in design.spec.chains
+        ]
+    )
+    if not sequences.empty:
+        st.dataframe(sequences, hide_index=True, width="stretch")
+
+
+def get_shared_alignment_options(options_by_design: dict[str, dict[str, AlignmentOption]]) -> list[str]:
+    """Get the alignment options offered by every one of the given designs
+
+    Designs of different workflows use different chains for the same option ("On target" is chain B for an
+    RFdiffusion binder and chain A for a BindCraft one), so only the option labels are shared, not the chains.
+
+    :param options_by_design: mapping of design ID to its alignment options
+    :return: option labels available for all designs, in the order of the first design
+    """
+    if not options_by_design:
+        return []
+    first_options, *other_options = options_by_design.values()
+    return [label for label in first_options if all(label in options for options in other_options)]
+
+
+def get_selected_alignments(
+    structure_design_ids: list[str], options_by_design: dict[str, dict[str, AlignmentOption]], alignment: str
+) -> list[AlignmentOption]:
+    """Get the alignment to use for each structure, based on the design the structure belongs to
+
+    The same option label uses different chains for each design, so every structure is aligned using the
+    option of its own design.
+
+    :param structure_design_ids: design ID of each structure to align, in the order of the structures
+    :param options_by_design: mapping of design ID to its alignment options
+    :param alignment: label of the selected option
+    """
+    return [options_by_design[design_id][alignment] for design_id in structure_design_ids]
+
+
+def create_color_legend(structures, designs_by_id):
+    unique_design_ids = list(designs_by_id)
+    cmap = Colormap("seaborn:tab10_light")
+    color_index = 0
+
+    with st.container(key="structure_legend"):
+        legend_columns = wrapped_columns(len(unique_design_ids), wrap=2)
+        legend_containers = [col.container(gap=3) for col in legend_columns]
+        st.html(
+            """
+            <style>
+            .st-key-structure_legend .stColorPicker,
+            .st-key-structure_legend .stColorPicker button,
+            .st-key-structure_legend .stColorPicker div[data-testid="stColorPickerBlock"] {
+              min-width: 1rem;
+              width: 1rem;
+              height: 1rem;
+            }
+            .st-key-structure_legend .stColorPicker div[data-testid="stColorPickerBlock"] {
+              border-radius: 3px;
+            }
+            </style>
+            """
+        )
+
+    default_structures = [structure for structure in structures if structure[1] == DESIGN_STRUCTURE_OPTION]
+    default_structures_by_design = {design_id: path for design_id, label, path in default_structures}
+
+    def get_chain_color(design_id, label, path, chain):
+        nonlocal color_index, legend_containers, default_structures_by_design
+        designed_chain_ids = designs_by_id[design_id].get_designed_chain_ids()
+        if chain in designed_chain_ids:
+            caption = f"{design_id} | {label}"
+            if len(designed_chain_ids) > 1:
+                caption += f" | chain {chain}"
+            if label != DESIGN_STRUCTURE_OPTION and path == default_structures_by_design.get(design_id):
+                caption += f" (same as {DESIGN_STRUCTURE_OPTION})"
+            # the colormap clamps above its last color, so we cycle through it instead
+            color = cmap(color_index % cmap.num_colors).hex.lower()
+            color_index += 1
+            with legend_containers[unique_design_ids.index(design_id)]:
+                with st.container(horizontal=True, horizontal_alignment="left", vertical_alignment="center", gap=10):
+                    color = st.color_picker(
+                        label=f"color{color_index}",
+                        key=f"color_{color_index}",
+                        value=color,
+                        label_visibility="collapsed",
+                    )
+                    st.caption(caption, width="content")
+
+            return color
+        else:
+            return TARGET_CHAIN_COLOR
+
+    return get_chain_color
+
+
+def align_structures_component(structures: list[tuple[str, str, str]], key: str, height="500px"):
+    """Superpose the given structures in a single viewer, colored by design
+
+    :param structures: list of (design ID, structure label, storage path) to superpose
+    """
+    with storage.bulk_read_context():
+        pdb_strs = [storage.read_file_str(path) for _, _, path in structures]
+
+    chains_per_structure = [sorted(get_sequences_from_pdb_str(pdb_str)) for pdb_str in pdb_strs]
+    structure_design_ids = [design_id for design_id, _, _ in structures]
+    designs_by_id = {design.id: design for design in get_cached_designs(sorted(set(structure_design_ids)))}
+    workflow_types = get_cached_workflow_types_by_design(list(designs_by_id))
+    # a design is aligned on its own chains, they can differ between workflows (RFdiffusion A, BindCraft B),
+    # and only chains present in all of its selected structures can be used, a prediction may omit the target
+    options_by_design = {
+        design_id: workflow_types[design_id].get_alignment_options(
+            design,
+            sorted(
+                set.intersection(
+                    *[set(chains) for chains, i in zip(chains_per_structure, structure_design_ids) if i == design_id]
+                )
+            ),
+        )
+        for design_id, design in designs_by_id.items()
+    }
+
+    shared_options = get_shared_alignment_options(options_by_design)
+    if not shared_options:
+        st.warning(
+            "The selected structures have no alignment option in common, they cannot be aligned. "
+            "Select fewer structure types or designs with the same chains."
+        )
+        return
+
+    left, middle, right = st.columns([3, 3, 4], vertical_alignment="bottom")
 
     with left:
-        st.write("##### RFdiffusion backbone designs")
-        aligned_pdb_strs, rmsd = align_multiple_proteins_pdb(
-            pdb_strs=[storage.read_file_str(backbone_paths[design.id]) for design in example_designs],
-            chain_residue_mappings=[[("B", None)] for _ in example_designs],
+        alignment = st.segmented_control(
+            "Align",
+            options=shared_options,
+            default=shared_options[0],
+            key=f"{key}_alignment",
+        )
+        if not alignment:
+            st.info("Select how the structures should be aligned.")
+            return
+        selected_alignments = get_selected_alignments(structure_design_ids, options_by_design, alignment)
+
+    with middle:
+        # every option comes with the representation that shows what it aligns on ("On motif" shows side
+        # chains), and a widget only honors index= when it is first created, so the default is part of the
+        # key - switching the alignment then creates a new selectbox that starts at its representation
+        default_representation = selected_alignments[0].representation if selected_alignments else None
+        representation_type = representation_type_selectbox(
+            representation_type=default_representation,
+            key=f"{key}_representation_{default_representation}",
         )
 
-        viz.molstar(
-            *[
-                viz.StructureVisualization(
-                    data=aligned_pdb_str,
-                    representation=None,
-                    representations=[
-                        viz.Representation(
-                            "A",
-                            "cartoon",
-                            color=get_color_from_str(design.id, "seaborn:tab10_light"),
-                            label=f"RFdiffusion {design.id} binder backbone",
-                        ),
-                        viz.Representation("B", "cartoon", label=f"RFdiffusion {design.id} target"),
-                    ],
-                )
-                for design, aligned_pdb_str in zip(example_designs, aligned_pdb_strs)
-            ],
-            key="rfdiff_backbone",
+    with right:
+        color = representation_color_selectbox(key=f"{key}_color")
+
+    # TODO when we have the Structure object, we could use it for alignment here.
+    # It could return multiple RMSD values - target RMSD, target-aligned binder RMSD, ...
+    aligned_pdb_strs, rmsd = align_multiple_proteins_pdb(
+        pdb_strs=pdb_strs,
+        chain_residue_mappings=[option.chain_residue_mapping for option in selected_alignments],
+        all_atom=any(option.all_atom for option in selected_alignments),
+    )
+
+    get_chain_color = create_color_legend(structures, designs_by_id)
+
+    viz.molstar(
+        *[
+            viz.StructureVisualization(
+                data=aligned_pdb_str,
+                representations=[
+                    viz.Representation(
+                        chain,
+                        representation_type=representation_type,
+                        color=get_chain_color(design_id, label, path, chain) if color == "chain-id" else color,
+                        label=f"{design_id} | {label} | chain {chain}",
+                    )
+                    for chain in chains
+                ],
+            )
+            for (design_id, label, path), aligned_pdb_str, chains, option in zip(
+                structures, aligned_pdb_strs, chains_per_structure, selected_alignments
+            )
+        ],
+        key=key,
+        height=height,
+    )
+
+    if len(structures) > 1:
+        metric = "average RMSD" if len(structures) > 2 else "RMSD"
+        atom_description = (
+            "all shared atom positions"
+            if any(option.all_atom for option in selected_alignments)
+            else "Cα atom positions"
+        )
+        st.text(
+            f"The {metric} for the aligned structure complexes is {round(rmsd, 3)}",
+            help=f"The root mean square deviation (RMSD) of {atom_description} after optimal rotational and "
+            "translational superposition relative to the first structure shown.",
         )
 
 
@@ -461,7 +833,7 @@ def rfdiffusion_binder_design_visualization(design_id: str):
     )
     input_pdb_path = workflow.get_input_pdb_path(design.contig_index)
 
-    st.write(f"Input structure: **{os.path.basename(input_pdb_path)}**")
+    st.write(f"**Input structure:** {os.path.basename(input_pdb_path)}")
 
     show_design_metrics(
         design_id,
@@ -971,3 +1343,39 @@ def visualize_align_structure_selection(
             f"The RMSD for the aligned structures is {round(rmsd, 3)}",
             help="The root mean square deviation (RMSD) of Cα atom positions after optimal rotational and translational superposition relative to a reference structure for all members of the cluster.",
         )
+
+
+def representation_type_selectbox(representation_type: str = None, key: str = "representation_type_input") -> str:
+    representation_types = {
+        "cartoon": "Cartoon",
+        "cartoon+ball-and-stick": "Cartoon + Side chains",
+        "cartoon+ball-and-stick+label": "Cartoon + Side chains + Label",
+        "molecular-surface": "Molecular Surface",
+    }
+    return st.selectbox(
+        "Representation type",
+        options=list(representation_types.keys()),
+        index=list(representation_types.keys()).index(representation_type)
+        if representation_type in representation_types
+        else 0,
+        format_func=lambda x: representation_types[x],
+        key=key,
+        label_visibility="collapsed",
+    )
+
+
+def representation_color_selectbox(color: str = None, key: str = "color_scheme_input") -> str:
+    colors = {
+        "chain-id": "Color by chain",
+        "hydrophobicity": "Color by hydrophobicity (green = hydrophobic, red = hydrophilic)",
+        "residue-charge": "Color by residue charge (blue = positive, red = negative)",
+        "plddt": "Color by pLDDT confidence",
+    }
+    return st.selectbox(
+        "Color scheme",
+        options=list(colors.keys()),
+        index=list(colors.keys()).index(color) if color in colors else 0,
+        format_func=lambda x: colors[x],
+        key=key,
+        label_visibility="collapsed",
+    )

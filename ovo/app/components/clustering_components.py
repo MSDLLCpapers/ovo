@@ -13,9 +13,9 @@ from ovo.app.components.descriptor_scatterplot import PlotSettings
 from ovo.app.components.descriptor_table import descriptor_table
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.workflow_visualization_components import (
+    show_designs_fragment,
     visualize_align_structure_selection,
 )
-from ovo.app.pages.designs.explorer import design_visualization_fragment
 from ovo.app.utils.cached_db import (
     get_cached_design,
     get_cached_pools,
@@ -624,7 +624,7 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
     # Inspect individual designs
     st.subheader(f"Designs in Cluster {selected_cluster_id}")
 
-    design_visualization_fragment(cluster_design_ids)
+    show_designs_fragment(cluster_design_ids)
 
 
 def display_clustering_job_params(job: DescriptorJob):

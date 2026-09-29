@@ -4,24 +4,20 @@ import streamlit as st
 
 from ovo import db
 from ovo.app.components.descriptor_job_components import refresh_descriptors
-from ovo.app.components.descriptor_table import descriptor_table
-from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.descriptor_scatterplot import (
     descriptor_scatterplot_component,
     descriptor_scatterplot_input_component,
 )
-from ovo.app.components.navigation import design_navigation_selector, get_jobs_url
+from ovo.app.components.descriptor_table import descriptor_table
+from ovo.app.components.design_labeling import design_labeling_fragment
+from ovo.app.components.download_component import download_job_designs_component
+from ovo.app.components.workflow_visualization_components import show_designs_fragment
+from ovo.app.utils.cached_db import get_cached_pools, get_cached_design_jobs
 from ovo.app.utils.cached_db import (
-    get_cached_design,
-    get_cached_pool,
-    get_cached_design_job,
     get_cached_wide_descriptor_table,
 )
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
-from ovo.core.database.models import Design, DesignWorkflow, UnknownWorkflow
-from ovo.app.utils.cached_db import get_cached_pools, get_cached_design_jobs
-from ovo.app.components.design_labeling import design_labeling_fragment
-import traceback
+from ovo.core.database.models import Design
 
 
 def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
@@ -100,44 +96,5 @@ def explorer_fragment(pool_ids: list[str], design_ids: list[str] | None = None):
     download_job_designs_component(selected_design_ids, pools)
 
     st.subheader("Designs")
-    design_visualization_fragment(selected_design_ids)
 
-
-@st.fragment
-def design_visualization_fragment(selected_design_ids: list[str]):
-    # Use the navigation selector component
-    design_id = design_navigation_selector(selected_design_ids, key="selected_design")
-
-    design_labeling_fragment(design_id, key_suffix=f"explorer_{design_id}")
-
-    design = get_cached_design(design_id)
-    pool = get_cached_pool(design.pool_id)
-    design_job = get_cached_design_job(pool.design_job_id) if pool.design_job_id else None
-    WorkflowType = type(design_job.workflow) if design_job and design_job.workflow else DesignWorkflow
-
-    if design_job and design_job.workflow.is_instance(UnknownWorkflow):
-        st.warning(
-            f"Falling back to basic structure and sequence visualization, "
-            f"failed to load workflow information: {design_job.workflow.error}"
-        )
-
-    st.markdown(
-        f'**Pool:** {pool.name} <a href="{get_jobs_url(st.session_state.project.id, pool.id)}">↑ Show job</a>',
-        unsafe_allow_html=True,
-    )
-    if pool.description:
-        st.write(f"**Pool description:** {pool.description}")
-
-    try:
-        WorkflowType.visualize_single_design_structures(design_id)
-    except Exception as e:
-        traceback.print_exc()
-        st.error(e)
-
-    st.markdown("### Sequence")
-
-    WorkflowType.visualize_single_design_sequences(design_id)
-
-    st.markdown(f"### Download single design: {design_id}")
-
-    download_job_designs_component(design_ids=[design_id], pools=[pool], key="single")
+    show_designs_fragment(selected_design_ids)

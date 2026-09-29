@@ -1,15 +1,12 @@
 import streamlit as st
 
-from ovo import db, Pool, Design, WorkflowTypes, DesignWorkflow, Threshold
+from ovo import db, Pool, Design, WorkflowTypes, Threshold
 from ovo.app.components.acceptance_thresholds_components import (
     thresholds_and_histograms_component,
     accept_designs_dialog,
     filter_designs_by_thresholds_cached,
     get_acceptance_df,
     display_acceptance_df,
-)
-from ovo.app.components.parallel_coordinates_component import (
-    parallel_coordinates_plot_component,
 )
 from ovo.app.components.custom_elements import refresh_button
 from ovo.app.components.descriptor_job_components import refresh_descriptors
@@ -20,18 +17,19 @@ from ovo.app.components.descriptor_scatterplot import (
 from ovo.app.components.design_labeling import design_labeling_fragment
 from ovo.app.components.download_component import download_job_designs_component
 from ovo.app.components.job_components import job_status_fragment
-from ovo.app.components.navigation import design_navigation_selector
+from ovo.app.components.parallel_coordinates_component import (
+    parallel_coordinates_plot_component,
+)
 from ovo.app.components.pool_components import pool_actions_menu
-from ovo.app.components.workflow_visualization_components import show_design
+from ovo.app.components.workflow_visualization_components import show_designs_fragment
 from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_design_jobs_table,
 )
-
 from ovo.core.database import DesignJob
 from ovo.core.logic.design_logic import process_results
-from ovo.core.logic.job_logic import update_job_status
 from ovo.core.logic.filtering_logic import get_saved_thresholds_by_pool_id, get_inconsistent_threshold_descriptor_keys
+from ovo.core.logic.job_logic import update_job_status
 
 
 @st.fragment
@@ -208,7 +206,7 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
 
     show_mode = st.segmented_control(
         "Show",
-        options=["Accepted designs", "All designs", "Workflow summary"],
+        options=["Accepted designs", "All designs", "Acceptance thresholds", "Workflow summary"],
         key="show_designs",
         default=st.query_params.get("show", "Accepted designs"),
     )
@@ -218,6 +216,10 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
         st.query_params["show"] = show_mode
 
     if show_mode == "Accepted designs":
+        displayed_design_ids = show_accepted_designs(all_design_ids)
+    elif show_mode == "All designs":
+        displayed_design_ids = show_all_designs(all_design_ids)
+    elif show_mode == "Acceptance thresholds":
         displayed_design_ids = show_accepted_designs_and_thresholds(
             all_design_ids=all_design_ids,
             saved_thresholds=saved_thresholds,
@@ -225,9 +227,6 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
             pools=pools,
             jobs=jobs,
         )
-    elif show_mode == "All designs":
-        displayed_design_ids = show_all_designs(all_design_ids)
-
     elif show_mode == "Workflow summary":
         show_workflow_summary(jobs)
         return
@@ -239,16 +238,13 @@ def job_results_fragment(all_design_ids: list[str], pools: list[Pool], jobs: lis
         st.write("No designs found")
         return
 
-    st.subheader("Download")
+    st.subheader(
+        f"Download {len(displayed_design_ids):,} " + ("design" if len(displayed_design_ids) == 1 else "designs")
+    )
     download_job_designs_component(displayed_design_ids, pools)
 
-    st.subheader("Structure visualization")
-    workflow_names = set(job.workflow.name for job in jobs if job.workflow)
-
-    visualize_designs_fragment(
-        design_ids=displayed_design_ids,
-        shared_workflow_name=list(workflow_names)[0] if len(workflow_names) == 1 else None,
-    )
+    st.subheader("Designs")
+    show_designs_fragment(displayed_design_ids)
 
 
 def show_accepted_designs_and_thresholds(
@@ -262,28 +258,31 @@ def show_accepted_designs_and_thresholds(
 
     if st.session_state.selected_thresholds != saved_thresholds:
         st.header("Editing thresholds")
-    elif accepted_design_ids:
-        st.header(
-            f"Showing {len(accepted_design_ids)} accepted {'designs' if len(accepted_design_ids) > 1 else 'design'}"
-        )
-
-        st.write(
-            f"""
-                This section enables adjusting acceptance thresholds and visualizing the accepted designs. 
-                Visit the [Designs](./designs?project_id={st.session_state.project.id}) page 
-                for in-depth analysis of accepted designs.
-                """
-        )
-    else:
+    elif not accepted_design_ids:
         st.header("No accepted designs")
         st.warning(
-            """
-            None of the designs met the acceptance thresholds. 
-            You may adjust to less strict thresholds below, or try submitting more designs.
+            f"""
+            None of the {len(all_design_ids):,} generated designs met the acceptance thresholds. 
+            Try submitting more designs or adjusting workflow parameters.
+            
+            If all else fails, adjust to less strict thresholds below.
 
             To see all generated designs, select 'All designs' above.
             """
         )
+
+    st.write(
+        """
+        This section shows this workflow's acceptance thresholds and the numbers of designs that passed them.
+        
+        You can use the inputs below to adjust the thresholds. Designs that become accepted are shown at the bottom of the page. 
+        
+        Any changes to acceptance thresholds are temporary until confirmed using the "Confirm thresholds" button.
+        
+        :material/info: Tip: You can temporarily adjust thresholds to add labels such as :grey-background[&nbsp;Promising designs&nbsp;]. 
+        This label can then be selected in the Designs page to filter for these designs, even if they are not marked as accepted.
+        """
+    )
 
     new_accepted_design_ids, num_accepted_by_descriptor = filter_designs_by_thresholds_cached(
         all_design_ids=all_design_ids,
@@ -350,12 +349,19 @@ def show_accepted_designs_and_thresholds(
         st.rerun()
 
     if st.session_state.selected_thresholds != saved_thresholds:
-        st.header(
-            f"{len(new_accepted_design_ids):,} accepted {'design' if len(new_accepted_design_ids) == 1 else 'designs'} based on new thresholds"
-        )
+        header = f"{len(new_accepted_design_ids):,} accepted {'design' if len(new_accepted_design_ids) == 1 else 'designs'} based on new thresholds"
+
+        design_labeling_fragment(new_accepted_design_ids, header=header, key_suffix="jobs_bulk")
+
         st.warning(
-            "Thresholds have been changed, showing preview of accepted designs based on new thresholds. "
-            "Please save using the 'Confirm thresholds' button above to apply changes."
+            """
+            Thresholds have been changed, showing preview of accepted designs based on new thresholds.
+            
+            You can assign labels such as :grey-background[&nbsp;Promising designs&nbsp;] using the "Edit labels" button above
+            to make the designs retrievable in the Designs page even if they are not marked as accepted.
+            
+            If you want to keep these thresholds, save using the 'Confirm thresholds' button above to apply changes.
+            """
         )
         displayed_design_ids = new_accepted_design_ids
     else:
@@ -363,7 +369,37 @@ def show_accepted_designs_and_thresholds(
     return displayed_design_ids
 
 
+def show_accepted_designs(all_design_ids: list):
+    displayed_design_ids = db.select_values(Design, "id", id__in=all_design_ids, accepted=True)
+    if not displayed_design_ids:
+        st.header("Workflow produced no accepted designs")
+        st.warning(
+            f"""
+            None of the {len(all_design_ids):,} generated designs met the acceptance thresholds. To see all generated designs, select 'All designs' above.
+
+            Try submitting more designs or adjusting the workflow inputs or parameters.
+             
+            If all else fails, consider adjusting the thresholds in the 'Acceptance thresholds' tab above.
+            """
+        )
+        # stop the whole run, not just this function, the explanation above is all the page should show
+        st.stop()
+
+    st.header(
+        f"Workflow produced {len(displayed_design_ids)} accepted {'designs' if len(displayed_design_ids) > 1 else 'design'}"
+    )
+
+    st.write(
+        f"""
+        :material/info: This section provides a quick overview. Visit the [Designs](./designs?project_id={st.session_state.project.id}) page for in-depth analysis of accepted designs.
+        """
+    )
+
+    return displayed_design_ids
+
+
 def show_all_designs(all_design_ids: list):
+    st.warning("Showing all generated designs, including those that did not meet the acceptance thresholds. ")
     scatterplot_settings = descriptor_scatterplot_input_component(all_design_ids)
     if not scatterplot_settings:
         return
@@ -384,30 +420,6 @@ def show_all_designs(all_design_ids: list):
     if len(displayed_design_ids) > 1:
         design_labeling_fragment(displayed_design_ids, key_suffix="jobs_bulk", show_header=True, header=header)
     return displayed_design_ids
-
-
-@st.fragment
-def visualize_designs_fragment(design_ids: list[str], shared_workflow_name: str | None = None):
-    if not design_ids:
-        st.warning("No designs to show")
-        return
-
-    design_id = design_navigation_selector(design_ids, allow_all=True, default_all=False)
-
-    if design_id is None:
-        WorkflowType = WorkflowTypes.get(shared_workflow_name) if shared_workflow_name else DesignWorkflow
-
-        try:
-            WorkflowType.visualize_multiple_designs_structures(design_ids=design_ids)
-        except NotImplementedError:
-            st.warning(
-                f"Visualization of multiple designs not supported by {shared_workflow_name or 'default workflow'}, "
-                "please select a single design using the dropdown above."
-            )
-            return
-    else:
-        design_labeling_fragment(design_id, key_suffix=f"job_detail_{design_id}")
-        show_design(design_id, shared_workflow_name=shared_workflow_name)
 
 
 def show_workflow_summary(jobs: list[DesignJob]):

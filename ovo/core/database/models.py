@@ -471,6 +471,21 @@ class DesignDescriptorWorkflow(DescriptorWorkflow):
 
 
 @dataclass
+class AlignmentOption:
+    """One way of superposing structures of a design on structures of other designs
+
+    :param chain_residue_mapping: chains and residues to align on, as accepted by align_multiple_proteins_pdb,
+        residues are None to align on the whole chain
+    :param representation: how the aligned structures should be shown, motifs need their side chains
+    :param all_atom: whether to align on all atoms instead of Cα atoms only
+    """
+
+    chain_residue_mapping: list[tuple[str, list[int] | None]]
+    representation: str = "cartoon"
+    all_atom: bool = False
+
+
+@dataclass
 class DesignWorkflow(Workflow):
     # acceptance threshold values (descriptor key -> interval (min, max, enabled))
     acceptance_thresholds: dict[str, Threshold] = field(default_factory=dict)
@@ -522,9 +537,42 @@ class DesignWorkflow(Workflow):
                 raise ValueError(f"Unknown descriptor key '{key}' in acceptance thresholds")
 
     @classmethod
-    def visualize_multiple_designs_structures(cls, design_ids: list[str]):
-        """Visualize multiple design structures in Streamlit"""
-        raise NotImplementedError()
+    def get_design_tabs(cls) -> dict[str, Callable[[list[str]], None]]:
+        """Get the tabs shown when visualizing a set of designs
+
+        Workflows can override this to add, remove or replace tabs.
+        Each tab function takes the design IDs to visualize.
+        """
+        from ovo.app.components.workflow_visualization_components import (
+            single_design_tab,
+            multiple_designs_alignment_tab,
+            multiple_designs_grid_tab,
+        )
+
+        return {
+            "Single design": single_design_tab,
+            "Grid": multiple_designs_grid_tab,
+            "Alignment": multiple_designs_alignment_tab,
+        }
+
+    @classmethod
+    def get_alignment_options(cls, design: "Design", chain_ids: list[str]) -> dict[str, AlignmentOption]:
+        """Get the ways structures of this design can be superposed on structures of other designs
+
+        Workflows can override this to add options, such as aligning on the motif of a scaffold design.
+
+        :param design: design whose structures are aligned, used to tell designed chains from target chains
+        :param chain_ids: all chain IDs present in the structures of the design
+        :return: mapping of option label to the alignment to use
+        """
+        designed_chains = [chain_id for chain_id in chain_ids if chain_id in design.get_designed_chain_ids()]
+        target_chains = [chain_id for chain_id in chain_ids if chain_id not in designed_chains]
+        options = {"On target": target_chains, "On design": designed_chains}
+        return {
+            label: AlignmentOption([(chain_id, None) for chain_id in chains])
+            for label, chains in options.items()
+            if chains
+        }
 
     @classmethod
     def visualize_single_design_structures(cls, design_id: str):
@@ -735,6 +783,10 @@ class Design(Base):
         assert self.id, "id must be set for Design"
         if not self.id.startswith(f"ovo_{self.pool_id}_"):
             raise ValueError(f"Design ID '{self.id}' from pool '{self.pool_id}' must start with 'ovo_{self.pool_id}_'")
+
+    def get_designed_chain_ids(self) -> set[str]:
+        """Get the chain IDs that were designed, the other chains of the structure are the target"""
+        return {chain_id for chain in self.spec.chains for chain_id in chain.chain_ids}
 
     @classmethod
     def design_id_to_pool_id(cls, design_id: str) -> str:

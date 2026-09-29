@@ -302,9 +302,12 @@ def next_design_idx(idx, n):
     return idx
 
 
+DEFAULT_SELECTED_DESIGN_KEY = "selected_design"
+
+
 def design_navigation_selector(
     design_ids: list[str],
-    key: str = "selected_design",
+    key: str = DEFAULT_SELECTED_DESIGN_KEY,
     fmt: dict[str, str] | Callable | None = None,
     allow_all: bool = False,
     default_all: bool = True,

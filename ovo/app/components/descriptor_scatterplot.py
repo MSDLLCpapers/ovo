@@ -98,8 +98,8 @@ def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSetting
         preset_options_hash = get_hash_of_bytes(" ".join(map(str, available_presets.keys())).encode())
         new_preset = st.selectbox(
             "Preset",
-            placeholder="One preset available"
-            if len(available_presets) == 1
+            placeholder="No presets available, choose X and Y axes manually"
+            if not available_presets
             else f"{len(available_presets)} presets available",
             format_func=lambda key: PRESETS[key]["label"],
             options=list(available_presets.keys()),
@@ -130,6 +130,7 @@ def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSetting
             format_func=lambda descriptor_key: format_descriptor_name(descriptors_by_key[descriptor_key]),
             options=descriptor_options,
             key=f"scatterplot_x_{descriptor_options_hash}_{x_index}",
+            placeholder=f"Select one of {len(descriptor_options)} available descriptors",
             index=x_index,
         )
         if settings.x and settings.x.description:
@@ -146,6 +147,7 @@ def descriptor_scatterplot_input_component(design_ids: list[str]) -> PlotSetting
             format_func=lambda descriptor_key: format_descriptor_name(descriptors_by_key[descriptor_key]),
             options=descriptor_options,
             key=f"scatterplot_y_{descriptor_options_hash}_{y_index}",
+            placeholder=f"Select one of {len(descriptor_options)} available descriptors",
             index=y_index,
         )
         if settings.y and settings.y.description:

@@ -39,9 +39,19 @@ def design_labeling_fragment(
     header: str = None,
     show_header=True,
     allow_edit=True,
+    compact=False,
 ):
+    """Show the labels of the given designs with buttons to add or remove them
+
+    :param compact: hide the placeholder shown when there are no labels, for use in tight layouts like the design grid
+    """
     if isinstance(design_ids, str):
         design_ids = [design_ids]
+
+    if not design_ids:
+        st.warning("No designs selected")
+        return
+
     is_bulk = len(design_ids) > 1
     design_ids_key = get_hash_of_bytes(",".join(design_ids).encode())
 
@@ -86,7 +96,7 @@ def design_labeling_fragment(
                         # Show full labeling info with author
                         for labeling in labels_to_show:
                             show_label_badge(labeling)
-                else:
+                elif not compact:
                     st.write("*No shared labels*" if is_bulk else "*No labels*")
 
                 # Emoji buttons
@@ -191,7 +201,7 @@ def label_design_dialog(design_ids: list[str], key_suffix: str = ""):
         st.subheader(f"Add Label to {design_ids[0]}")
 
     new_label = st.selectbox(
-        label="Label",
+        label="Label :grey[| Select an existing label or type a new one and click 'Add' to confirm]",
         placeholder="Enter new label or select existing",
         options=all_labels,
         index=None,
@@ -302,10 +312,6 @@ def label_design_dialog(design_ids: list[str], key_suffix: str = ""):
                                 st.error(f"Error removing label: {str(e)}")
         else:
             st.caption("No labels assigned to this design yet.")
-
-    with st.container(horizontal=True, horizontal_alignment="right"):
-        if st.button("Done", key=f"save_{key_suffix}"):
-            st.rerun()
 
 
 def show_label_badge(labeling: Labeling) -> str:

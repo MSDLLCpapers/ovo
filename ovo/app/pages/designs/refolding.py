@@ -14,7 +14,7 @@ from ovo.app.utils.cached_db import (
 )
 from ovo.core.database import Pool, DesignJob
 from ovo.core.database.descriptors_refolding import REFOLDING_DESCRIPTORS
-from ovo.app.pages.designs.explorer import design_visualization_fragment
+from ovo.app.components.workflow_visualization_components import show_designs_fragment
 from ovo.core.database.models_refolding import (
     REFOLDING_TESTS_BY_TYPE,
     RefoldingSupportedDesignWorkflow,
@@ -90,7 +90,7 @@ def refolding_fragment(pool_ids: list[str], design_ids: list[str] | None = None,
     )
 
     st.subheader("Designs")
-    design_visualization_fragment(design_ids)
+    show_designs_fragment(design_ids)
 
 
 @st.fragment
