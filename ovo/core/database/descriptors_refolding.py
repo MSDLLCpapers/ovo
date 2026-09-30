@@ -27,10 +27,6 @@ REFOLDING_TESTS_SCAFFOLD = {
         "ESMFold, 4 recycles",
         "Unbiased, sequence input only, low risk of over-confidence.",
     ),
-    "boltz1_scaffold_nt": (
-        "Boltz-1 scaffold, no template",
-        "Boltz-1 structure prediction with no template input. Low risk of over-confidence.",
-    ),
     "boltz2_scaffold_nt": (
         "Boltz-2 scaffold, no template",
         "Boltz-2 structure prediction with no template input. Low risk of over-confidence.",
@@ -65,14 +61,6 @@ REFOLDING_TESTS_BINDER = {
     "af2_model_1_multimer_ct_3rec": (
         "AF2 multimer, complex template, 3 recycles",
         "AlphaFold2 model_1_multimer, initial guess with template input for whole target and binder complex. High risk of over-confidence.",
-    ),
-    "boltz1_binder_nt": (
-        "Boltz-1 binder, no template",
-        "Boltz-1 structure prediction with no template input. Low risk of over-confidence.",
-    ),
-    "boltz1_binder_tt": (
-        "Boltz-1 binder, target template",
-        "Boltz-1 structure prediction with template input for target chain only. Low risk of over-confidence.",
     ),
     "boltz2_binder_alone": (
         "Boltz-2 binder sequence alone",

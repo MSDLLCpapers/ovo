@@ -21,7 +21,6 @@ process BoltzRefolding {
     script:
     def mols_tar_file = "${boltz_models_path}/mols.tar"
     def mols_dir = "${boltz_models_path}/mols"
-    def boltz_version = meta.test.contains("_") ? meta.test.tokenize("_")[0] : params.boltz_version
     // A native structure is not available for designs uploaded from PDB files, in which case
     // the refolding pipeline passes a NO_FILE placeholder (see refolding/main.nf)
     def nativePdbProvided = "${native_pdb}" != "NO_FILE"
@@ -74,12 +73,11 @@ process BoltzRefolding {
     boltz predict "${meta.batch_name}/boltz/yaml_inputs/" \
         --cache "${boltz_models_path}" \
         --accelerator \$ACCELERATOR \
-        --model "${boltz_version}"
+        --model boltz2
 
     python3 "${moduleDir}/bin/calculate_metrics.py" \
         --input_dir "${input_dir}" \
         --boltz_pubdir "boltz_results_yaml_inputs/predictions/" \
-        --boltz_version "${boltz_version}" \
         --design_type ${design_type} \
         --output_metrics_path "boltz_metrics.jsonl" \
         --output_pdb_dir "${meta.batch_name}/${meta.test}/" \
@@ -89,7 +87,6 @@ process BoltzRefolding {
         --input_dir "${input_dir}" \
         --prediction_dir "${meta.batch_name}/${meta.test}/" \
         --input_metrics_path "boltz_metrics.jsonl" \
-        --boltz_version "${boltz_version}" \
         --design_type ${design_type} \
         --output_metrics_path "${meta.batch_name}/${meta.test}.jsonl" \
         ${nativePdbProvided ? "--native_pdb ${native_pdb}" : ""} \
@@ -102,7 +99,6 @@ workflow {
     [
         'input_dir',
         'output_dir',
-        'boltz_version',
         'design_type',
         'native_pdb',
     ].each { param ->
@@ -114,8 +110,8 @@ workflow {
     BoltzRefolding(
         [
             [
-                batch_name:params.output_dir, 
-                test:params.boltz_version], 
+                batch_name:params.output_dir,
+                test:params.test],
             params.input_dir, 
             params.native_pdb, 
             params.design_type, 

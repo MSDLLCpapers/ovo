@@ -406,13 +406,6 @@ if __name__ == "__main__":
         help="Chain ID for the binder/designed chain, e.g. 'A'. For scaffold design, can be comma-separated list. Default: 'A'.",
     )
     parser.add_argument(
-        "--boltz_version",
-        type=str,
-        default="boltz2",
-        choices=["boltz1", "boltz2"],
-        help="Not used, for compatibility with the arguments of compute_rmsd.py.",
-    )
-    parser.add_argument(
         "--cyclic",
         action="store_true",
         help="Not used, for compatibility with run_parameters from prepare_inputs.py.",

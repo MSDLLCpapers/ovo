@@ -617,13 +617,6 @@ if __name__ == "__main__":
         help="Chain ID for the binder/designed chain, e.g. 'A'. For scaffold design, can be comma-separated list. Default: 'A'.",
     )
     parser.add_argument(
-        "--boltz_version",
-        type=str,
-        default="boltz2",
-        choices=["boltz1", "boltz2"],
-        help="Version of Boltz used, e.g. 'boltz1' or 'boltz2'. Default: 'boltz2'. Used to determine expected file naming conventions in Boltz output directory.",
-    )
-    parser.add_argument(
         "--no-template",
         action="store_true",
         default=False,

@@ -32,7 +32,7 @@ nextflow run ../../main.nf \
   --reference_files_dir "$MODELS_DIR" \
   --output_dir batch1 \
   --max-memory 16GB \
-  --boltz_version boltz2_scaffold_nt \
+  --test boltz2_scaffold_nt \
   --design_type scaffold \
   --native_pdb "${TEMPLATE_PDB_FILE}" \
   --run_parameters " --no-template --designed_chains A " \

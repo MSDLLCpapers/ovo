@@ -32,7 +32,7 @@ nextflow run ../../main.nf \
   --reference_files_dir "${MODELS_DIR}" \
   --output_dir batch1 \
   --max-memory 16GB \
-  --boltz_version boltz2_binder_alone \
+  --test boltz2_binder_alone \
   --design_type binder \
   --native_pdb "${TEMPLATE_PDB_NO_FILE}" \
   --run_parameters " --no-template --binder-alone --cyclic --designed_chains A " \

@@ -106,18 +106,23 @@ ESM_IF_MODEL_FILES = [
     )
 ]
 
-BOLTZ_MODEL_FILES = {
+BOLTZ_MODEL_FILES = [
     (
-        "https://huggingface.co/boltz-community/boltz-1/resolve/main/boltz1_conf.ckpt",
-        "boltz_models/boltz1_conf.ckpt",
-        "fea245d912c570ec117b2277c2719f312a6fc109c07b6f6ef741690ee775c2f5",
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_conf.ckpt",
+        "boltz_models/boltz2_conf.ckpt",
+        "090e82ac8c92f5e943fa1b39e7410a44027bea7243c0bbb3caa67a77fc1428e1",
+    ),
+    (
+        "https://huggingface.co/boltz-community/boltz-2/resolve/main/boltz2_aff.ckpt",
+        "boltz_models/boltz2_aff.ckpt",
+        "dcc5cd3722b1c9eaa34267e4ae32f55cbbf1963f4c19319381ccfa30fdd2ca9e",
     ),
     (
         "https://huggingface.co/boltz-community/boltz-1/resolve/main/ccd.pkl",
         "boltz_models/ccd.pkl",
         "2d3b2f03a3c5665944adba51e33263511e51b21c9cd05d902f9c4b7c1e58d2f4",
     ),
-}
+]
 
 
 @app.command()
@@ -271,8 +276,9 @@ def rfdiffusion(scheduler: str = None):
     # Download RFdiffusion base model weights
     download_files(destination_dir=config.reference_files_dir, file_list=RFDIFFUSION_MODEL_FILES)
 
-    # Download AlphaFold weights
+    # Download AlphaFold and Boltz2 weights
     download_files(destination_dir=config.reference_files_dir, file_list=ALPHAFOLD_MODEL_FILES)
+    download_files(destination_dir=config.reference_files_dir, file_list=BOLTZ_MODEL_FILES)
 
     scheduler = get_scheduler(scheduler_key=scheduler or config.default_scheduler)
 
@@ -287,7 +293,7 @@ def rfdiffusion(scheduler: str = None):
             "rfdiffusion_run_parameters": "diffuser.T=2",
             "mpnn_num_sequences": 2,
             "design_type": "scaffold",
-            "refolding_tests": "af2_model_1_ptm_ft_1rec",
+            "refolding_tests": "af2_model_1_ptm_ft_1rec,boltz2_scaffold_nt",
         },
         submission_args=dict(sync=True),
     )

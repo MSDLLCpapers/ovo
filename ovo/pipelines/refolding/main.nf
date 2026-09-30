@@ -92,17 +92,16 @@ workflow Refolding {
                     esmfold_tests.add([test, args])
                     break
                 case ~"boltz.*":
-                    def version = null
                     def template = null
                     def args = ""
                     def expected_design_type = null
 
-                    // Match naming convention: boltz<1|2>_<scaffold|binder>_<nt|tt|alone>
-                    def matcher_new = (test =~ /boltz([12])_(scaffold|binder)_(nt|tt|alone)/)
+                    // Match naming convention: boltz2_<scaffold|binder>_<nt|tt|alone>
+                    def matcher_new = (test =~ /boltz2_(scaffold|binder)_(nt|tt|alone)/)
 
                     if (matcher_new.matches()) {
                         def design_type_suffix
-                        (version, design_type_suffix, template) = matcher_new[0][1..3]
+                        (design_type_suffix, template) = matcher_new[0][1..2]
 
                         // Validate design type matches suffix
                         if (design_type_suffix != design_type) {
@@ -125,7 +124,7 @@ workflow Refolding {
                             // Use target template (default behavior, no special args needed)
                         }
                     } else {
-                        throw new IllegalArgumentException("Test '${test}' does not match expected pattern: boltz<1|2>_<scaffold|binder>_<nt|tt|alone>")
+                        throw new IllegalArgumentException("Test '${test}' does not match expected pattern: boltz2_<scaffold|binder>_<nt|tt|alone>")
                     }
 
                     boltz_tests.add([test, design_type, args])
