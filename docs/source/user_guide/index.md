@@ -13,6 +13,7 @@ More detailed guides on specific topics can be found below:
 installation
 containers
 schedulers
+cli
 ../rfdiffusion/index
 ../proteinqc/index
 ../plugins/index
