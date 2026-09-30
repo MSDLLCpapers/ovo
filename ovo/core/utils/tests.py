@@ -54,7 +54,7 @@ def assert_similar_sequence(a: str, b: str, min_identity: float):
 
 
 def create_test_project_data(prefix="OVO", test_input_filename: str = "examples/inputs/5ELI_A.pdb"):
-    from ovo import db, storage, Design, Pool
+    from ovo import db
 
     prefix_env_var = os.getenv("OVO_TEST_PREFIX")
     if prefix_env_var:
@@ -87,11 +87,21 @@ def create_test_project_data(prefix="OVO", test_input_filename: str = "examples/
     )
     db.save(project_round)
 
+    pool, _ = create_test_pool_and_design(project_round, test_input_filename)
+
+    return project, project_round, pool
+
+
+def create_test_pool_and_design(project_round, test_input_filename: str, name: str = "Custom Upload"):
+    from ovo import db, storage, Design, Pool
+
+    project = db.Project.get(id=project_round.project_id)
+
     # Create a pool
     pool = Pool(
         id=Pool.generate_id(),
         round_id=project_round.id,
-        name="Custom Upload",
+        name=name,
         author="test",
     )
     db.save(pool)
@@ -108,5 +118,4 @@ def create_test_project_data(prefix="OVO", test_input_filename: str = "examples/
     db.save(test_design)
     assert len(test_design.spec.chains) == 1
     assert os.path.exists(os.path.join(storage.storage_root, test_design.structure_path))
-
-    return project, project_round, pool
+    return pool, test_design

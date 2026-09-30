@@ -15,17 +15,30 @@ from ovo.core.database.models_interface_analysis import (
     PyRosettaInterfaceAnalysisWorkflow,
 )
 from ovo.core.logic import descriptor_logic
-from ovo.core.utils.tests import TEST_SCHEDULER_KEY, create_test_project_data
+from ovo.core.utils.tests import TEST_SCHEDULER_KEY, create_test_pool_and_design
 
 
 @pytest.fixture(scope="module")
-def interface_project_data():
-    return create_test_project_data(test_input_filename="examples/inputs/ovo_buv_0789_cycle02_trimmed.pdb")
+def interface_project_data(project_data):
+    # Add our own pool to the shared round, so we don't wipe the shared project_data fixture
+    project, project_round, _ = project_data
+    pool, _ = create_test_pool_and_design(
+        project_round,
+        test_input_filename="examples/inputs/ovo_buv_0789_cycle02_trimmed.pdb",
+        name="Interface Analysis",
+    )
+    return project, project_round, pool
 
 
 @pytest.fixture(scope="module")
-def single_chain_project_data():
-    return create_test_project_data(test_input_filename="examples/inputs/5ELI_A.pdb")
+def single_chain_project_data(project_data):
+    project, project_round, _ = project_data
+    pool, _ = create_test_pool_and_design(
+        project_round,
+        test_input_filename="examples/inputs/5ELI_A.pdb",
+        name="Interface Analysis Single Chain",
+    )
+    return project, project_round, pool
 
 
 def test_biotite_interface_analysis(interface_project_data):
