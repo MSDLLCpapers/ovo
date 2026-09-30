@@ -1,4 +1,5 @@
 from abc import ABC
+from collections.abc import Callable
 from datetime import datetime
 import time
 
@@ -97,20 +98,27 @@ class Scheduler(ABC):
         """Get startup time of a task (in minutes)"""
         return 0
 
-    def wait(self, job_id: str, timeout: int = None, interval: int | float = 10) -> bool:
+    def wait(
+        self, job_id: str, timeout: int = None, interval: int | float = 10, callback: Callable[[str], None] = None
+    ) -> bool:
         """
         Wait synchronously using sleep loop for job completion, with optional timeout.
 
         :param job_id: Scheduler job ID
         :param timeout: Maximum time to wait in seconds, None for no timeout
         :param interval: Interval between status checks in seconds
+        :param callback: Function called with the job status label before each check, use it to report progress
         :return: True if successful, False if failed, raises TimeoutError if timed out
         """
         start_time = time.time()
+        if callback:
+            callback(self.get_status_label(job_id))
         while self.get_result(job_id) is None:
             if timeout and (time.time() - start_time) > timeout:
                 raise TimeoutError(f"Waiting for job {job_id} timed out after {timeout} seconds")
             time.sleep(interval)
+            if callback:
+                callback(self.get_status_label(job_id))
         return self.get_result(job_id)
 
     def get_pipeline_names(self) -> list[str]:

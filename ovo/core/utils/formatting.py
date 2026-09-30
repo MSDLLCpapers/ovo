@@ -130,6 +130,34 @@ def parse_args(argv: list[str]) -> dict:
     return result
 
 
+def coerce_param_types(params: dict) -> dict:
+    """Convert parameter values that look like a number or a boolean to int, float or bool.
+
+    Command line parameters are always strings, which is fine for schedulers that pass them on
+    Nextflow's command line, since Nextflow converts them to a number or a boolean itself. Values
+    passed to Nextflow in a JSON file (as HealthOmics does) stay a Groovy String, which makes
+    operators such as channel.collate(params.batch_size) fail with a MissingMethodException and makes
+    a "false" string interpreted as true (any non-empty Groovy String is truthy).
+
+    Values with a leading zero (000000000000), an exponent (1e5) or any other formatting are kept
+    as strings, so that identifiers are not mangled.
+
+    :param params: Dictionary of parameters parsed from the command line
+    :return: New dictionary with numeric and boolean strings converted to int, float or bool
+    """
+    params = params.copy()
+    for key, value in params.items():
+        if not isinstance(value, str):
+            continue
+        if re.fullmatch(r"-?(0|[1-9][0-9]*)", value):
+            params[key] = int(value)
+        elif re.fullmatch(r"-?(0|[1-9][0-9]*)\.[0-9]+", value):
+            params[key] = float(value)
+        elif value.lower() in ["true", "false"]:
+            params[key] = value.lower() == "true"
+    return params
+
+
 def get_alphanumeric_sort_key(value: str) -> tuple:
     """Get a sort key that sorts strings with numbers in an alphanumeric way.
 

@@ -241,27 +241,26 @@ class Storage:
                     if "Contents" in page and not only_dir:
                         objects += [obj["Key"][len(prefix) :] for obj in page["Contents"] if obj["Key"] != prefix]
             else:
+                paginator = self.aws.s3.get_paginator("list_objects_v2")
                 try:
-                    response = self.aws.s3.list_objects_v2(
-                        Bucket=bucket, Prefix=prefix.rstrip("/") + "/", Delimiter="/"
-                    )
+                    # A single list_objects_v2 call returns at most 1000 keys, paginate to list them all
+                    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+                        if "CommonPrefixes" in page:
+                            objects += [
+                                os.path.basename(content["Prefix"].rstrip("/"))
+                                for content in page["CommonPrefixes"]
+                                if content["Prefix"] != prefix
+                            ]
+
+                        if "Contents" in page and not only_dir:
+                            objects += [
+                                os.path.basename(content["Key"].rstrip("/"))
+                                for content in page["Contents"]
+                                if content["Key"] != prefix
+                            ]
                 except ClientError as e:
                     print(e)
                     raise
-
-                if "CommonPrefixes" in response:
-                    objects += [
-                        os.path.basename(content["Prefix"].rstrip("/"))
-                        for content in response["CommonPrefixes"]
-                        if content["Prefix"] != prefix
-                    ]
-
-                if "Contents" in response and not only_dir:
-                    objects += [
-                        os.path.basename(content["Key"].rstrip("/"))
-                        for content in response["Contents"]
-                        if content["Key"] != prefix
-                    ]
 
             return objects
 

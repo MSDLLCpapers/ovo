@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 from ovo.core.utils.param_validation import validate_params
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 from pytest_mock import MockerFixture
 
@@ -249,6 +249,16 @@ class MockS3Object:
         return self.content
 
 
+class MockPaginator:
+    """Mock boto3 paginator, yields the result of the mocked operation as a single page"""
+
+    def __init__(self, operation: Any) -> None:
+        self.operation = operation
+
+    def paginate(self, *args: Any, **kwargs: Any) -> Iterator[Dict[str, Any]]:
+        yield self.operation(*args, **kwargs)
+
+
 class MockClient:
     """Mock AWS S3 Client"""
 
@@ -315,6 +325,18 @@ class MockClient:
             Dict[str, Any]: Mocked directory contents.
         """
         return {}
+
+    def get_paginator(self, operation_name: str) -> "MockPaginator":
+        """
+        Mock the get_paginator method, the mocked operations return all their results in one page.
+
+        Args:
+            operation_name (str): Name of the paginated operation, for example list_objects_v2.
+
+        Returns:
+            MockPaginator: Paginator that yields a single page.
+        """
+        return MockPaginator(getattr(self, operation_name))
 
     def head_object(self, *args: Any, **kwargs: Any) -> Dict[str, int]:
         """

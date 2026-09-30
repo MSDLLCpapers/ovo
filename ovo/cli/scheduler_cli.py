@@ -1,12 +1,13 @@
 import glob
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import jsonschema
 import typer
 import sys
 from ovo.cli.common import console, OVOCliError
-from ovo.core.scheduler import NextflowScheduler
+from ovo.core.scheduler import HealthOmicsScheduler, NextflowScheduler
 from ovo.core.utils.param_validation import validate_params
 from ovo.core.scheduler.simple_queue_mixin import SimpleQueueMixin
 import re
@@ -93,7 +94,7 @@ def submit(
 ):
     """Submit a job through OVO scheduler"""
     from ovo import config, get_scheduler, storage
-    from ovo.core.utils.formatting import parse_args
+    from ovo.core.utils.formatting import coerce_param_types, parse_args
 
     resolved_scheduler_key = scheduler_key or config.default_scheduler
     scheduler = get_scheduler(scheduler_key=resolved_scheduler_key)
@@ -143,17 +144,38 @@ def submit(
         console.print(f" {key.rjust(max_key_length)}: [green]{value}[/green]")
     console.print("")
 
+    if isinstance(scheduler, HealthOmicsScheduler):
+        # Command line values are strings, convert numbers and booleans so that schedulers that pass the
+        # params as JSON (HealthOmics) send them as JSON types
+        params = coerce_param_types(params)
+        # HealthOmics has no access to the local filesystem, so local inputs have to be uploaded to
+        # the workdir, and runs can only be submitted asynchronously, waiting for them uses the job ID
+        params = prepare_local_path_params(params, workdir=scheduler.workdir)
+        submission_args = {}
+    else:
+        submission_args = dict(sync=sync, resolve_relative_paths=True)
+
     submitted = scheduler.submit(
         pipeline_name=pipeline_name,
         params=params,
-        submission_args=dict(sync=sync, resolve_relative_paths=True),
+        submission_args=submission_args,
     )
     if sync:
-        process, job_id = submitted
-        console.print("")
-        if process.returncode != 0:
-            console.print(f"[bold][red]✘[/red] Pipeline failed with exit code {process.returncode}[/bold]")
-            sys.exit(4)
+        if isinstance(submitted, tuple):
+            # Schedulers that run the pipeline in a local process return the completed process
+            process, job_id = submitted
+            console.print("")
+            if process.returncode != 0:
+                console.print(f"[bold][red]✘[/red] Pipeline failed with exit code {process.returncode}[/bold]")
+                sys.exit(4)
+        else:
+            # Schedulers that submit the job elsewhere return just the job ID, wait for it to finish
+            job_id = submitted
+            success = scheduler.wait(job_id, callback=get_status_printer(job_id))
+            console.print("")
+            if not success:
+                console.print(f"[bold][red]✘[/red] {scheduler.get_failed_message(job_id)}[/bold]")
+                sys.exit(4)
         console.print("[bold][green]✔[/green] Pipeline finished successfully[/bold]")
         scheduler_output_dir = scheduler.get_output_dir(job_id=job_id)
         if output:
@@ -166,7 +188,7 @@ def submit(
     else:
         job_id = submitted
         console.print("")
-        console.print(f"Running in background, use --sync to run synchronously and wait for completion.")
+        console.print(f'Running in background, use "ovo scheduler run" to run synchronously and wait for completion.')
         console.print(f"[green]✔[/green] Job submitted: [bold]{job_id}[/bold]")
         scheduler_arg = f"--scheduler {scheduler_key} " if scheduler_key else ""
         console.print(f"[green]✔[/green] Output directory: [bold]{scheduler.get_output_dir(job_id)}[/bold]")
@@ -366,6 +388,85 @@ def jupyter(
     console.print(
         f" - Remember to stop the job when you're done using 'ovo scheduler cancel {job_id}'\n   or directly from JupyterLab using Server -> Shutdown"
     )
+
+
+def prepare_local_path_params(params: dict, workdir: str) -> dict:
+    """Upload parameters that point to local files or directories to the scheduler workdir.
+
+    Schedulers that run the pipeline elsewhere (HealthOmics) have no access to the local filesystem,
+    so each such parameter is stored in workdir/inputs/<hash>/ and replaced by the resulting path
+    (an S3 URI when the workdir is s3://), the same way as the prepare_params methods of the workflows
+    do it for jobs submitted from the app. Files that are already stored under the same hash are not
+    uploaded again.
+
+    :param params: Dictionary of parameters to pass to the workflow
+    :param workdir: Working directory of the scheduler to upload the files to
+    :return: New dictionary with local paths replaced by workdir paths
+    """
+    from ovo import storage
+    from ovo.core.utils.formatting import get_hashed_path_for_bytes
+
+    params = params.copy()
+    for key, value in params.items():
+        if not isinstance(value, str) or not os.path.exists(value):
+            continue
+        abs_path = os.path.abspath(value)
+        if os.path.isdir(abs_path):
+            subdirs = [name for name in sorted(os.listdir(abs_path)) if os.path.isdir(os.path.join(abs_path, name))]
+            if subdirs:
+                raise OVOCliError(
+                    f"Uploading a directory with subdirectories is not supported, "
+                    f"parameter --{key} ({value}) contains: {subdirs}"
+                )
+            file_paths = [os.path.join(abs_path, name) for name in sorted(os.listdir(abs_path))]
+            if not file_paths:
+                raise OVOCliError(f"Directory of parameter --{key} is empty: {value}")
+            # All files of a directory go into one subdirectory, named by a hash of the file names,
+            # sizes and modification times, so that a directory regenerated in place is uploaded
+            # again instead of reusing the previous upload
+            signature = "_".join(f"{p}:{os.path.getsize(p)}:{os.path.getmtime(p)}" for p in file_paths)
+            custom_hash = get_hashed_path_for_bytes(signature.encode())
+            # Skip the upload if the directory was already uploaded completely. Comparing the file
+            # names is necessary, a previous upload can be missing files if it was interrupted
+            # (S3 has no directories, but list_dir lists the objects stored under the prefix)
+            uploaded_dir = os.path.join(workdir, "inputs", custom_hash) + "/"
+            expected_names = sorted(os.path.basename(path) for path in file_paths)
+            if sorted(storage.list_dir(uploaded_dir)) == expected_names:
+                console.print(f"Files of parameter --{key} were already uploaded: {value} -> {uploaded_dir}")
+                params[key] = uploaded_dir
+                continue
+            console.print(f"Uploading {len(file_paths)} files of parameter --{key} to {workdir}...")
+            with ThreadPoolExecutor(storage.num_copy_threads) as executor:
+                uploaded_paths = list(
+                    executor.map(
+                        lambda file_path: storage.prepare_workflow_input(
+                            file_path, workdir=workdir, custom_hash=custom_hash
+                        ),
+                        file_paths,
+                    )
+                )
+            # Return the directory instead of the individual files, with a trailing slash,
+            # as expected by pipelines that take a directory as input
+            uploaded_path = uploaded_paths[0].rsplit("/", 1)[0] + "/"
+        else:
+            console.print(f"Uploading file of parameter --{key} to {workdir}...")
+            uploaded_path = storage.prepare_workflow_input(abs_path, workdir=workdir)
+        console.print(f"Uploaded local path of parameter --{key}: {value} -> {uploaded_path}")
+        params[key] = uploaded_path
+    return params
+
+
+def get_status_printer(job_id: str):
+    """Get a Scheduler.wait callback that prints the job status whenever it changes"""
+    previous_status = None
+
+    def print_status(status: str):
+        nonlocal previous_status
+        if status != previous_status:
+            console.print(f"Job {job_id} status: [bold]{status}[/bold]")
+            previous_status = status
+
+    return print_status
 
 
 def format_help(schema):

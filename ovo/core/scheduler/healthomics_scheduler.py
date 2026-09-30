@@ -13,6 +13,11 @@ from ovo.core.scheduler.base_scheduler import Scheduler, SchedulerTypes
 from ovo.core.aws import AWSSessionManager
 
 
+# AWS Omics run statuses, see https://docs.aws.amazon.com/omics/latest/api/API_GetRun.html
+RUNNING_STATUSES = ["STARTING", "PENDING", "PENDING_REDRIVE", "RUNNING", "STOPPING"]
+SUCCESS_STATUSES = ["SUCCEEDED", "COMPLETED"]
+
+
 @SchedulerTypes.register()
 class HealthOmicsScheduler(Scheduler):
     def __init__(
@@ -39,7 +44,11 @@ class HealthOmicsScheduler(Scheduler):
 
     def submit(self, pipeline_name: str, params: dict = None, submission_args: dict = None) -> str:
         """
-        Submits a workflow asynchronously and returns the PID.
+        Submits a workflow asynchronously and returns the job ID.
+
+        Runs are always submitted asynchronously, use scheduler.wait(job_id) to wait for completion.
+        HealthOmics has no access to the local filesystem, all params have to point to S3 URIs,
+        see prepare_local_path_params in ovo.cli.scheduler_cli.
 
         :param pipeline_name: Workflow name and revision (ovo.rfdiffusion-end-to-end or github url with @version)
         :param params: Dictionary of parameters to pass to the workflow.
@@ -118,9 +127,9 @@ class HealthOmicsScheduler(Scheduler):
                 f"Job ID of {type(self).__name__} should be a string, got {job_id} ({type(job_id).__name__}). Make sure to use job_id instead of the DB id."
             )
         status = self.aws.omics.get_run(id=job_id)["status"]
-        if status in ["STARTING", "PENDING", "PENDING_REDRIVE", "RUNNING", "STOPPING"]:
+        if status in RUNNING_STATUSES:
             return None
-        if status in ["SUCCEEDED", "COMPLETED"]:
+        if status in SUCCESS_STATUSES:
             return True
         return False
 
