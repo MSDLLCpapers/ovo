@@ -2,10 +2,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable, List, ClassVar
 
-from ovo import ResidueNumberDescriptor
-from ovo.app.utils.cached_db import get_cached_num_cyclic
 from ovo.core.database import descriptors_rfdiffusion
-from ovo.core.database.models import DescriptorWorkflow, WorkflowTypes, Design, Base, DescriptorJob, Descriptor
+from ovo.core.database.models import (
+    DescriptorWorkflow,
+    WorkflowTypes,
+    Design,
+    Base,
+    DescriptorJob,
+    Descriptor,
+    ResidueNumberDescriptor,
+)
 
 
 class InterfaceAnalysisWorkflow(DescriptorWorkflow, ABC):
@@ -183,6 +189,7 @@ class PyRosettaInterfaceAnalysisWorkflow(InterfaceAnalysisWorkflow):
     def from_ui(cls, design_ids: list[str]) -> list["PyRosettaInterfaceAnalysisWorkflow"]:
         import streamlit as st
         from ovo.app.components.input_components import get_default_target_chain, binder_chain_input
+        from ovo.app.utils.cached_db import get_cached_num_cyclic
 
         n = len(design_ids)
         st.write(f"Submit PyRosetta interface analysis for {n:,} {'design' if n == 1 else 'designs'}")

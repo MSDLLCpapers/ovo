@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import Callable, Self
 import numpy as np
 
-from ovo import db, storage
 from ovo.core.database.models import (
     NumericGlobalDescriptor,
     WorkflowTypes,
@@ -144,6 +143,8 @@ class RankingTask(WorkflowTask, RankingDescriptorWorkflow, ABC):
         ranking.to_csv(os.path.join(execdir, "ranking.csv"), index_label="design_id")
 
     def select_descriptor_values(self) -> pd.DataFrame:
+        from ovo import db
+
         return db.select_wide_descriptor_table(
             self.design_ids,
             self.descriptor_keys,
