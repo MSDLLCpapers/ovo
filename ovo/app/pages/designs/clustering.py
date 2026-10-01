@@ -85,7 +85,9 @@ def submit_clustering_dialog(design_ids: list[str]):
             st.info("Add at least one tool to continue")
             return
 
-        chains = chain_ids_input(design_ids)
+        # Clustering has to be submitted as a single job, so the designed chain(s) of each design can be used
+        # to enable clustering designs with differently labelled designed chains together
+        chains = chain_ids_input(design_ids, allow_designed=True)
         if not chains:
             return
 
@@ -127,7 +129,10 @@ def submit_clustering_dialog(design_ids: list[str]):
                     ]:
                         # Use first design to infer whether cyclic clustering should be enabled by default
                         design_example = get_cached_design(design_ids[0]) if design_ids else None
-                        cyclic = all(design_example.spec.get_chain(chain).cyclic for chain in chains)
+                        cyclic = all(
+                            design_example.spec.get_chain(chain).cyclic
+                            for chain in workflow.resolve_chains(design_example)
+                        )
                         set_hierarchical_clustering_params(
                             workflow, cyclic=cyclic, key_suffix=f"_instance_{instance_id}"
                         )

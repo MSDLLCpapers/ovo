@@ -428,8 +428,14 @@ class Workflow:
         }
 
 
+# Placeholder value of DescriptorWorkflow.chains meaning "each design's own designed chain(s)",
+# used when the designed chain IDs differ between designs (e.g. RFdiffusion "A" vs BindCraft "B")
+DESIGNED_CHAINS = "DESIGNED"
+
+
 @dataclass
 class DescriptorWorkflow(Workflow, ABC):
+    # Chain IDs to analyze, or [DESIGNED_CHAINS] to analyze the designed chain(s) of each design
     chains: List[str] = field(default_factory=list)
     design_ids: List[str] = field(default_factory=list)
 
@@ -441,8 +447,22 @@ class DescriptorWorkflow(Workflow, ABC):
             raise ValueError(
                 f"DescriptorWorkflow.chains must be a list, got {self.chains} ({type(self.chains).__name__})"
             )
+        if DESIGNED_CHAINS in self.chains and len(self.chains) > 1:
+            raise ValueError(f'The "{DESIGNED_CHAINS}" placeholder cannot be combined with other chains: {self.chains}')
         if not self.design_ids:
             raise ValueError("No design IDs provided")
+
+    def uses_designed_chains(self) -> bool:
+        """Whether the designed chain(s) of each design should be used instead of fixed chain IDs"""
+        return DESIGNED_CHAINS in self.chains
+
+    def resolve_chains(self, design: "Design") -> list[str]:
+        """Get the chain IDs to analyze for a single design, expanding the DESIGNED_CHAINS placeholder"""
+        if not self.uses_designed_chains():
+            return list(self.chains)
+        if not design.spec or not design.spec.chains:
+            raise ValueError(f"Design {design.id} has no chains in its spec, cannot determine the designed chains")
+        return design.spec.get_designed_chain_ids()
 
     @classmethod
     def from_ui(cls, design_ids: list[str]) -> list[Self]:
@@ -720,6 +740,10 @@ class DesignSpec:
             if chain_id in chain.chain_ids:
                 return chain
         raise KeyError(f"Chain {chain_id} not found in design spec")
+
+    def get_designed_chain_ids(self) -> list[str]:
+        """Get chain IDs of the designed chains, in spec order (the spec only contains the designed chains)"""
+        return [chain_id for chain in self.chains for chain_id in chain.chain_ids]
 
     @classmethod
     def from_pdb_str(cls, pdb_data: str, chains: list[str] = None, cyclic=False):

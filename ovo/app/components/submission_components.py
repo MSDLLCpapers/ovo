@@ -1,5 +1,6 @@
 import json
 import os
+from collections import Counter
 from typing import Callable
 
 import pandas as pd
@@ -15,7 +16,11 @@ from ovo.core.database.models_rfdiffusion import (
 from ovo.app.components.acceptance_thresholds_components import thresholds_input_component
 from ovo.app.components.navigation import open_first_section
 from ovo.core.utils.advanced_parameters import load_json_from_file, get_dict_diff, merge_dictionaries
-from ovo.app.utils.cached_db import get_cached_round, get_cached_common_chain_ids
+from ovo.app.utils.cached_db import (
+    get_cached_round,
+    get_cached_common_chain_ids,
+    get_cached_designed_chain_ids_by_design_id,
+)
 from ovo.app.utils.testing import is_test_dialog_shown
 from ovo.core.auth import get_username
 from ovo.core.database import (
@@ -23,7 +28,7 @@ from ovo.core.database import (
 )
 from ovo.core.database.descriptors_refolding import REFOLDING_TESTS_BY_TYPE
 from ovo.core.database.models_rfdiffusion import RFdiffusionBinderDesignWorkflow, RFdiffusionScaffoldDesignWorkflow
-from ovo.core.database.models import Pool, Round, Workflow
+from ovo.core.database.models import DESIGNED_CHAINS, Pool, Round, Workflow
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.round_logic import get_or_create_project_rounds
 from ovo.core.utils.formatting import truncate_middle
@@ -909,8 +914,28 @@ def show_bindcraft_advanced_settings(workflow: "BindCraftBinderDesignWorkflow"):
             return
 
 
-def chain_ids_input(design_ids: list[str]) -> list[str]:
-    """Get user input for chain IDs to analyze, with pre-filled common chain IDs across the provided designs."""
+DESIGNED_CHAINS_OPTION = "Designed chain(s)"
+MANUAL_CHAINS_OPTION = "Select manually"
+
+
+def chain_ids_input(design_ids: list[str], allow_designed: bool = False) -> list[str]:
+    """Get user input for chain IDs to analyze, with pre-filled common chain IDs across the provided designs.
+
+    :param design_ids: designs to be analyzed
+    :param allow_designed: allow using the designed chain(s) of each design (selected by default), which makes it
+        possible to analyze designs with differently labelled designed chains in a single job.
+        Returns [DESIGNED_CHAINS] when the designed chain IDs differ between designs, see DescriptorWorkflow.chains.
+    """
+    if allow_designed:
+        chain_selection = st.segmented_control(
+            "Chain(s) to analyze",
+            options=[DESIGNED_CHAINS_OPTION, MANUAL_CHAINS_OPTION],
+            default=DESIGNED_CHAINS_OPTION,
+            key="select_chain_ids_mode",
+        )
+        if chain_selection != MANUAL_CHAINS_OPTION:
+            return designed_chain_ids_input(design_ids)
+
     common_chain_ids, available_chain_ids = get_cached_common_chain_ids(design_ids)
 
     if not common_chain_ids:
@@ -924,11 +949,49 @@ def chain_ids_input(design_ids: list[str]) -> list[str]:
         )
 
     chains = st.multiselect(
-        "Chain(s) to analyze", options=common_chain_ids, default=common_chain_ids, key="select_chain_ids"
+        "Chain(s) to analyze",
+        options=common_chain_ids,
+        default=common_chain_ids,
+        key="select_chain_ids",
+        # Avoid repeating the label of the segmented control above
+        label_visibility="collapsed" if allow_designed else "visible",
     )
     if not chains:
         st.warning("Please specify at least one chain to analyze.")
     return chains
+
+
+def designed_chain_ids_input(design_ids: list[str]) -> list[str]:
+    """Get the designed chain IDs of the given designs, or the DESIGNED_CHAINS placeholder if they differ.
+
+    Shows a caption with the resolved chain IDs, since the user does not get to select them.
+    """
+    try:
+        chain_ids_by_design_id = get_cached_designed_chain_ids_by_design_id(design_ids)
+    except ValueError as e:
+        st.error(str(e))
+        return []
+
+    num_designs_by_chain_ids = Counter(",".join(chain_ids) for chain_ids in chain_ids_by_design_id.values())
+    st.caption(
+        "Designed chains: "
+        + ", ".join(
+            f"{chain_ids} ({num_designs:,} {'design' if num_designs == 1 else 'designs'})"
+            for chain_ids, num_designs in sorted(num_designs_by_chain_ids.items())
+        )
+    )
+
+    num_chains = {len(chain_ids) for chain_ids in chain_ids_by_design_id.values()}
+    if len(num_chains) > 1:
+        st.error("Designs have a different number of designed chains. Please submit these designs separately.")
+        return []
+
+    if len(num_designs_by_chain_ids) == 1:
+        # All designs have the same designed chains, store the actual chain IDs
+        return next(iter(chain_ids_by_design_id.values()))
+
+    # Designs have differently labelled designed chains, store the placeholder and resolve them per design
+    return [DESIGNED_CHAINS]
 
 
 def scheduler_selectbox(workflows: list[Workflow] | Workflow, filter: Callable | None = None) -> str:

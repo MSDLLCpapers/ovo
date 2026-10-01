@@ -18,12 +18,14 @@ from ovo.app.components.workflow_visualization_components import (
 )
 from ovo.app.utils.cached_db import (
     get_cached_design,
+    get_cached_designed_chain_ids_by_design_id,
     get_cached_pools,
     get_cached_descriptor_values,
     get_cached_designs,
     get_cached_num_cyclic,
 )
 from ovo.core.database import DescriptorJob
+from ovo.core.database.models import DescriptorWorkflow
 from ovo.core.database.descriptors import ALL_DESCRIPTORS_BY_KEY
 from ovo.core.database.descriptors_clustering import (
     CLUSTER_INFO_REFERENCES,
@@ -63,23 +65,22 @@ FOLDSEEK_PREFILTER_DESCRIPTION_MAP = {
 
 
 def has_short_sequences_for_chains(
-    design_ids: list[str],
-    chains: list[str],
+    workflow: DescriptorWorkflow,
     min_length: int = FOLDSEEK_KMER_PREFILTER_MIN_LENGTH,
 ) -> bool:
     """
-    Check if any designs have sequences shorter than min_length for the specified chains.
+    Check if any designs have sequences shorter than min_length for the chains analyzed by the workflow.
     Sequences shorter than FOLDSEEK_KMER_PREFILTER_MIN_LENGTH residues fail in Foldseek easy-search with prefilter_mode 0.
 
     Returns:
         True if any sequence is shorter than min_length, False otherwise
     """
-    designs = get_cached_designs(design_ids)
+    designs = get_cached_designs(workflow.design_ids)
 
     for design in designs:
         if not design.spec:
             continue
-        for chain_id in chains:
+        for chain_id in workflow.resolve_chains(design):
             chain = design.spec.get_chain(chain_id)
             if chain and chain.sequence and len(chain.sequence) < min_length:
                 return True
@@ -94,7 +95,7 @@ def set_foldseek_params(workflow: FoldseekClusteringWorkflow, key_suffix: str = 
             'To make sure that similar peptides with "rotated" starting positions are placed in the same cluster, consider using hierarchical clustering instead.'
         )
 
-    has_short_seqs = has_short_sequences_for_chains(workflow.design_ids, workflow.chains)
+    has_short_seqs = has_short_sequences_for_chains(workflow)
 
     if has_short_seqs and workflow.params.prefilter_mode == 0:
         workflow.params.prefilter_mode = 1
@@ -444,6 +445,7 @@ def cluster_representatives_tiles(df_descriptor_values, tool: str, job: Descript
 
                 design = get_cached_design(repr_design_id)
                 if design and design.structure_path:
+                    design_chains = job.workflow.resolve_chains(design)
                     if isinstance(job.workflow, InterfaceResiduesHierarchicalClusteringWorkflow):
                         default_representation_type = "cartoon"
                         chain_color = "uniform"
@@ -459,13 +461,13 @@ def cluster_representatives_tiles(df_descriptor_values, tool: str, job: Descript
                             representation_type=default_representation_type,
                             representations=[
                                 viz.Representation(
-                                    job.workflow.chains,
+                                    design_chains,
                                     representation_type="cartoon",
                                     color=chain_color,
                                     color_params=color_params,
                                 ),
                             ],
-                            auto_zoom_chains=job.workflow.chains,
+                            auto_zoom_chains=design_chains,
                         ),
                         key=f"cluster_{repr_design_id}_structure",
                         height="300px",
@@ -561,6 +563,7 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
         st.markdown(f"**Representative: {representative}**")
         repr_design = get_cached_design(representative)
         if repr_design and repr_design.structure_path:
+            repr_design_chains = job.workflow.resolve_chains(repr_design)
             if visualize_interface:
                 default_representation_type = "cartoon"
                 chain_color = "uniform"
@@ -574,9 +577,9 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
                     data=storage.read_file_str(repr_design.structure_path),
                     representation_type=default_representation_type,
                     representations=[
-                        viz.Representation(job.workflow.chains, "cartoon", color=chain_color, color_params=color_params)
+                        viz.Representation(repr_design_chains, "cartoon", color=chain_color, color_params=color_params)
                     ],
-                    auto_zoom_chains=job.workflow.chains,
+                    auto_zoom_chains=repr_design_chains,
                 ),
                 key="cluster_repr_structure",
                 height="400px",
@@ -611,6 +614,10 @@ def inspect_clusters(df_descriptor_values, tool: str, job: DescriptorJob):
                 default_representation_type="cartoon" if visualize_interface else None,
                 color="chain-id" if visualize_interface else "secondary-structure",
                 auto_zoom_chains=job.workflow.chains,
+                # Designs can have differently labelled designed chains, in which case each has its own chains
+                chains_by_design_id=get_cached_designed_chain_ids_by_design_id(cluster_design_ids)
+                if job.workflow.uses_designed_chains()
+                else None,
             )
             if isinstance(job.workflow, RMSDHierarchicalClusteringWorkflow):
                 st.info("Displayed alignment and RMSD are produced using superposition, not the original CEAlign.")
@@ -636,7 +643,13 @@ def display_clustering_job_params(job: DescriptorJob):
         col1, col2 = st.columns(2)
         with col1:
             st.write(datetime_from_utc_to_local(job.created_date_utc).strftime("**Submitted on:** %Y-%m-%d %H:%M"))
-            st.write("**Chains:**", ", ".join(workflow.chains))
+            if workflow.uses_designed_chains():
+                # Designs have differently labelled designed chains, show all of them
+                chain_ids_by_design_id = get_cached_designed_chain_ids_by_design_id(workflow.design_ids)
+                designed_chain_ids = sorted({",".join(chain_ids) for chain_ids in chain_ids_by_design_id.values()})
+                st.write("**Chains:** Designed chain(s):", " / ".join(designed_chain_ids))
+            else:
+                st.write("**Chains:**", ", ".join(workflow.chains))
 
         params = workflow.params.to_dict()
         for i, (param_name, param_value) in enumerate(params.items()):

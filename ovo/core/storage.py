@@ -835,6 +835,7 @@ class Storage:
         names: List[str] = None,
         return_paths=False,
         single_directory=False,
+        input_bytes: List[bytes] = None,
     ) -> str | list[str]:
         """
         Prepare workflow input files for submission by storing them in the provided scheduler workdir
@@ -850,7 +851,21 @@ class Storage:
         :param storage_paths: list of files to be downloaded to destination directory
         :param workdir: destination (working directory of the scheduler)
         :param names: rename each file to provided name (list of names of same length as storage_paths, without file extension, original extension will be added)
+        :param input_bytes: optional - do not read the storage_paths, instead use the provided bytes of each file
+            (list of same length as storage_paths). The hash of each subdirectory is based on the provided contents.
         """
+
+        if input_bytes is not None:
+            if single_directory:
+                # single_directory names the subdirectory based on a hash of the paths, not of the contents,
+                # so different contents of the same path would collide
+                raise ValueError("Cannot provide input_bytes when single_directory=True")
+            if len(input_bytes) != len(storage_paths):
+                raise ValueError(
+                    f"Mismatch between number of input bytes ({len(input_bytes)}) and number of paths ({len(storage_paths)}). Ensure that each path has corresponding contents."
+                )
+        else:
+            input_bytes = [None] * len(storage_paths)
 
         if single_directory:
             # Name subdirectory based on hash of paths to input files (not their contents)
@@ -876,8 +891,10 @@ class Storage:
                 )
 
         paths = [
-            self.prepare_workflow_input(storage_path, workdir=workdir, name=name, custom_hash=custom_hash)
-            for storage_path, name in zip(storage_paths, names)
+            self.prepare_workflow_input(
+                storage_path, workdir=workdir, name=name, custom_hash=custom_hash, input_bytes=file_bytes
+            )
+            for storage_path, name, file_bytes in zip(storage_paths, names, input_bytes)
         ]
         if single_directory:
             if not paths:

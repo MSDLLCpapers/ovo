@@ -2,6 +2,7 @@ from collections import defaultdict
 import dataclasses
 import gzip
 import json
+import string
 
 import numpy as np
 import os
@@ -776,6 +777,11 @@ def pdb_to_mmcif(pdb_data: str, structure_id: str, bfactor_to_plddt=False, fract
     )
 
 
+# Chain IDs that the designed chains are relabelled to when preparing pipeline inputs,
+# so that the pipeline can use a single chain ID for all designs
+CANONICAL_CHAIN_IDS = string.ascii_uppercase
+
+
 class ChainNotFoundError(Exception):
     pass
 
@@ -864,6 +870,60 @@ def get_sequences_from_pdb_str(
                 raise ChainNotFoundError(chain_id)
 
     return {chain_id: (dict(seq) if by_residue_number else "".join(seq)) for chain_id, seq in sequences.items()}
+
+
+def filter_and_relabel_chains_pdb_str(pdb_str: str, chains: list[str], new_chain_ids: list[str] = None) -> str:
+    """Keep only the given chains of the first model and relabel them to new chain IDs.
+
+    This enables analyzing designs with differently labelled chains in a single job -
+    for example the designed chain is labelled "A" in RFdiffusion designs but "B" in BindCraft designs,
+    so both can be relabelled to "A" and passed to a pipeline that expects a single chain ID.
+
+    Note that all non-ATOM/HETATM/TER records (including CONECT and header records like REMARK) are dropped, since their
+    atom serial numbers and chain IDs would no longer match the filtered and relabelled chains.
+
+    :param pdb_str: PDB file contents as string
+    :param chains: chain IDs to keep, in the order they should be relabelled
+    :param new_chain_ids: new chain IDs, defaults to A, B, ... (in the order of the chains argument)
+    :return: filtered PDB string
+    """
+    if new_chain_ids is None:
+        new_chain_ids = list(CANONICAL_CHAIN_IDS[: len(chains)])
+    if len(new_chain_ids) != len(chains):
+        raise ValueError(f"Expected {len(chains)} new chain IDs for chains {chains}, got: {new_chain_ids}")
+
+    new_chain_id_by_chain_id = dict(zip(chains, new_chain_ids))
+    found_chains = set()
+    lines = []
+
+    for line in pdb_str.splitlines():
+        record = line[:6].strip()
+
+        if record == "ENDMDL":
+            # break as soon as the first model ends
+            break
+
+        if record not in ("ATOM", "HETATM", "TER"):
+            continue
+
+        # PDB column layout: 21 = chain ID (see get_sequences_from_pdb_str)
+        if len(line) < 22:
+            # No chain ID column (e.g. a bare "TER" line)
+            continue
+
+        chain_id = line[21]
+        if chain_id not in new_chain_id_by_chain_id:
+            continue
+
+        if record != "TER":
+            found_chains.add(chain_id)
+        lines.append(line[:21] + new_chain_id_by_chain_id[chain_id] + line[22:])
+
+    missing_chains = [chain_id for chain_id in chains if chain_id not in found_chains]
+    if missing_chains:
+        raise ChainNotFoundError(f"Chains {missing_chains} not found in structure, found: {sorted(found_chains)}")
+
+    return "\n".join(lines + ["END", ""])
 
 
 def get_remark_header(pdb_path: str) -> tuple[str, list[str]]:

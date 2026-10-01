@@ -784,3 +784,14 @@ def get_common_chain_ids(design_ids: list[str]) -> tuple[list[str], list[str]]:
     common_chain_ids = sorted([chain_id for chain_id, count in chain_id_counts.items() if count == len(specs)])
     available_chain_ids = sorted(chain_id_counts.keys())
     return common_chain_ids, available_chain_ids
+
+
+def get_designed_chain_ids_by_design_id(design_ids: list[str]) -> dict[str, list[str]]:
+    """Get the designed chain IDs of each design, based on its spec (which only contains the designed chains)"""
+    designs = db.select(Design, id__in=design_ids)
+    designed_chain_ids_by_design_id = {}
+    for design in designs:
+        if not design.spec or not design.spec.chains:
+            raise ValueError(f"Design {design.id} has no chains in its spec, cannot determine the designed chains")
+        designed_chain_ids_by_design_id[design.id] = design.spec.get_designed_chain_ids()
+    return designed_chain_ids_by_design_id

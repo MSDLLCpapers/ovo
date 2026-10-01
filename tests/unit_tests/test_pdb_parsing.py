@@ -1,5 +1,29 @@
+import pytest
+
 from ovo import DesignSpec
-from ovo.core.utils.pdb import get_sequences_from_pdb_str, get_pdb
+from ovo.core.utils.pdb import (
+    ChainNotFoundError,
+    filter_and_relabel_chains_pdb_str,
+    get_sequences_from_pdb_str,
+    get_pdb,
+)
+
+TWO_CHAIN_PDB_STR = """MODEL        1
+ATOM      1  N   ASN A  20     -36.584  27.168 -12.725  1.00136.17           N
+ATOM      2  CA  ASN A  20     -36.216  25.856 -13.251  1.00135.78           C
+ATOM      3  N   THR A  21     -38.058  25.035 -14.630  1.00128.94           N
+ATOM      4  CA  THR A  21     -38.984  24.002 -15.067  1.00125.21           C
+TER       5      THR A  21
+ATOM      6  N   MET B  10     -16.584  27.168 -12.725  1.00136.17           N
+ATOM      7  CA  MET B  10     -16.216  25.856 -13.251  1.00135.78           C
+TER       8      MET B  10
+CONECT    1    2
+ENDMDL
+MODEL        2
+ATOM      9  CA  GLY A  40     -36.216  25.856 -13.251  1.00135.78           C
+ENDMDL
+END
+"""
 
 
 def test_design_spec_from_pdb(example_pdb_path):
@@ -91,6 +115,37 @@ ATOM      3  CA  ASN A  21     -36.216  25.856 -13.251  1.00135.78           C
         chains=["A"],
     )
     assert seqs["A"] == "N"
+
+
+def test_filter_and_relabel_chains_pdb_str():
+    """Keeping a single chain should relabel it to A, dropping the other chain and the second model."""
+    filtered = filter_and_relabel_chains_pdb_str(TWO_CHAIN_PDB_STR, chains=["B"])
+
+    assert get_sequences_from_pdb_str(filtered) == {"A": "M"}
+    # Residue numbering and atom lines are kept as is
+    assert "ATOM      6  N   MET A  10" in filtered
+    assert "TER       8      MET A  10" in filtered
+    # CONECT records and additional models are dropped
+    assert "CONECT" not in filtered
+    assert "GLY" not in filtered
+
+
+def test_filter_and_relabel_chains_pdb_str_swap():
+    """Chains should not be merged when relabelling to a chain ID that is still present in the structure."""
+    filtered = filter_and_relabel_chains_pdb_str(TWO_CHAIN_PDB_STR, chains=["B", "A"])
+
+    assert get_sequences_from_pdb_str(filtered) == {"A": "M", "B": "NT"}
+
+
+def test_filter_and_relabel_chains_pdb_str_custom_chain_ids():
+    filtered = filter_and_relabel_chains_pdb_str(TWO_CHAIN_PDB_STR, chains=["A"], new_chain_ids=["X"])
+
+    assert get_sequences_from_pdb_str(filtered) == {"X": "NT"}
+
+
+def test_filter_and_relabel_chains_pdb_str_missing_chain():
+    with pytest.raises(ChainNotFoundError, match="C"):
+        filter_and_relabel_chains_pdb_str(TWO_CHAIN_PDB_STR, chains=["C"])
 
 
 def test_pdb_online_download():

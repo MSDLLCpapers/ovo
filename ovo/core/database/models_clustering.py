@@ -46,6 +46,26 @@ class ProteinClusteringWorkflow(DescriptorWorkflow):
             raise ValueError(
                 f"Invalid Protein Clustering tool '{self.tool}', available tools: {', '.join(PROTEIN_CLUSTERING_TOOLS_BY_KEY.keys())}"
             )
+        if self.uses_designed_chains():
+            # All designs are clustered together, so they need to be relabelled to the same set of canonical
+            # chain IDs, which is only possible if each design has the same number of designed chains
+            self.get_num_designed_chains()
+
+    def get_num_designed_chains(self) -> int:
+        """Get the number of designed chains, which has to be the same for all designs"""
+        from ovo.core.logic.design_logic import get_designed_chain_ids_by_design_id
+
+        chains_by_design_id = get_designed_chain_ids_by_design_id(self.design_ids)
+        num_chains = {len(chains) for chains in chains_by_design_id.values()}
+        if len(num_chains) > 1:
+            examples = [
+                f"{design_id}: {','.join(chains)}" for design_id, chains in list(chains_by_design_id.items())[:5]
+            ]
+            raise ValueError(
+                f"Designs have a different number of designed chains, so they cannot be clustered together: "
+                f"{'; '.join(examples)}"
+            )
+        return num_chains.pop()
 
 
 @dataclass(frozen=True)
@@ -169,7 +189,8 @@ class FoldseekClusteringWorkflow(ProteinClusteringWorkflow):
 
     def validate(self):
         super().validate()
-        if len(self.chains) > 1:
+        num_chains = self.get_num_designed_chains() if self.uses_designed_chains() else len(self.chains)
+        if num_chains > 1:
             raise NotImplementedError("Currently only single chain clustering is supported.")
 
 
@@ -289,12 +310,13 @@ class SequenceHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow)
             if not design.spec or not design.spec.chains:
                 designs_without_sequences.append(design.id)
                 continue
-            # Check if at least one chain has a sequence
+            # Check if at least one of the analyzed chains has a sequence
+            design_chains = self.resolve_chains(design)
             has_sequence = any(
                 chain.sequence
                 for chain in design.spec.chains
                 for chain_id in chain.chain_ids
-                if chain_id in self.chains
+                if chain_id in design_chains
             )
             if not has_sequence:
                 designs_without_sequences.append(design.id)
@@ -313,10 +335,16 @@ class SequenceHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow)
 class RMSDHierarchicalClusteringWorkflow(BaseHierarchicalClusteringWorkflow):
     tool_key: str = RMSD_HIERARCHICAL_UMAP_PIPELINE.tool_key
     params: HierarchicalClusteringParams = field(
-        default_factory=lambda: HierarchicalClusteringParams(similarity_method="rmsd", threshold=5.0),
+        default_factory=lambda: HierarchicalClusteringParams(similarity_method="rmsd", threshold=3.0),
         metadata=dict(tool_name="RMSD Hierarchical Clustering"),
     )
     requires_structures: bool = True
+
+    def validate(self):
+        super().validate()
+        num_chains = self.get_num_designed_chains() if self.uses_designed_chains() else len(self.chains)
+        if num_chains > 1:
+            raise NotImplementedError("RMSD calculation for multiple chains is not implemented yet.")
 
 
 @WorkflowTypes.register("Secondary Structure Hierarchical Clustering workflow")
@@ -361,6 +389,15 @@ class InterfaceResiduesHierarchicalClusteringWorkflow(BaseHierarchicalClustering
         from ovo import db
 
         super().validate()
+
+        if self.uses_designed_chains():
+            # The similarity is based on the overlap of contacted target residues, whose labels contain the
+            # target chain ID (e.g. "B10"), so they are not comparable between designs with different chain labels
+            raise ValueError(
+                "Interface residues clustering cannot be used for designs with different designed chains, "
+                "because the contacted target residue labels are not comparable between them. "
+                "Please select the chains manually or cluster these designs separately."
+            )
 
         # Check that all designs have interface residues descriptor calculated
         descriptor_values = db.select_descriptor_values(self.input_descriptor_key, design_ids=self.design_ids)

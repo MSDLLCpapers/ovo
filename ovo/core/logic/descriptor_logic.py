@@ -25,12 +25,18 @@ from ovo.core.database.models import (
     DesignDescriptorWorkflow,
     Pool,
 )
+from ovo.core.logic import design_logic
 from ovo.core.logic.job_logic import update_job_status
 from ovo.core.logic.proteinqc_logic import get_descriptor_cmap, get_descriptor_comment
 from ovo.core.utils.export import write_sheet
 from ovo.core.database.models_clustering import ProteinClusteringTool
 from ovo.core.scheduler.base_scheduler import Scheduler
-from ovo.core.utils.pdb import NoStructuresFound
+from ovo.core.utils.pdb import (
+    CANONICAL_CHAIN_IDS,
+    ChainNotFoundError,
+    NoStructuresFound,
+    filter_and_relabel_chains_pdb_str,
+)
 
 
 def get_available_descriptors(design_ids: list[str], exclude_required_jobs: bool = True) -> dict[str, Descriptor]:
@@ -204,8 +210,60 @@ def submit_descriptor_workflow(
     return descriptor_job
 
 
-def prepare_design_structures(designs: list[Design], workdir: str):
-    """Prepare a txt file (or single pdb file if single design) with PDB file paths, all stored in a provided workdir"""
+def resolve_workflow_chains_by_design_id(workflow: DescriptorWorkflow) -> dict[str, list[str]] | None:
+    """Get the chain IDs to analyze for each design, or None if the workflow uses fixed chain IDs for all designs.
+
+    Only returns a mapping when workflow.chains is the DESIGNED_CHAINS placeholder, which means that each design
+    should be analyzed using its own designed chain(s) - see prepare_design_structures on how these are normalized.
+    """
+    if not workflow.uses_designed_chains():
+        return None
+    return design_logic.get_designed_chain_ids_by_design_id(workflow.design_ids)
+
+
+def get_design_chains(
+    workflow: DescriptorWorkflow, design_id: str, chains_by_design_id: dict[str, list[str]] = None
+) -> list[str]:
+    """Get the chain IDs that the descriptors of a single design apply to.
+
+    Descriptor values are stored per design, so the resolved chain IDs are stored rather than the
+    DESIGNED_CHAINS placeholder (which is only kept on the workflow itself).
+    """
+    if chains_by_design_id is None:
+        return list(workflow.chains)
+    return chains_by_design_id[design_id]
+
+
+def get_pipeline_chains(workflow: DescriptorWorkflow, chains_by_design_id: dict[str, list[str]] = None) -> list[str]:
+    """Get the chain IDs to be passed to the pipeline for all designs.
+
+    These are the workflow chains, unless the designed chains of each design are used, in which case the inputs
+    are relabelled to canonical chain IDs (A, B, ...) and the pipeline sees those instead.
+    """
+    if chains_by_design_id is None:
+        return list(workflow.chains)
+    num_chains = {len(chains) for chains in chains_by_design_id.values()}
+    if len(num_chains) != 1:
+        examples = [f"{design_id}: {','.join(chains)}" for design_id, chains in list(chains_by_design_id.items())[:5]]
+        raise ValueError(
+            f"Designs have a different number of designed chains, cannot analyze them in a single job: "
+            f"{'; '.join(examples)}"
+        )
+    num_chains = num_chains.pop()
+    if num_chains > len(CANONICAL_CHAIN_IDS):
+        raise ValueError(f"Cannot relabel {num_chains} chains to canonical IDs (max {len(CANONICAL_CHAIN_IDS)}).")
+    return list(CANONICAL_CHAIN_IDS[:num_chains])
+
+
+def prepare_design_structures(designs: list[Design], workdir: str, chains_by_design_id: dict[str, list[str]] = None):
+    """Prepare a txt file (or single pdb file if single design) with PDB file paths, all stored in a provided workdir
+
+    :param designs: designs to prepare structures for
+    :param workdir: destination (working directory of the scheduler)
+    :param chains_by_design_id: optional - keep only the given chains of each design and relabel them to
+        canonical chain IDs (A, B, ...), so that designs with differently labelled chains can be analyzed
+        in a single job using a single chain ID (see CANONICAL_CHAIN_IDS)
+    """
     storage_paths = []
     design_ids = []
     for design in designs:
@@ -218,19 +276,49 @@ def prepare_design_structures(designs: list[Design], workdir: str):
     if not storage_paths:
         raise NoStructuresFound("No structures found for the selected designs.")
 
+    input_bytes = None
+    if chains_by_design_id is not None:
+        input_bytes = []
+        with storage.bulk_read_context():
+            for storage_path, design_id in zip(storage_paths, design_ids):
+                pdb_str = storage.read_file_str(storage_path)
+                filtered_pdb_str = filter_and_relabel_chains_pdb_str(pdb_str, chains_by_design_id[design_id])
+                input_bytes.append(filtered_pdb_str.encode())
+
     # Prepare a txt file with workflow input paths, each file renamed to design_id.pdb
-    return storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids)
+    return storage.prepare_workflow_inputs(storage_paths, workdir, names=design_ids, input_bytes=input_bytes)
 
 
-def prepare_design_sequences(designs: list[Design], workdir: str):
-    """Prepare a csv file with a design_id column and a sequence column for each chain and store it in a provided workdir"""
+def prepare_design_sequences(designs: list[Design], workdir: str, chains_by_design_id: dict[str, list[str]] = None):
+    """Prepare a csv file with a design_id column and a sequence column for each chain and store it in a provided workdir
+
+    :param designs: designs to prepare sequences for
+    :param workdir: destination (working directory of the scheduler)
+    :param chains_by_design_id: optional - keep only the given chains of each design and store their sequences
+        under canonical chain IDs (A, B, ...), so that designs with differently labelled chains can be analyzed
+        in a single job using a single chain ID (see CANONICAL_CHAIN_IDS)
+    """
     sequences = []
     design_ids = []
     for design in designs:
         if not design.spec or not design.spec.chains:
             print(f"Design {design.id} has no spec chains. Skipping...")
             continue
-        sequences.append({chain_id: chain.sequence for chain in design.spec.chains for chain_id in chain.chain_ids})
+        design_sequences = {chain_id: chain.sequence for chain in design.spec.chains for chain_id in chain.chain_ids}
+        if chains_by_design_id is not None:
+            # Relabel the chains of each design to canonical chain IDs, in the given order
+            design_chains = chains_by_design_id[design.id]
+            missing_chains = [chain_id for chain_id in design_chains if chain_id not in design_sequences]
+            if missing_chains:
+                raise ChainNotFoundError(
+                    f"Design {design.id} is missing sequences of chains {missing_chains}, "
+                    f"found: {sorted(design_sequences)}"
+                )
+            design_sequences = {
+                canonical_chain_id: design_sequences[chain_id]
+                for canonical_chain_id, chain_id in zip(CANONICAL_CHAIN_IDS, design_chains)
+            }
+        sequences.append(design_sequences)
         design_ids.append(design.id)
 
     if not sequences:
@@ -298,16 +386,29 @@ def prepare_foldseek_clustering_workflow_params(workflow: FoldseekClusteringWork
 
     designs_query = designs
     designs_target = workflow.designs_target
-    chains = list(workflow.chains)
     n_neighbors = workflow.n_neighbors
 
+    # When designs have differently labelled designed chains, their structures are filtered and relabelled
+    # to canonical chain IDs, so that a single chain ID can be passed to the pipeline
+    chains_by_design_id = resolve_workflow_chains_by_design_id(workflow)
+    chains = get_pipeline_chains(workflow, chains_by_design_id)
+
     # Use prepare_design_structures helper for better error handling
-    input_query_path = prepare_design_structures(designs_query, workdir=workdir)
+    input_query_path = prepare_design_structures(
+        designs_query, workdir=workdir, chains_by_design_id=chains_by_design_id
+    )
 
     # Prepare target structures if provided
     input_target_path = None
     if designs_target:
-        input_target_path = prepare_design_structures(designs_target, workdir=workdir)
+        target_chains_by_design_id = (
+            design_logic.get_designed_chain_ids_by_design_id([d.id for d in designs_target])
+            if chains_by_design_id is not None
+            else None
+        )
+        input_target_path = prepare_design_structures(
+            designs_target, workdir=workdir, chains_by_design_id=target_chains_by_design_id
+        )
 
     optional_params = workflow.params.to_dict()
     # Add "foldseek_" prefix to optional parameters
@@ -328,16 +429,20 @@ def prepare_hierarchical_clustering_workflow_params(workflow: BaseHierarchicalCl
 
     designs = db.select(Design, id__in=workflow.design_ids)
 
-    chains = list(workflow.chains)
     n_neighbors = workflow.n_neighbors
+
+    # When designs have differently labelled designed chains, their inputs are filtered and relabelled
+    # to canonical chain IDs, so that a single chain ID can be passed to the pipeline
+    chains_by_design_id = resolve_workflow_chains_by_design_id(workflow)
+    chains = get_pipeline_chains(workflow, chains_by_design_id)
 
     # Determine if we need structures or can use sequences
     if workflow.requires_structures:
-        input_query_path = prepare_design_structures(designs, workdir=workdir)
+        input_query_path = prepare_design_structures(designs, workdir=workdir, chains_by_design_id=chains_by_design_id)
     else:
         # For sequence/descriptor-based clustering, use sequences CSV (provides design IDs)
         # Try sequences first, fall back to structures if needed
-        input_query_path = prepare_design_sequences(designs, workdir=workdir)
+        input_query_path = prepare_design_sequences(designs, workdir=workdir, chains_by_design_id=chains_by_design_id)
 
     optional_params = workflow.params.to_dict()
 
@@ -522,6 +627,9 @@ def read_descriptor_file_values(
             if batch_dfs:
                 descriptor_tables[key] = _concat_batch_descriptor_tables(key, batch_dfs)
 
+    # Store the resolved chain IDs of each design rather than the DESIGNED_CHAINS placeholder
+    chains_by_design_id = resolve_workflow_chains_by_design_id(descriptor_job.workflow)
+
     descriptor_values = []
     for design_id, table_ids in design_id_mapping.items():
         descriptor_values.extend(
@@ -530,7 +638,7 @@ def read_descriptor_file_values(
                 table_ids=table_ids,
                 descriptor_job_id=descriptor_job.id,
                 descriptor_tables=descriptor_tables,
-                chains=descriptor_job.workflow.chains,
+                chains=get_design_chains(descriptor_job.workflow, design_id, chains_by_design_id),
             )
         )
 
@@ -615,6 +723,9 @@ def read_per_design_files(
             f"expected at least one file matching template: {', '.join(design_files.keys())}."
         )
 
+    # Store the resolved chain IDs of each design rather than the DESIGNED_CHAINS placeholder
+    chains_by_design_id = resolve_workflow_chains_by_design_id(descriptor_job.workflow)
+
     descriptor_values = []
     with storage.archive_context(delete_if_exists=True):
         with ThreadPoolExecutor(config.storage.num_copy_threads) as executor:
@@ -633,7 +744,7 @@ def read_per_design_files(
                     descriptor_key,
                     descriptor_job.id,
                     design_id,
-                    descriptor_job.workflow.chains,
+                    get_design_chains(descriptor_job.workflow, design_id, chains_by_design_id),
                 )
                 for source_path, (
                     design_id,

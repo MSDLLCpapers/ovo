@@ -1,4 +1,5 @@
 from ovo import db, design_logic, storage
+from ovo.core.database.models import DESIGNED_CHAINS, DescriptorValue
 from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models_clustering import FoldseekClusteringWorkflow, FoldseekParams
 from ovo.core.database.models_rfdiffusion import (
@@ -136,5 +137,37 @@ def test_scaffold_end_to_end_logic(project_data):
     )
     descriptor_logic.process_results(descriptor_job)
 
-    cluster_id = db.select_descriptor_values(descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key, design_ids)
+    cluster_id = db.select_descriptor_values(
+        descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key, design_ids, descriptor_job_id=descriptor_job.id
+    )
     assert len(cluster_id.dropna()) == 2
+
+    # Clustering using the designed chain of each design, which should give the same result
+    # (all designs have the same designed chain here, see test_mixed_designed_chains_clustering for a mixed case)
+    designed_clustering: FoldseekClusteringWorkflow = FoldseekClusteringWorkflow(
+        chains=[DESIGNED_CHAINS],
+        design_ids=[design.id for design in designs],
+        params=FoldseekParams(
+            exhaustive_search=True,
+            e=100,
+        ),
+    )
+    designed_clustering.validate()
+    designed_descriptor_job = descriptor_logic.submit_descriptor_workflow(
+        workflow=designed_clustering, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
+    )
+    descriptor_logic.process_results(designed_descriptor_job)
+
+    designed_cluster_id = db.select_descriptor_values(
+        descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key, design_ids, descriptor_job_id=designed_descriptor_job.id
+    )
+    assert designed_cluster_id.to_dict() == cluster_id.to_dict()
+
+    # The resolved chain IDs are stored for each design, not the DESIGNED_CHAINS placeholder
+    stored_chains = db.select_values(
+        DescriptorValue,
+        "chains",
+        descriptor_job_id=designed_descriptor_job.id,
+        descriptor_key=descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key,
+    )
+    assert set(stored_chains) == {"A"}

@@ -167,6 +167,13 @@ def get_cached_common_chain_ids(design_ids: list[str]) -> tuple[list[str], list[
 
 @clear_when_modified(Design)
 @st.cache_data(max_entries=10, ttl="1h")
+def get_cached_designed_chain_ids_by_design_id(design_ids: list[str]) -> dict[str, list[str]]:
+    """Get the designed chain IDs of each of the given designs."""
+    return design_logic.get_designed_chain_ids_by_design_id(design_ids)
+
+
+@clear_when_modified(Design)
+@st.cache_data(max_entries=10, ttl="1h")
 def get_cached_num_cyclic(design_ids: list[str]) -> int:
     """Get number of cyclic peptides across the given design IDs."""
     specs = db.select_values(Design, "spec", id__in=design_ids)

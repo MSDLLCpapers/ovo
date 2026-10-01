@@ -1308,16 +1308,31 @@ def visualize_align_structure_selection(
     color="secondary-structure",
     auto_zoom_chains=None,
     key="struct_visualization",
+    chains_by_design_id: dict[str, list[str]] = None,
 ):
+    """Align and visualize the structures of the given designs.
+
+    :param chains_by_design_id: optional - use different chains for each design, overriding align_chains,
+        visualize_chains and auto_zoom_chains. Needed when designs have differently labelled designed chains.
+    """
     # If list of designs too large, align only subset (max_examples) of designs
     max_examples = min(max_examples, len(design_ids))
     example_designs: list[Design] = get_cached_designs(design_ids[:max_examples])
+
+    if chains_by_design_id is not None:
+        design_align_chains = [chains_by_design_id[design.id] for design in example_designs]
+        design_visualize_chains = design_align_chains
+        design_auto_zoom_chains = design_align_chains
+    else:
+        design_align_chains = [align_chains] * len(example_designs)
+        design_visualize_chains = [visualize_chains] * len(example_designs)
+        design_auto_zoom_chains = [auto_zoom_chains] * len(example_designs)
 
     with storage.bulk_read_context():
         aligned_subset_pdb_strs, rmsd = align_multiple_proteins_pdb(
             pdb_strs=[storage.read_file_str(design.structure_path) for design in example_designs],
             # Align atoms of provided chains
-            chain_residue_mappings=([[(chain, None) for chain in align_chains]] * len(example_designs)),
+            chain_residue_mappings=[[(chain, None) for chain in chains] for chains in design_align_chains],
         )
 
     viz.molstar(
@@ -1325,10 +1340,12 @@ def visualize_align_structure_selection(
             viz.StructureVisualization(
                 data=aligned_pdb_str,
                 representation_type=default_representation_type,
-                representations=[viz.Representation(visualize_chains, "cartoon", color=color)],
-                auto_zoom_chains=auto_zoom_chains,
+                representations=[viz.Representation(design_chains, "cartoon", color=color)],
+                auto_zoom_chains=zoom_chains,
             )
-            for aligned_pdb_str in aligned_subset_pdb_strs
+            for aligned_pdb_str, design_chains, zoom_chains in zip(
+                aligned_subset_pdb_strs, design_visualize_chains, design_auto_zoom_chains
+            )
         ],
         key=key,
         height="400px",
