@@ -3,6 +3,7 @@ import json
 from dataclasses import is_dataclass, asdict
 from pathlib import Path
 
+import pandas as pd
 from sqlalchemy import TypeDecorator, String
 
 
@@ -12,6 +13,8 @@ class DataclassEncoder(json.JSONEncoder):
     def default(self, o):
         if hasattr(o, "__serialize_field__") and o.__serialize_field__:
             return getattr(o, o.__serialize_field__)
+        if isinstance(o, pd.DataFrame):
+            return o.to_dict(orient="records")
         if is_dataclass(o):
             return asdict(o)
         if isinstance(o, enum.Enum):

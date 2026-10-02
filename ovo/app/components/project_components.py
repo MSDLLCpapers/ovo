@@ -9,9 +9,9 @@ from ovo.app.utils.cached_db import (
     get_cached_projects,
     get_cached_rounds,
     get_cached_pools,
+    get_cached_total_compute_hours,
 )
-from ovo.core.database.models import Design
-from ovo.core.database.models import Project
+from ovo.core.database.models import Design, Project, ProjectArtifact, JobReportArtifact
 from ovo.core.logic.project_logic import get_or_create_personal_project
 from ovo.core.logic.user_settings_logic import get_or_create_user_settings, update_last_project_id
 
@@ -349,8 +349,15 @@ def project_stats_fragment(project_id):
 
         accepted_designs_by_pool = db.count(Design, pool_id__in=[p.id for p in pools], accepted=True)
         total_designs_by_pool = db.count(Design, pool_id__in=[p.id for p in pools])
+        total_compute_hours = get_cached_total_compute_hours(project_id=project_id)
 
     with st.container(horizontal=True, gap="large"):
         st.metric("Pools", value=f"{len(pools):,}", width="content")
         st.metric(label="Total designs", value=f"{total_designs_by_pool:,}", width="content")
         st.metric(label="Accepted designs", value=f"{accepted_designs_by_pool:,}", width="content")
+        st.metric(
+            label="Total compute hours",
+            value=int(total_compute_hours) if total_compute_hours >= 1 else "<1",
+            width="content",
+            help="Total compute hours consumed by the project (might be inaccurate for older jobs)",
+        )

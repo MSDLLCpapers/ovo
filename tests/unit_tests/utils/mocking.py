@@ -5,8 +5,10 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict
 from unittest.mock import Mock
 
+import pandas as pd
 from ovo.core.utils.param_validation import validate_params
 from typing import Any, Dict, Iterator
 
@@ -14,6 +16,7 @@ from pytest_mock import MockerFixture
 
 from ovo.core.scheduler.base_scheduler import Scheduler
 from ovo.core.utils.formatting import format_duration
+from ovo.core.utils.param_validation import validate_params
 
 logger = logging.getLogger(__name__)
 
@@ -151,17 +154,19 @@ class MockScheduler(Scheduler):
         logger.info(self.jobs[job_id].result)
         return self.jobs[job_id].result
 
-    def get_log(self, job_id: str) -> str | None:
+    def get_log(self, job_id: str, task_id: str = None, preview: bool = False) -> str | None:
         """
         Get job execution log.
 
         Args:
             job_id (str): The job ID.
+            task_id (str, optional): Task ID for task-specific log.
+            preview (bool, optional): Return preview (last few lines) instead of full log.
 
         Returns:
             str | None: Job execution log.
         """
-        return self.jobs[job_id].result
+        return self.jobs[job_id].log
 
     def cancel(self, job_id):
         """
@@ -212,6 +217,22 @@ class MockScheduler(Scheduler):
 
     def supports_pipeline_name(self, pipeline_name: str) -> bool:
         return True
+
+    def get_tasks(self, job_id: str) -> pd.DataFrame | None:
+        """Get task execution details."""
+        return None
+
+    def get_report(self, job_id: str) -> str | None:
+        """Get Nextflow execution report HTML."""
+        return None
+
+    def get_timeline(self, job_id: str) -> str | None:
+        """Get Nextflow execution timeline HTML."""
+        return None
+
+    def get_dag(self, job_id: str) -> str | None:
+        """Get workflow DAG in DOT format."""
+        return None
 
 
 def encode(class_to_encode: Any) -> bytes:

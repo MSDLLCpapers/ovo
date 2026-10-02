@@ -26,7 +26,7 @@ from ovo.core.database.models import (
     Pool,
 )
 from ovo.core.logic import design_logic
-from ovo.core.logic.job_logic import update_job_status
+from ovo.core.logic.job_logic import update_job_status, create_job_report_artifact
 from ovo.core.logic.proteinqc_logic import get_descriptor_cmap, get_descriptor_comment
 from ovo.core.utils.export import write_sheet
 from ovo.core.database.models_clustering import ProteinClusteringTool
@@ -533,9 +533,10 @@ def process_results(descriptor_job: DescriptorJob, callback: Callable = None, wa
     # Job should be successful or failed now, update job status
     update_job_status(descriptor_job)
     if descriptor_job.job_result is False:
-        # Print job log and raise error
         print(scheduler.get_log(descriptor_job.job_id))
         raise ValueError(f"Job {descriptor_job.job_id} has failed")
+    # Create artifact for successful job
+    artifact = create_job_report_artifact(descriptor_job, scheduler)
     # Process and save descriptor values
     objects = descriptor_job.workflow.process_results(descriptor_job, callback=callback)
     assert isinstance(objects, list), f"Expected list from process_results(), got {type(objects).__name__}: {objects}"
@@ -543,6 +544,7 @@ def process_results(descriptor_job: DescriptorJob, callback: Callable = None, wa
     descriptor_job.processed = True
     flag_modified(descriptor_job, "workflow")
     flag_modified(descriptor_job, "warnings")
+    objects.append(artifact)
     # Save all atomically in one commit
     db.save_all(objects + [descriptor_job])
 

@@ -5,6 +5,7 @@ import pytest
 
 from ovo import db, schedulers
 from ovo.core.database import Design
+from ovo.core.database.models import ProjectArtifact, JobReportArtifact
 from ovo.core.database.models_proteinqc import ProteinQCWorkflow
 from ovo.core.logic import descriptor_logic, design_logic
 from ovo.core.utils.resources import RESOURCES_DIR
@@ -53,6 +54,13 @@ def test_full_proteinqc_sequence_only(project_data):
         workflow=proteinqc, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
     )
     descriptor_logic.process_results(descriptor_job)
+
+    # Check that artifact was created
+    artifacts = db.select(
+        ProjectArtifact, descriptor_job_id=descriptor_job.id, artifact_type=JobReportArtifact.artifact_type
+    )
+    assert len(artifacts) == 1
+
     values = descriptor_logic.get_wide_descriptor_table(design_ids=design_ids)
     print(values.to_dict(orient="records"))
     assert len(values) == 3

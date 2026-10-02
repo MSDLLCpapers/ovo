@@ -13,6 +13,7 @@ from ovo.core.database import (
     descriptors_rfdiffusion,
     descriptors_clustering,
 )
+from ovo.core.database.models import ProjectArtifact, JobReportArtifact
 from ovo.core.logic import descriptor_logic
 from ovo.core.utils.resources import RESOURCES_DIR
 from ovo.core.utils.tests import TEST_SCHEDULER_KEY
@@ -63,6 +64,11 @@ def test_scaffold_end_to_end_logic(project_data):
     # wait for job to complete and process results
     pool = design_logic.process_results(design_job)
 
+    # Check that artifact was created
+    artifacts = db.select(ProjectArtifact, design_job_id=design_job.id, artifact_type=JobReportArtifact.artifact_type)
+    assert len(artifacts) == 1
+    assert artifacts[0].artifact.job_author == design_job.author
+
     num_designs = db.Design.count(pool_id=pool.id)
     assert num_designs == 2
 
@@ -110,6 +116,12 @@ def test_scaffold_end_to_end_logic(project_data):
         workflow=refolding, scheduler_key=TEST_SCHEDULER_KEY, project_id=project.id
     )
     descriptor_logic.process_results(descriptor_job)
+
+    # Check that artifact was created for descriptor job
+    artifacts = db.select(
+        ProjectArtifact, descriptor_job_id=descriptor_job.id, artifact_type=JobReportArtifact.artifact_type
+    )
+    assert len(artifacts) == 1
 
     af2_plddt = db.select_descriptor_values(f"refolding|{test}|plddt", design_ids)
     assert len(af2_plddt.dropna()) == 2
@@ -171,3 +183,48 @@ def test_scaffold_end_to_end_logic(project_data):
         descriptor_key=descriptors_clustering.FOLDSEEK_REPR_CLUSTER_ID.key,
     )
     assert set(stored_chains) == {"A"}
+
+
+def test_failed_job_creates_artifact(project_data):
+    """Test that JobReportArtifact is created even when job fails."""
+    project, project_round, _ = project_data
+
+    workflow = RFdiffusionScaffoldDesignWorkflow(
+        rfdiffusion_params=RFdiffusionParams(
+            input_pdb_paths=[storage.store_input(project.id, RESOURCES_DIR / "examples/inputs/5ELI_A.pdb")],
+            contigs=["A200-210/10/A220-230"],  # Invalid: regions outside PDB range
+            num_designs=1,
+            timesteps=1,
+        ),
+        protein_mpnn_params=ProteinMPNNParams(
+            num_sequences=1,
+            sampling_temp=0.1,
+        ),
+        refolding_params=RefoldingParams(
+            primary_test="esmfold",
+        ),
+    )
+
+    design_job, pool = design_logic.submit_design_workflow(
+        workflow=workflow,
+        pool_name="Failed Job Test",
+        pool_description="Test artifact creation on failure",
+        scheduler_key=TEST_SCHEDULER_KEY,
+        round_id=project_round.id,
+    )
+
+    try:
+        design_logic.process_results(design_job)
+        assert False, "Job should have failed"
+    except ValueError:
+        pass
+
+    # Verify artifact was created despite failure
+    artifacts = db.select(ProjectArtifact, design_job_id=design_job.id, artifact_type=JobReportArtifact.artifact_type)
+    assert len(artifacts) == 1
+    assert artifacts[0].project_id == project.id
+    assert artifacts[0].artifact.job_author == design_job.author
+
+    # Verify job is marked as failed
+    design_job = db.get(db.DesignJob, id=design_job.id)
+    assert design_job.job_result is False

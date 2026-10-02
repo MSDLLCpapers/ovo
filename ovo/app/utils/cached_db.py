@@ -9,6 +9,7 @@ from ovo.core.database.models import (
     Descriptor,
     Pool,
     ProjectArtifact,
+    JobReportArtifact,
     Round,
     Design,
     DesignJob,
@@ -269,7 +270,7 @@ def get_cached_design_jobs_table(round_ids: list[str], **filters) -> pd.DataFram
     return _get_cached_design_jobs_table(round_ids=round_ids, **filters)
 
 
-@clear_when_modified(DesignJob)
+@clear_when_modified(DesignJob, ProjectArtifact)
 @st.cache_data(show_spinner=False, max_entries=100, ttl="1m")  # update every minute since the table contains datetimes
 def _get_cached_design_jobs_table(
     project_id: str = None, round_ids: list[str] = None, update=True, **pool_filters
@@ -373,3 +374,16 @@ def get_cached_available_shared_labels_for_design_ids(design_ids: list[str], aut
 def get_cached_available_labels_for_pool_ids(pool_ids: list[str], **design_filters) -> list[str]:
     """Get unique labels available for the given pool IDs, applying optional filters on the designs in those pools."""
     return db.get_available_labels_for_pool_ids(pool_ids, **design_filters)
+
+
+@clear_when_modified(ProjectArtifact)
+@st.cache_data(ttl="10m")
+def get_cached_total_compute_hours(**kwargs) -> float:
+    """Get total compute hours from job report artifacts. Accepts any ProjectArtifact filter kwargs (e.g., project_id, design_job_id)."""
+    artifacts = db.select_values(
+        ProjectArtifact,
+        "artifact",
+        artifact_type=JobReportArtifact.artifact_type,
+        **kwargs,
+    )
+    return sum(artifact.total_compute_hours for artifact in artifacts if artifact.total_compute_hours is not None)

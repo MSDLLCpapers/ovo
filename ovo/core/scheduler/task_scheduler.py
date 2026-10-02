@@ -6,6 +6,8 @@ from abc import abstractmethod
 from datetime import datetime, timezone
 from uuid import uuid1
 
+import pandas as pd
+
 from ovo.core.scheduler.base_scheduler import Scheduler, SchedulerTypes, JobNotFound
 
 
@@ -152,6 +154,20 @@ class TaskScheduler(Scheduler):
         """
         # Check if this pipeline is registered as a task
         return pipeline_name in _GLOBAL_TASK_REGISTRY
+
+    def get_tasks(self, job_id: str) -> pd.DataFrame | None:
+        """Get task execution details.
+
+        TaskScheduler doesn't maintain detailed task tables like Nextflow,
+        so this returns None.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            None (task schedulers don't have task tables)
+        """
+        return None
 
 
 @SchedulerTypes.register()

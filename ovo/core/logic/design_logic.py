@@ -26,10 +26,17 @@ from ovo.core.database.models import (
     DesignWorkflow,
     DesignSpec,
     DesignChain,
+    ProjectArtifact,
+    JobReportArtifact,
 )
 from ovo.core.database.models import Pool, Workflow
 from ovo.core.logic.filtering_logic import filter_designs_by_thresholds
-from ovo.core.logic.job_logic import update_job_status, format_job_duration
+from ovo.core.logic.job_logic import (
+    update_job_status,
+    format_job_duration,
+    create_job_report_artifact,
+    delete_job_artifacts,
+)
 from ovo.core.utils.pdb import mmcif_to_pdb
 
 # note: bulk submission config import/export lives in ovo.core.logic.bulk_submission_logic
@@ -116,9 +123,24 @@ def get_design_jobs_table(
 
     accepted_by_pool, total_by_pool = count_designs_by_pool([p.id for p in pools_by_job_id.values()])
 
+    # Load job report artifacts for all jobs at once
+    job_ids = [job.id for job in jobs]
+    query_params = {
+        "design_job_id__in": job_ids,
+        "artifact_type": JobReportArtifact.artifact_type,
+    }
+    if project_id is not None:
+        query_params["project_id"] = project_id
+
+    all_artifacts = db.select(ProjectArtifact, **query_params)
+    artifacts_by_job_id = {artifact.design_job_id: artifact for artifact in all_artifacts}
+
     rows = []
     for job in jobs:
         pool = pools_by_job_id.get(job.id)
+        artifact = artifacts_by_job_id.get(job.id)
+        total_compute_hours = artifact.artifact.total_compute_hours if artifact else None
+
         rows.append(
             {
                 ("Pool", "id"): pool.id,
@@ -129,6 +151,7 @@ def get_design_jobs_table(
                 ("Job", "created"): naturaltime(
                     job.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)
                 ),
+                ("Job", "total compute hours"): total_compute_hours,
                 ("Designs", "accepted"): accepted_by_pool.get(pool.id, 0) if pool.processed else None,
                 ("Designs", "total"): total_by_pool.get(pool.id, 0) if pool.processed else None,
             }
@@ -284,11 +307,11 @@ def submit_design_workflow(
         if design_job.job_result is False:
             print(f"Pool with name '{pool_name}' already exists in this round but its job has FAILED")
             if resume_failed:
-                # Resume and update job ID (might be the same or a new one depending on the scheduler)
                 print("Resuming job...")
                 design_job.job_result = None
                 design_job.job_finished_date_utc = None
                 design_job.job_id = scheduler.resume(design_job.job_id)
+                delete_job_artifacts(design_job)
                 db.save(design_job)
             else:
                 raise ValueError(
@@ -393,11 +416,12 @@ def process_results(design_job: DesignJob, callback: Callable = None, wait=True)
     # Job should be successful or failed now, update job status
     update_job_status(design_job)
     if design_job.job_result is False:
-        # Print job log and raise error
         print(scheduler.get_log(design_job.job_id))
         print(scheduler.get_failed_message(design_job.job_id), file=sys.stderr)
         print()
         raise ValueError(f"Job {design_job.job_id} has failed")
+    # Create artifact for successful job
+    artifact = create_job_report_artifact(design_job, scheduler)
     # Process results
     print("Job finished, processing pool results...")
     objects = design_job.workflow.process_results(design_job, callback=callback)
@@ -406,6 +430,8 @@ def process_results(design_job: DesignJob, callback: Callable = None, wait=True)
     pool.processed = True
     flag_modified(design_job, "workflow")
     flag_modified(design_job, "warnings")
+    if artifact:
+        objects.append(artifact)
     # Atomically save all objects
     db.save_all(objects + [pool, design_job])
     return pool

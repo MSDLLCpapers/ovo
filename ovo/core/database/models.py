@@ -938,6 +938,11 @@ class Artifact(ABC):
     artifact_type: str = field(init=False)
 
     @classmethod
+    def from_dict_inner(cls, data: dict) -> dict:
+        """Hook for subclasses to transform data before instantiation. Returns transformed data dict."""
+        return data
+
+    @classmethod
     def from_dict(cls, data: dict) -> "Artifact":
         data_copy = copy(data)
         artifact_type: str = data_copy.pop("artifact_type")
@@ -945,6 +950,7 @@ class Artifact(ABC):
             raise ValueError(f"Artifact type '{artifact_type}' is not registered")
         ArtifactSubclass = ArtifactTypes.get(artifact_type)
         try:
+            data_copy = ArtifactSubclass.from_dict_inner(data_copy)
             return ArtifactSubclass(**data_copy)
         except TypeError as e:
             return UnknownArtifact(
@@ -1001,6 +1007,29 @@ class DistanceMatrixArtifact(Artifact):
 
     def get_storage_paths(self) -> list[str]:
         return [self.file_path] if self.file_path else []
+
+
+@ArtifactTypes.register()
+@dataclass
+class JobReportArtifact(Artifact):
+    """Artifact for job reports"""
+
+    job_author: str  # Author of the job, corresponds to job.author (such that we don't have to load the job)
+    total_compute_hours: float | None  # Total compute time in hours, None if task_table unavailable
+    log_preview: str | None  # Main log preview (last few lines)
+    task_table: pd.DataFrame | None  # Serialized as list of records, None if unavailable
+    report_path: str | None  # Storage path to the full report file
+    timeline_path: str | None  # Storage path to the timeline file
+    workflow_dag_path: str | None  # Storage path to the workflow schema dag file
+
+    @classmethod
+    def from_dict_inner(cls, data: dict) -> dict:
+        if "task_table" in data and data["task_table"] is not None and isinstance(data["task_table"], list):
+            data["task_table"] = pd.DataFrame(data["task_table"])
+        return data
+
+    def get_storage_paths(self) -> list[str]:
+        return [p for p in [self.report_path, self.timeline_path, self.workflow_dag_path] if p is not None]
 
 
 class ProjectArtifact(Base, MetadataMixin):
@@ -1234,4 +1263,5 @@ __all__ = [
     "ArtifactTypes",
     "ProjectArtifact",
     "AttachmentArtifact",
+    "JobReportArtifact",
 ]

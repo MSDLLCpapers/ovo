@@ -389,7 +389,9 @@ def test_residue_counting_descriptor_workflow(project_data):
         assert descriptor_values[0].chains == "A"
 
         # Verify artifact was created
-        artifacts = db.ProjectArtifact.select(descriptor_job_id=descriptor_job.id)
+        artifacts = db.ProjectArtifact.select(
+            descriptor_job_id=descriptor_job.id, artifact_type=ExampleArtifact.artifact_type
+        )
         assert len(artifacts) == 1, f"Expected 1 artifact, found {len(artifacts)}"
         artifact = artifacts[0]
         assert artifact.project_id == project.id
