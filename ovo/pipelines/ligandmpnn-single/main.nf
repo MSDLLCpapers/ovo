@@ -2,7 +2,7 @@ nextflow.enable.dsl = 2
 
 
 process LigandMpnn {
-    def containerName = "ligandmpnn"
+    def containerName = "ligandmpnn-v2"
     conda { params.getSharedEnv("ovo.${containerName}", workflow.profile) }
     container "${ workflow.containerEngine in ['singularity', 'apptainer']
         ? params.ovo_container_dir + '/ovo-' + containerName
@@ -22,18 +22,12 @@ process LigandMpnn {
     """
     set -euxo pipefail
 
-    if [[ ! -d /opt/LigandMPNN ]]; then
-        ligandmpnn=ligandmpnn # assume available on PATH (conda version)
-    else
-        ln -s /opt/LigandMPNN/model_params ./model_params; ligandmpnn='python /opt/LigandMPNN/run.py'
-    fi
-
     if [[ ! -f "${pdb_path}" ]]; then
         echo "PDB file does not exist: ${pdb_path}"
         exit 1
     fi
 
-    \$ligandmpnn \
+    ligandmpnn \
         --out_folder "ligandmpnn" \
         --number_of_batches ${number_of_batches} \
         --pdb_path "${pdb_path}" \

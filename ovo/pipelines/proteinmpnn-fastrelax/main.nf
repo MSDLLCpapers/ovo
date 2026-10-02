@@ -42,7 +42,6 @@ process ProteinMPNN_Fast_Relax {
     python ${moduleDir}/bin/dl_interface_design_extended.py \
         -pdbdir ${pdb_dir} \
         -outpdbdir ${batch_name}/proteinmpnn_fastrelax \
-        -checkpoint_path lib/ProteinMPNN/vanilla_model_weights/v_48_020.pt \
         -relax_cycles ${relax_cycles} \
         -output_intermediates \
         ${run_parameters}

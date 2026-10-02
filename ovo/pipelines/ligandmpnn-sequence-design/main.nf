@@ -2,7 +2,7 @@ nextflow.enable.dsl = 2
 
 
 process LigandMpnn {
-    def containerName = "ligandmpnn"
+    def containerName = "ligandmpnn-v2"
     conda { params.getSharedEnv("ovo.${containerName}", workflow.profile) }
     container "${ workflow.containerEngine in ['singularity', 'apptainer']
         ? params.ovo_container_dir + '/ovo-' + containerName
@@ -23,12 +23,6 @@ process LigandMpnn {
     """
     set -euxo pipefail
 
-    if [[ ! -d /opt/LigandMPNN ]]; then
-        ligandmpnn=ligandmpnn # assume available on PATH (conda version)
-    else
-        ln -s /opt/LigandMPNN/model_params ./model_params; ligandmpnn='python /opt/LigandMPNN/run.py'
-    fi
-
     mkdir ${batch_name}
 
     pdb_json_file="./pdb_ids.json"
@@ -45,8 +39,7 @@ process LigandMpnn {
         --remark_json "\$remark_json_file"
 
     # Number of designs per target (default is 4)
-    \$ligandmpnn \
-        --model_type "ligand_mpnn" \
+    ligandmpnn \
         --pdb_path_multi "\$pdb_json_file" \
         --redesigned_residues_multi "\$redesigned_json_file" \
         --out_folder "${batch_name}/ligandmpnn" \

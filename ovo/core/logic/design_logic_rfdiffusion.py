@@ -14,9 +14,7 @@ from ovo import (
 from ovo.core.database import descriptors_rfdiffusion
 from ovo.core.database.models import Pool, Round, DesignJob, DesignSpec, DescriptorValue, Base
 from ovo.core.database.models_refolding import RefoldingWorkflow
-from ovo.core.database.models_rfdiffusion import (
-    RFdiffusionWorkflow,
-)
+from ovo.core.database.models_rfdiffusion import RFdiffusionWorkflow, MPNN_WEIGHT_CONFIG, ProteinMPNNParams
 from ovo.core.logic.descriptor_logic import save_descriptor_job_for_design_job, read_descriptor_file_values
 from ovo.core.logic.design_logic import set_designs_accepted
 from ovo.core.utils.pdb import get_standardized_remarks_from_pdb_str
@@ -445,19 +443,36 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
         # Use FastRelax
         if not config.props.pyrosetta_license:
             raise ValueError("FastRelax requires a PyRosetta license which is disabled in this instance of OVO.")
+        if workflow.protein_mpnn_params.mpnn_weights_key not in ["protein_mpnn", "soluble_mpnn"]:
+            raise ValueError("FastRelax is only supported for protein_mpnn or soluble_mpnn weights.")
         params["mpnn_fastrelax_cycles"] = workflow.protein_mpnn_params.fastrelax_cycles
         params["mpnn_run_parameters"] = (
             f'-omit_AAs "{workflow.protein_mpnn_params.omit_aa}" '
             + f"-temperature {workflow.protein_mpnn_params.sampling_temp} "
             + (f'-bias_AA "{workflow.protein_mpnn_params.bias_aa}" ' if workflow.protein_mpnn_params.bias_aa else "")
+            + " -checkpoint_path "
+            + (
+                "lib/ProteinMPNN/soluble_model_weights/v_48_020.pt"
+                if workflow.protein_mpnn_params.mpnn_weights_key == "soluble_mpnn"
+                else "lib/ProteinMPNN/vanilla_model_weights/v_48_020.pt"
+            )
             + f" {workflow.protein_mpnn_params.run_parameters}"
         ).strip()
     else:
         # Otherwise use LigandMPNN
+        if workflow.protein_mpnn_params.mpnn_weights_key not in MPNN_WEIGHT_CONFIG:
+            raise ValueError(
+                f"Invalid mpnn_weights_key: {workflow.protein_mpnn_params.mpnn_weights_key}. "
+                f"Valid keys are: {list(MPNN_WEIGHT_CONFIG.keys())}"
+            )
+        mpnn_spec = MPNN_WEIGHT_CONFIG[workflow.protein_mpnn_params.mpnn_weights_key]
         params["mpnn_run_parameters"] = (
+            f"--model_type {mpnn_spec.model_type} "
+            f'--checkpoint_{mpnn_spec.model_type} "model_params/{mpnn_spec.checkpoint_path}" '
             f'--omit_AA "{workflow.protein_mpnn_params.omit_aa}" '
             + f"--temperature {workflow.protein_mpnn_params.sampling_temp} "
             + (f'--bias_AA "{workflow.protein_mpnn_params.bias_aa}" ' if workflow.protein_mpnn_params.bias_aa else "")
+            + f" {workflow.protein_mpnn_params.run_parameters}"
         )
 
     if workflow.rfdiffusion_params.cyclic_offset:

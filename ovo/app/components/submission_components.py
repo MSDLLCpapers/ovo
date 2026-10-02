@@ -12,6 +12,7 @@ from ovo.core.database.models_rfdiffusion import (
     ProteinMPNNParams,
     MODEL_WEIGHTS_SCAFFOLD,
     MODEL_WEIGHTS_BINDER,
+    MPNN_WEIGHT_CONFIG,
 )
 from ovo.app.components.acceptance_thresholds_components import thresholds_input_component
 from ovo.app.components.navigation import open_first_section
@@ -299,10 +300,11 @@ def show_rfdiffusion_binder_seq_design_inputs(workflow: RFdiffusionWorkflow):
         "ligandmpnn": "LigandMPNN (ProteinMPNN weights)",
         "fastrelax": "ProteinMPNN-FastRelax",
     }
+    default_mpnn_weight_method = MPNN_WEIGHT_CONFIG[ProteinMPNNParams.mpnn_weights_key].display_name
     captions = {
-        "ligandmpnn": "Sequence design with ProteinMPNN model through its LigandMPNN re-implementation. "
-        "Designs will not be relaxed as part of sequence design, only repacked with LigandMPNN OpenMM logic. "
-        "Designs that pass refolding criteria will be relaxed during ddG scoring.",
+        "ligandmpnn": "Designs will not be relaxed as part of sequence design, only repacked with LigandMPNN OpenMM logic. "
+        "Designs that pass refolding criteria will be relaxed during ddG scoring. "
+        f"By default, uses '{default_mpnn_weight_method}'. Other model weights can be selected in the advanced settings.",
         "fastrelax": "Cycles of ProteinMPNN design followed by Rosetta FastRelax relaxation "
         "based on Bennet et al. 2023 'Improving de novo protein binder design with deep learning'. "
         "Sequences from all cycles are kept.",
@@ -718,11 +720,30 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
 
         st.markdown("#### Protein MPNN ")
 
+        weight_keys = list(MPNN_WEIGHT_CONFIG.keys())
+        workflow.protein_mpnn_params.mpnn_weights_key = st.selectbox(
+            "MPNN Model weights",
+            options=weight_keys,
+            format_func=lambda key: MPNN_WEIGHT_CONFIG[key].display_name,
+            index=weight_keys.index(workflow.protein_mpnn_params.mpnn_weights_key)
+            if workflow.protein_mpnn_params.mpnn_weights_key in weight_keys
+            else weight_keys.index(ProteinMPNNParams.mpnn_weights_key),
+            key="mpnn_weights",
+            help="Select MPNN model weights. Standard LigandMPNN types or override with PottsMPNN/CyclicMPNN/HyperMPNN weights.",
+        )
+        st.caption(
+            ":material/info: References: [LigandMPNN](https://github.com/dauparas/LigandMPNN/tree/main), [PottsMPNN](https://github.com/KeatingLab/PottsMPNN/tree/main), [CyclicMPNN](https://github.com/ParisaH-Lab/CyclicMPNN/), [HyperMPNN](https://github.com/meilerlab/HyperMPNN/)"
+        )
+        st.caption(
+            ":material/info: Training with backbone noise is used to prevent overfitting to native sequence during training. "
+            "Models trained with more noise are more robust, models trained with less noise are more sensitive to small differences in the backbone structure."
+        )
+
         workflow.protein_mpnn_params.sampling_temp = st.number_input(
             "Sampling temperature protein MPNN",
             format="%g",
-            value=workflow.protein_mpnn_params.sampling_temp
-            or (0.0001 if workflow.is_instance(RFdiffusionBinderDesignWorkflow) else 0.1),
+            value=workflow.protein_mpnn_params.sampling_temp,
+            min_value=0.0,
             key="sampling_temp",
         )
         st.caption(
@@ -746,6 +767,13 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
         )
         st.caption(
             ":material/info: Negative values reduce the probability of sampling given amino acid, positive values increase it, zero is neutral (default)."
+        )
+
+        # Additional commandline options
+        workflow.protein_mpnn_params.run_parameters = st.text_input(
+            "Additional run parameters",
+            value=workflow.protein_mpnn_params.run_parameters,
+            key="mpnn_run_parameters",
         )
 
         st.markdown("#### Refolding tests")
@@ -995,7 +1023,7 @@ def designed_chain_ids_input(design_ids: list[str]) -> list[str]:
 
 
 def scheduler_selectbox(workflows: list[Workflow] | Workflow, filter: Callable | None = None) -> str:
-    if isinstance(workflows, Workflow):
+    if not isinstance(workflows, list):
         workflows = [workflows]
 
     # Filter out schedulers with visible: False in config (fallback to visible: True if not present in config)

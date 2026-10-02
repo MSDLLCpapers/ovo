@@ -42,7 +42,9 @@ def test_rfdiffusion_scaffold_design_workflow_get_params():
         rfdiffusion_run_parameters=" diffuser.T=1  inference.deterministic=True ",
         backbone_generator="rfdiffusion",
         mpnn_num_sequences=1,
-        mpnn_run_parameters='--omit_AA "CX" --temperature 0.01 ',
+        mpnn_run_parameters="--model_type soluble_mpnn "
+        '--checkpoint_soluble_mpnn "model_params/solublempnn_v_48_020.pt" '
+        '--omit_AA "CX" --temperature 0.01  ',
         refolding_tests="esmfold",
         batch_size=50,
         refolding_chains="A",

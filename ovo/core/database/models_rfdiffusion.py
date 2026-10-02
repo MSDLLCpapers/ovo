@@ -63,6 +63,64 @@ MODEL_WEIGHTS_SCAFFOLD = ["Base", "ActiveSite"]
 MODEL_WEIGHTS_BINDER = ["Complex_base", "Complex_beta"]
 
 
+@dataclass(frozen=True)
+class MPNNWeightSpec:
+    """Specification for MPNN model weights.
+
+    Attributes:
+        display_name: Human-readable name shown in UI
+        model_type: LigandMPNN model type (protein_mpnn, ligand_mpnn, soluble_mpnn, etc.)
+        checkpoint_path: Checkpoint file name (e.g. "proteinmpnn_v_48_010.pt"). None means use LigandMPNN default.
+    """
+
+    display_name: str
+    model_type: str
+    checkpoint_path: str | None
+
+
+# MPNN weight configuration: key -> MPNNWeightSpec
+MPNN_WEIGHT_CONFIG: dict[str, MPNNWeightSpec] = {
+    # Built-in LigandMPNN models - SolubleMPNN variants
+    "soluble_mpnn": MPNNWeightSpec("SolubleMPNN: default, 0.2 Å noise", "soluble_mpnn", "solublempnn_v_48_020.pt"),
+    "soluble_mpnn_002": MPNNWeightSpec("SolubleMPNN: 0.02 Å noise", "soluble_mpnn", "solublempnn_v_48_002.pt"),
+    "soluble_mpnn_010": MPNNWeightSpec("SolubleMPNN: 0.1 Å noise", "soluble_mpnn", "solublempnn_v_48_010.pt"),
+    "soluble_mpnn_030": MPNNWeightSpec("SolubleMPNN: 0.3 Å noise", "soluble_mpnn", "solublempnn_v_48_030.pt"),
+    # Built-in LigandMPNN models - ProteinMPNN variants
+    "protein_mpnn": MPNNWeightSpec("ProteinMPNN: default, 0.2 Å noise", "protein_mpnn", "proteinmpnn_v_48_020.pt"),
+    "protein_mpnn_002": MPNNWeightSpec("ProteinMPNN: 0.02 Å noise", "protein_mpnn", "proteinmpnn_v_48_002.pt"),
+    "protein_mpnn_010": MPNNWeightSpec("ProteinMPNN: 0.1 Å noise", "protein_mpnn", "proteinmpnn_v_48_010.pt"),
+    "protein_mpnn_030": MPNNWeightSpec("ProteinMPNN: 0.3 Å noise", "protein_mpnn", "proteinmpnn_v_48_030.pt"),
+    # Built-in LigandMPNN models - LigandMPNN variants
+    "ligand_mpnn": MPNNWeightSpec("LigandMPNN: default, 0.1 Å noise", "ligand_mpnn", "ligandmpnn_v_32_010_25.pt"),
+    "ligand_mpnn_005": MPNNWeightSpec("LigandMPNN: 0.05 Å noise", "ligand_mpnn", "ligandmpnn_v_32_005_25.pt"),
+    "ligand_mpnn_020": MPNNWeightSpec("LigandMPNN: 0.2 Å noise", "ligand_mpnn", "ligandmpnn_v_32_020_25.pt"),
+    "ligand_mpnn_030": MPNNWeightSpec("LigandMPNN: 0.3 Å noise", "ligand_mpnn", "ligandmpnn_v_32_030_25.pt"),
+    # Built-in LigandMPNN models - Membrane MPNN (only 0.2Å available)
+    "per_residue_membrane_mpnn": MPNNWeightSpec(
+        "ProteinMPNN with per-residue membrane label: default, 0.2 Å noise",
+        "per_residue_label_membrane_mpnn",
+        "per_residue_label_membrane_mpnn_v_48_020.pt",
+    ),
+    "global_membrane_mpnn": MPNNWeightSpec(
+        "ProteinMPNN with global membrane label: default, 0.2 Å noise",
+        "global_label_membrane_mpnn",
+        "global_label_membrane_mpnn_v_48_020.pt",
+    ),
+    # Additional models bundled with the LigandMPNN fork
+    "pottsmpnn_20": MPNNWeightSpec("PottsMPNN: 0.2 Å noise, no MSA", "protein_mpnn", "pottsmpnn_20.pt"),
+    "pottsmpnn_30": MPNNWeightSpec("PottsMPNN: default, 0.3 Å noise, no MSA", "protein_mpnn", "pottsmpnn_30.pt"),
+    "sol_pottsmpnn_20": MPNNWeightSpec("Soluble PottsMPNN: 0.2 Å noise, no MSA", "protein_mpnn", "sol_pottsmpnn_20.pt"),
+    "sol_pottsmpnn_30": MPNNWeightSpec(
+        "Soluble PottsMPNN: default, 0.3 Å noise, no MSA", "protein_mpnn", "sol_pottsmpnn_30.pt"
+    ),
+    "cyclicmpnn_48_010": MPNNWeightSpec("CyclicMPNN: 0.1 Å noise", "protein_mpnn", "cyclicmpnn_48_010.pt"),
+    "hypermpnn_002": MPNNWeightSpec("HyperMPNN: 0.02 Å noise", "protein_mpnn", "v48_002_epoch240_hyper.pt"),
+    "hypermpnn_010": MPNNWeightSpec("HyperMPNN: 0.1 Å noise", "protein_mpnn", "v48_010_epoch300_hyper.pt"),
+    "hypermpnn_020": MPNNWeightSpec("HyperMPNN: default, 0.2 Å noise", "protein_mpnn", "v48_020_epoch300_hyper.pt"),
+    "hypermpnn_030": MPNNWeightSpec("HyperMPNN: 0.3 Å noise", "protein_mpnn", "v48_030_epoch300_hyper.pt"),
+}
+
+
 @dataclass
 class RFdiffusionParams(WorkflowParams):
     # path to input pdb in S3 or other storage backend
@@ -289,11 +347,14 @@ class ProteinMPNNParams(WorkflowParams):
     # amino acids to omit, comma-separated
     omit_aa: str = "CX"
     # sampling temperature (0 = greedy, 0.1 = default, higher is more random)
-    sampling_temp: float | None = field(default=None, metadata={"show_to_user": True})
+    sampling_temp: float = field(default=0.1, metadata={"show_to_user": True})
     # amino acid bias, for example F:1.5,K:-1.5 (positive = more likely, zero = neutral default, negative = less likely)
     bias_aa: str = ""
     # additional commandline run parameters
     run_parameters: str = ""
+    # MPNN weights key from MPNN_WEIGHT_CONFIG
+    # Note that only some are supported when fastrelax is enabled
+    mpnn_weights_key: str = "soluble_mpnn"
 
     def validate(self):
         super().validate()
@@ -313,8 +374,9 @@ class ProteinMPNNParams(WorkflowParams):
             if self.run_parameters and self.run_parameters[0] == "-" and self.run_parameters[1] != "-":
                 raise ValueError("Please use arguments for ligandmpnn (double dash)")
             assert self.num_sequences >= 1, "num_sequences must be at least 1"
-        if not self.sampling_temp:
+        if self.sampling_temp is None:
             raise ValueError("Please provide a sampling temperature")
+        assert self.sampling_temp >= 0, "sampling_temp must be non-negative"
         if self.bias_aa:
             assert isinstance(self.bias_aa, str), f"Expected str for bias_aa, got {type(self.bias_aa).__name__}"
             if not all(re.fullmatch("[A-Z]:-?[0-9]+(\\.[0-9]+)?", bias) for bias in self.bias_aa.split(",")):
