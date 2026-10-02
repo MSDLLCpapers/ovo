@@ -394,7 +394,7 @@ MEC_CYSTINES = NumericGlobalDescriptor(
 
 HELIX_SEQ_PERC = NumericGlobalDescriptor(
     name="Helix-forming residues %",
-    description="Percentage of residues which tend to be in Helix (V, I, Y, F, W, L)",
+    description="Percentage of residues which tend to be in Helix (E, M, A, L, K)",
     tool="Sequence composition",
     key="proteinqc|seq_composition|helix_perc",
     comparison="does_not_apply",
@@ -402,7 +402,7 @@ HELIX_SEQ_PERC = NumericGlobalDescriptor(
 
 SHEET_SEQ_PERC = NumericGlobalDescriptor(
     name="Sheet-forming residues %",
-    description="Percentage of residues which tend to be in Sheet (E, M, A, L)",
+    description="Percentage of residues which tend to be in Sheet (V, I, Y, F, W, L, T)",
     tool="Sequence composition",
     key="proteinqc|seq_composition|sheet_perc",
     comparison="does_not_apply",
@@ -410,7 +410,7 @@ SHEET_SEQ_PERC = NumericGlobalDescriptor(
 
 TURN_SEQ_PERC = NumericGlobalDescriptor(
     name="Turn-forming residues %",
-    description="Percentage of residues which tend to be in Turn (N, P, G, S)",
+    description="Percentage of residues which tend to be in Turn (N, P, G, S, D)",
     tool="Sequence composition",
     key="proteinqc|seq_composition|turn_perc",
     comparison="does_not_apply",
