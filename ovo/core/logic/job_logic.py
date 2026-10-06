@@ -67,9 +67,7 @@ def update_job_status(job: JobMixin, save_on_success: bool = False) -> bool | No
 def delete_job_artifacts(job: DesignJob | DescriptorJob):
     """Delete all job report artifacts associated with a job."""
     artifact_filter = {"descriptor_job_id": job.id} if isinstance(job, DescriptorJob) else {"design_job_id": job.id}
-    existing_artifacts = db.select(ProjectArtifact, artifact_type=JobReportArtifact.artifact_type, **artifact_filter)
-    for artifact in existing_artifacts:
-        db.delete(artifact)
+    db.remove(ProjectArtifact, artifact_type=JobReportArtifact.artifact_type, **artifact_filter)
 
 
 def format_job_duration(job: JobMixin):
