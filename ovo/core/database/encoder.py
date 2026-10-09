@@ -14,7 +14,10 @@ class DataclassEncoder(json.JSONEncoder):
         if hasattr(o, "__serialize_field__") and o.__serialize_field__:
             return getattr(o, o.__serialize_field__)
         if isinstance(o, pd.DataFrame):
-            return o.to_dict(orient="records")
+            # Use the pandas JSON writer rather than to_dict to ensure JSON serializability -
+            # records can contain values that json.dumps cannot handle (pd.Timestamp, pd.NaT,
+            # numpy scalars), which fails when saving to the Postgres DB
+            return json.loads(o.to_json(orient="records", date_format="iso"))
         if is_dataclass(o):
             return asdict(o)
         if isinstance(o, enum.Enum):
