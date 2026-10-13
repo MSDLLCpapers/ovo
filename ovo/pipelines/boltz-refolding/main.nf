@@ -93,6 +93,11 @@ process BoltzRefolding {
         ${run_parameters}
 
     """
+
+    stub:
+    """
+    tar -xzf "${moduleDir}/local/mock-output.tar.gz"
+    """
 }
 
 workflow {

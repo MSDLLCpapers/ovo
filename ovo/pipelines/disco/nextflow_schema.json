@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com///nextflow_schema.json",
+  "title": "DISCO scaffold design pipeline parameters",
+  "description": "DISCO de novo scaffold generation with LigandMPNN sequence design and side chain packing",
+  "type": "object",
+  "required": ["input_json"],
+  "properties": {
+    "input_json": {
+      "type": "string",
+      "description": "Path to the DISCO input JSON file describing the design targets (motifs, ligands, sequence lengths)"
+    },
+    "ligand_file": {
+      "type": "string",
+      "description": "Optional ligand structure file, referenced in the input JSON as 'FILE_<basename>'"
+    },
+    "experiment": {
+      "type": "string",
+      "enum": ["designable", "diverse"],
+      "description": "DISCO experiment preset: 'designable' favours designability, 'diverse' favours structural diversity",
+      "default": "designable"
+    },
+    "effort": {
+      "type": "string",
+      "enum": ["max", "fast"],
+      "description": "Compute effort: 'max' (200 diffusion steps) or 'fast' (100 diffusion steps)",
+      "default": "max"
+    },
+    "num_designs": {
+      "type": "integer",
+      "description": "Number of inference seeds to run with DISCO (seeds are 0..N-1), one design per seed"
+    },
+    "ligandmpnn_run_parameters": {
+      "type": "string",
+      "description": "Additional CLI arguments for the LigandMPNN sequence design step"
+    },
+    "cyclic": {
+      "type": "boolean",
+      "description": "Design macrocyclic peptide chain"
+    },
+    "publish_dir": {
+      "type": "string"
+    },
+    "docker_repository": {
+      "type": "string"
+    },
+    "max_memory": {
+      "type": "string"
+    }
+  }
+}

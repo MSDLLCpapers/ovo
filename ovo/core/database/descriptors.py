@@ -11,6 +11,7 @@ for descriptor_path in [
     "ovo.core.database.descriptors_refolding",
     "ovo.core.database.descriptors_rfdiffusion",
     "ovo.core.database.descriptors_bindcraft",
+    "ovo.core.database.descriptors_disco",
     "ovo.core.database.descriptors_proteinqc",
     "ovo.core.database.descriptors_clustering",
     "ovo.core.database.descriptors_ranking",

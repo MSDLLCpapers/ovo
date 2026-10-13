@@ -357,8 +357,10 @@ def calculate_metrics(
         model = structure[0]
 
         metrics = {"id": name, **boltz_metrics}
-        # There are no ligands in a refolding prediction
-        metrics.pop("ligand_iptm", None)
+        # ligand_iptm is only meaningful when the prediction contains a ligand (e.g. DISCO designs).
+        # Boltz reports it as null for protein-only refolding, where it is dropped.
+        if metrics.get("ligand_iptm") is None:
+            metrics.pop("ligand_iptm", None)
 
         if complex_prediction:
             print(f"{name}: chains {[chain.id for chain in model]} predicted, binder chain {binder_chain}")
@@ -366,6 +368,16 @@ def calculate_metrics(
             design = PDB.PDBParser(QUIET=True).get_structure("design", design_path)[0]
             restore_design_target_chains(model, design, binder_chain)
         results.append(metrics)
+
+        # Boltz names ligand residues "LIG{index}", but a PDB residue name is at most 3 characters.
+        # Rename "LIG..." to "LG..." and truncate anything still too long, so writing a scaffold
+        # design that carries a ligand does not corrupt the residue name.
+        for residue in structure.get_residues():
+            resname = residue.resname
+            if len(resname) >= 4:
+                if resname.startswith("LIG"):
+                    resname = "LG" + resname[3:]
+                residue.resname = resname[:3]
 
         io = PDB.PDBIO()
         io.set_structure(structure)

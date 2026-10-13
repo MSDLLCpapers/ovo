@@ -124,6 +124,22 @@ builtin_workflow_pages: list[WorkflowPage] = [
         AlphaFold2 refolding metrics and other descriptors.
         """,
     ),
+    WorkflowPage(
+        module_name="ovo",
+        title="🪩 DISCO design",
+        path="app/pages/disco/disco_design.py",
+        category="DISCO",
+        labels=["DISCO", "Scaffold design", "Sequence-structure co-design"],
+        thumbnail="app/assets/workflows/scaffold_design.png",
+        short_description="""
+        DISCO jointly co-designs a protein sequence and 3D structure around a target ligand (CCD code, SMILES,
+        or uploaded structure file), without requiring a template structure or seed sequence.
+        LigandMPNN then packs the side chains, and the design is validated by Boltz refolding.
+        Users specify a ligand and protein length, choose an experiment preset and compute effort,
+        and receive co-designed sequences and structures along with LigandMPNN confidence
+        and Boltz refolding descriptors.
+        """,
+    ),
 ]
 
 # Get tuple of (WorkflowPage, StreamlitPage) for all workflow pages,

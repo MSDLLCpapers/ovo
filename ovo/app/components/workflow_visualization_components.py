@@ -22,6 +22,7 @@ from ovo.core.database import (
     descriptors_rfdiffusion,
     descriptors_refolding,
     descriptors_proteinqc,
+    descriptors_disco,
 )
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionWorkflow,
@@ -1158,6 +1159,142 @@ def bindcraft_binder_design_visualization(design_id: str):
         ),
         key="bindcraft_1",
     )
+
+
+def disco_design_visualization(design_id: str):
+    design: Design = get_cached_design(design_id)
+    pool = get_cached_pool(design.pool_id)
+    design_job = get_cached_design_job(pool.design_job_id)
+    workflow = design_job.workflow
+
+    show_design_metrics(
+        design_id,
+        descriptor_keys=[
+            descriptors_disco.SEQUENCE_LENGTH.key,
+            descriptors_disco.LIGANDMPNN_OVERALL_CONFIDENCE.key,
+            descriptors_disco.LIGANDMPNN_LIGAND_CONFIDENCE.key,
+        ],
+        thresholds=workflow.acceptance_thresholds,
+    )
+
+    paths: dict = (
+        get_cached_design_descriptors(
+            design_id,
+            [d.key for d in descriptors.STRUCTURE_PATH_DESCRIPTORS],
+        )
+        .dropna()
+        .to_dict()
+    )
+
+    # DISCO packed design (side chains packed by LigandMPNN, includes the ligand)
+    packed_descriptor = descriptors_disco.DISCO_PACKED_STRUCTURE_PATH
+    packed_path = paths.get(packed_descriptor.key) or design.structure_path
+
+    left, right = st.columns(2, gap="medium")
+
+    with left:
+        st.write(f"##### {packed_descriptor.name}")
+        viz.molstar(
+            viz.StructureVisualization(
+                data=storage.read_file_str(packed_path),
+                color="chain-id",
+                representation="cartoon+ball-and-stick",
+            ),
+            key="disco_packed",
+            height=350,
+        )
+        st.write(packed_descriptor.description)
+
+    backbone_descriptor = descriptors_disco.DISCO_BACKBONE_STRUCTURE_PATH
+    backbone_path = paths.get(backbone_descriptor.key)
+    with right:
+        if backbone_path:
+            st.write(f"##### {backbone_descriptor.name}")
+            viz.molstar(
+                viz.StructureVisualization(
+                    data=storage.read_file_str(backbone_path),
+                    color="chain-id",
+                ),
+                key="disco_backbone",
+                height=350,
+            )
+            st.write(backbone_descriptor.description)
+
+    st.write("### Refolding tests")
+
+    prediction_descriptor = select_structure_prediction_descriptor(paths)
+    if not prediction_descriptor:
+        return
+
+    # Only Boltz performs ligand-aware refolding; warn when a ligand-conditioned design was refolded
+    # with a test that ignores the ligand (e.g. AlphaFold2 or ESMFold).
+    is_ligand_aware = prediction_descriptor.key.split("|")[1].startswith("boltz")
+    if workflow.disco_params.ligand and not is_ligand_aware:
+        st.warning(
+            f"{prediction_descriptor.name} does not support ligand-aware refolding — this prediction was "
+            f"performed **without the ligand molecule** (protein only). Use a Boltz refolding test for "
+            f"ligand-aware structure prediction."
+        )
+
+    prediction_storage_path = paths[prediction_descriptor.key]
+    prediction_pdb = storage.read_file_str(prediction_storage_path)
+
+    left, right = st.columns(2, gap="medium")
+
+    with left:
+        st.write(f"##### {prediction_descriptor.name}")
+        description = prediction_descriptor.description
+        if prediction_descriptor.b_factor_value == "plddt":
+            pred_str = pdb_to_mmcif(prediction_pdb, "-", True)
+            description += " (colored by pLDDT confidence)"
+        elif prediction_descriptor.b_factor_value == "fractional_plddt":
+            pred_str = pdb_to_mmcif(prediction_pdb, "-", True, fractional_plddt=True)
+            description += " (colored by pLDDT confidence)"
+        else:
+            pred_str = prediction_pdb
+
+        viz.molstar(
+            viz.StructureVisualization(
+                data=pred_str,
+                representation="cartoon",
+                color="plddt",
+            ),
+            key=f"disco_pred_{prediction_descriptor.key}",
+            height=350,
+        )
+        st.write(description)
+
+    with right:
+        st.write("##### Design aligned to prediction")
+
+        # Align on all chains (the design and its prediction share the same sequence)
+        chain_mapping = [(chain_id, None) for c in design.spec.chains for chain_id in c.chain_ids]
+        aligned_pdb_strs, rmsd = align_multiple_proteins_pdb(
+            pdb_strs=[storage.read_file_str(packed_path), prediction_pdb],
+            chain_residue_mappings=[chain_mapping, chain_mapping],
+            all_atom=False,
+        )
+        aligned_prediction = aligned_pdb_strs[1]
+        if prediction_descriptor.b_factor_value == "plddt":
+            aligned_prediction = pdb_to_mmcif(aligned_prediction, "-", True)
+        elif prediction_descriptor.b_factor_value == "fractional_plddt":
+            aligned_prediction = pdb_to_mmcif(aligned_prediction, "-", True, fractional_plddt=True)
+
+        viz.molstar(
+            viz.StructureVisualization(data=aligned_pdb_strs[0], representation="cartoon+ball-and-stick"),
+            viz.StructureVisualization(data=aligned_prediction, representation="cartoon", color="plddt"),
+            key=f"disco_design_aligned_to_{prediction_descriptor.key}",
+            height=350,
+            html_filename=os.path.basename(prediction_storage_path).replace(".pdb", "_aligned_design"),
+        )
+        st.write(
+            f"""
+            {prediction_descriptor.name} vs design backbone RMSD: **{rmsd:.2f} Å**
+
+            DISCO packed design (ball and stick) aligned to the {prediction_descriptor.name} prediction
+            (cartoon colored by pLDDT confidence).
+            """
+        )
 
 
 def visualize_design_structure(design_id: str, height="500px"):

@@ -638,9 +638,14 @@ if __name__ == "__main__":
         "--native_pdb",
         type=str,
         required=False,
+        default=None,
         help="Path to native PDB structure for computing native motif RMSD (scaffold design only).",
     )
     args = parser.parse_args()
+
+    native_pdb = args.native_pdb
+    if args.native_pdb == "NO_FILE":
+        native_pdb = None
 
     boltz_metrics = read_metrics(args.input_metrics_path)
     if args.design_type == "scaffold":
@@ -650,7 +655,7 @@ if __name__ == "__main__":
             chain=args.chains,
             boltz_metrics=boltz_metrics,
             output_metrics_path=args.output_metrics_path,
-            native_pdb_path=args.native_pdb,
+            native_pdb_path=native_pdb,
         )
     elif args.design_type == "binder" and args.binder_alone:
         compute_rmsd_binder_alone(

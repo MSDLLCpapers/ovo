@@ -983,6 +983,16 @@ BOLTZ_PRIMARY_IPTM_SCORE = NumericGlobalDescriptor(
     max_value=1,
     comparison="higher_is_better",
 )
+BOLTZ_PRIMARY_LIGAND_IPTM_SCORE = NumericGlobalDescriptor(
+    name="Boltz Ligand ipTM score",
+    description="Interface predicted TM score for ligand interactions (0 = worst, 1 = best). Only meaningful for "
+    "predictions that contain a ligand, such as DISCO designs.",
+    tool="Boltz",
+    key="refolding|boltz_primary|ligand_iptm",
+    min_value=0,
+    max_value=1,
+    comparison="higher_is_better",
+)
 BOLTZ_PRIMARY_PROTEIN_IPTM_SCORE = NumericGlobalDescriptor(
     name="Boltz Protein ipTM score",
     description="Interface predicted TM score for protein-protein interactions, which is the ipTM score itself "

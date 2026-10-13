@@ -1,6 +1,7 @@
 import os
 import warnings
 import glob
+import string
 import yaml
 import argparse
 from dataclasses import dataclass
@@ -60,6 +61,69 @@ def convert_to_boltz_cif(input_path: str, output_path: str | None = None, chains
         output_path = os.path.join(TEMPLATES_DIR, f"{stem}.cif")
 
     return _write_boltz_cif(st, output_path)
+
+
+LIGAND_REMARK_PREFIXES = {'REMARK   1 Ligand SMILES: "': "smiles", 'REMARK   1 Ligand CCD: "': "ccd"}
+
+
+def read_ligand_entities(pdb_path: str) -> list[dict[str, str]]:
+    """Read the Boltz ligand entities from the PDB REMARK header, in the order they appear.
+
+    The ligands a design was built around are declared in the header, one remark per entity::
+
+        REMARK   1 Ligand SMILES: "CC(=O)Oc1ccccc1C(=O)O"
+        REMARK   1 Ligand CCD: "ATP"
+
+    Ligands are taken from the header only, never perceived from the coordinates: a packed PDB
+    carries no bond orders, so coordinate-derived SMILES silently corrupt the ligand (benzene
+    becomes cyclohexane). A design whose PDB declares no ligand is refolded as protein only.
+    DISCO writes these remarks in ``disco/bin/add_ligand_remarks.py``.
+
+    A SMILES ligand Boltz cannot name (see :func:`can_boltz_name_atoms`) is dropped with a
+    warning, so one unsupported ligand does not take the whole refolding job down with it.
+
+    :return: ``[{"smiles": <SMILES>}, {"ccd": <CODE>}, ...]``, empty when the header declares none
+    """
+    ligand_entities = []
+    with open(pdb_path) as f:
+        for line in f:
+            for prefix, key in LIGAND_REMARK_PREFIXES.items():
+                if line.startswith(prefix):
+                    ligand = line.strip().removeprefix(prefix).removesuffix('"')
+                    if key == "smiles" and not can_boltz_name_atoms(ligand):
+                        # "[Warning]" is the prefix OVO collects into job.warnings to show in the app
+                        print(
+                            f"[Warning] Boltz cannot name the atoms of the ligand {ligand}, so it is left "
+                            f"out and the designs declaring it are refolded on their own. Declare such a "
+                            f"ligand by its CCD code to refold the complex."
+                        )
+                        continue
+                    ligand_entities.append({key: ligand})
+    return ligand_entities
+
+
+# Longest ligand atom name Boltz accepts, from the ValueError in its parse_boltz_schema
+MAX_ATOM_NAME_LENGTH = 4
+
+
+def can_boltz_name_atoms(smiles: str) -> bool:
+    """Whether Boltz can name every atom of a SMILES ligand within its atom name length limit.
+
+    Boltz names ligand atoms ``<ELEMENT><canonical rank>``, counting hydrogens, and raises on any
+    name longer than 4 characters. A two-letter element ranked 100th or later therefore kills the
+    whole refolding job - the cobalt of a ~200 atom cobalamin becomes "CO212". Ligands declared by
+    CCD code are unaffected, as their atom names come from the CCD component.
+    """
+    from rdkit.Chem import AllChem
+
+    mol = AllChem.MolFromSmiles(smiles)
+    if mol is None:
+        return False
+    mol = AllChem.AddHs(mol)
+    return all(
+        len(atom.GetSymbol()) + len(str(rank + 1)) <= MAX_ATOM_NAME_LENGTH
+        for atom, rank in zip(mol.GetAtoms(), AllChem.CanonicalRankAtoms(mol))
+    )
 
 
 # Maximum length of the peptide bond between two consecutive residues, anything longer is a chain
@@ -266,24 +330,36 @@ def prepare_inputs_scaffold(
             if chain.annotations["chain"] in chains:
                 parsed_chains.append((chain.annotations["chain"], str(chain.seq)))
         print(f"{parsed_chains=}")
-        structures[name] = parsed_chains
+        ligand_entities = read_ligand_entities(path)
+        print(f"{ligand_entities=}")
+        structures[name] = (parsed_chains, ligand_entities)
 
     if template is not None:
         template = convert_to_boltz_cif(template)
 
     os.makedirs(output_dir, exist_ok=True)
-    for name, parsed_chains in structures.items():
+    for name, (parsed_chains, ligand_entities) in structures.items():
+        sequences = [
+            {
+                "protein": {
+                    "id": chain_id,
+                    "sequence": seq,
+                    "msa": "empty",
+                },
+            }
+            for chain_id, seq in parsed_chains
+        ]
+
+        # Append any ligands, assigning chain IDs that do not collide with the
+        # protein chains. Each entity is either {"ccd": <code>} or {"smiles": <smiles>}
+        used = {chain_id for chain_id, _ in parsed_chains}
+        single_letters = [c for c in string.ascii_uppercase if c not in used]
+        for index, entity in enumerate(ligand_entities):
+            ligand_id = single_letters[index] if index < len(single_letters) else f"L{index}"
+            sequences.append({"ligand": {"id": ligand_id, **entity}})
+
         input_dict = {
-            "sequences": [
-                {
-                    "protein": {
-                        "id": chain_id,
-                        "sequence": seq,
-                        "msa": "empty",
-                    },
-                }
-                for chain_id, seq in parsed_chains
-            ],
+            "sequences": sequences,
             "version": 1,
         }
 
@@ -521,8 +597,8 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="""
-            Comma-separated list of chain IDs for the target template, e.g. 'B' or 'B,C,D'. 
-            In case of cif assembly, symmetric chains are often provided in this format: B,B-2,B-3. 
+            Comma-separated list of chain IDs for the target template, e.g. 'B' or 'B,C,D'.
+            In case of cif assembly, symmetric chains are often provided in this format: B,B-2,B-3.
             Default: 'B'.""",
     )
     args = parser.parse_args()
