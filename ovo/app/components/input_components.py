@@ -98,6 +98,8 @@ def sequence_selection_fragment(
     fixed_segments: list[ContigSegment] | None = None,
     selection_help: str = None,
     selection_label: str = None,
+    input_key: str = "selection",
+    history: bool = True,
     **selection_kwargs,
 ):
     """Fragment to display input structure and allow residue selection via molstar component.
@@ -110,20 +112,32 @@ def sequence_selection_fragment(
     :param fixed_segments: If provided, only these segments will be shown in the structure (others hidden)
     :param selection_help: Optional help text to display above the structure for selection instructions
     :param selection_label: Custom label to use for selection display, default is "Selected segments" or "Selected residues" depending on write_segments
+    :param input_key: Key for the molstar component, used to force re-rendering and discarding current selection
+    :param history: Whether to keep a selection history and offer to undo the last selection. The
+        history only covers this one input, so pass False on a page that selects in several inputs,
+        where an Undo button would look like it undoes the last selection of any of them.
     :param selection_kwargs: Additional kwargs passed to workflow.get/set_selected_segments methods
     """
 
     workflow = st.session_state.workflows[page_key]
 
-    if page_key not in st.session_state.selection_history:
-        st.session_state.selection_history[page_key] = {}
+    selection_history = None
+    if history:
+        history_key = f"{page_key}_{input_key}"
 
-    if input_name not in st.session_state.selection_history[page_key]:
-        st.session_state.selection_history[page_key][input_name] = [[]]
+        if history_key not in st.session_state.selection_history:
+            st.session_state.selection_history[history_key] = {}
 
-    selection_history = st.session_state.selection_history[page_key][input_name]
+        if input_name not in st.session_state.selection_history[history_key]:
+            st.session_state.selection_history[history_key][input_name] = [[]]
 
-    pdb_input_string = storage.read_file_str(workflow.get_input_pdb_path())
+        selection_history = st.session_state.selection_history[history_key][input_name]
+
+    if "contig_index" in selection_kwargs:
+        pdb_input_path = workflow.get_input_pdb_path(contig_index=selection_kwargs["contig_index"])
+    else:
+        pdb_input_path = workflow.get_input_pdb_path()
+    pdb_input_string = storage.read_file_str(pdb_input_path)
 
     if fixed_segments and not st.toggle(
         "Show full input structure", help="By default, only the fixed input segments are shown."
@@ -160,15 +174,16 @@ def sequence_selection_fragment(
 
     with st.container(horizontal=True, vertical_alignment="center"):
         force_reload = False
-        if (
-            st.button(":material/undo: Undo selection", disabled=len(selection_history) <= 1)
-            and len(selection_history) >= 2
-        ):
-            # Go one selection backwards
-            selection_history.pop(-1)
-            previous_value = selection_history.pop(-1)
-            workflow.set_selected_segments(previous_value, **selection_kwargs)
-            force_reload = True
+        if selection_history is not None:
+            if (
+                st.button(":material/undo: Undo selection", disabled=len(selection_history) <= 1)
+                and len(selection_history) >= 2
+            ):
+                # Go one selection backwards
+                selection_history.pop(-1)
+                previous_value = selection_history.pop(-1)
+                workflow.set_selected_segments(previous_value, **selection_kwargs)
+                force_reload = True
 
         selection_container = st.empty()
         if not workflow.get_selected_segments(**selection_kwargs):
@@ -188,7 +203,7 @@ def sequence_selection_fragment(
         show_controls=True,
         height=700,
         download_filename=input_name,
-        key="input",
+        key="input_" + input_key,
         force_reload=force_reload,
     )
 
@@ -204,7 +219,12 @@ def sequence_selection_fragment(
     # - is not empty ([], it's output every other re-rendering)
     # - is not the current selection already (to avoid duplicates due to multiple re-rendering)
     # FIXME: Only case not handled is when, at start, one single residue only is selected and try to undo the selection
-    if not force_reload and selection and (not selection_history or selection != selection_history[-1]):
+    if (
+        selection_history is not None
+        and not force_reload
+        and selection
+        and (not selection_history or selection != selection_history[-1])
+    ):
         selection_history.append(selection)
 
     if selection:

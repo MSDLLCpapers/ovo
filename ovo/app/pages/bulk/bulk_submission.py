@@ -147,6 +147,8 @@ Upload files needed for your bulk submission (if any), such as:
         for f in (uploaded_single or []) + (uploaded_dir or []):
             file_bytes = f.getvalue()
             if os.path.splitext(f.name)[1].lower() == ".zip":
+                # include zip file itself
+                state.uploaded_files[f.name] = file_bytes
                 try:
                     with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
                         for member in zf.infolist():
@@ -156,8 +158,8 @@ Upload files needed for your bulk submission (if any), such as:
                             if os.path.basename(member.filename).startswith("."):
                                 continue
                             state.uploaded_files[member.filename] = zf.read(member)
-                except zipfile.BadZipFile:
-                    state.uploaded_files[f.name] = file_bytes
+                except zipfile.BadZipFile as e:
+                    st.warning("Uploaded ZIP file could not be read: " + str(e))
             else:
                 state.uploaded_files[f.name] = file_bytes
 

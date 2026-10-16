@@ -210,8 +210,7 @@ def parse_partial_diffusion_binder_contig(binder_contig: str) -> tuple[int, list
 def create_partial_diffusion_binder_contig(redesigned_segments: list[str], binder_length: int) -> str:
     """Create a new binder contig for partial diffusion from the designed segments and old binder contig
 
-    default case for a peptide of 12 residues:
-    redesigned_segments=[] -> binder_contig="12-12"
+    an empty selection keeps the whole binder fixed, redesigned_segments=[] -> binder_contig="A1-12"
     or when redesigning only A1 and A3-7 in a peptide of 12 residues,
     redesigned_segments=["A1-1", "A3-7"] -> binder_contig="1-1/A2-2/5-5/A8-12"
 

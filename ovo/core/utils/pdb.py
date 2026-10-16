@@ -1,6 +1,7 @@
 from collections import defaultdict
 import dataclasses
 import gzip
+import itertools
 import json
 import string
 
@@ -17,6 +18,7 @@ from Bio.PDB import PDBParser
 from Bio.SeqUtils import seq1
 
 from io import StringIO
+from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation as R
 
 
@@ -873,17 +875,21 @@ def get_sequences_from_pdb_str(
 
 
 def filter_and_relabel_chains_pdb_str(pdb_str: str, chains: list[str], new_chain_ids: list[str] = None) -> str:
-    """Keep only the given chains of the first model and relabel them to new chain IDs.
+    """Keep only the given chains of the first model, relabel them and order them as given.
 
     This enables analyzing designs with differently labelled chains in a single job -
     for example the designed chain is labelled "A" in RFdiffusion designs but "B" in BindCraft designs,
     so both can be relabelled to "A" and passed to a pipeline that expects a single chain ID.
 
+    The chains are written in the order of the ``chains`` argument rather than in the order of the
+    input, so that a pipeline reading them positionally also sees the relabelled order. Their atom
+    serial numbers are renumbered from 1 accordingly, as they would be out of order otherwise.
+
     Note that all non-ATOM/HETATM/TER records (including CONECT and header records like REMARK) are dropped, since their
     atom serial numbers and chain IDs would no longer match the filtered and relabelled chains.
 
     :param pdb_str: PDB file contents as string
-    :param chains: chain IDs to keep, in the order they should be relabelled
+    :param chains: chain IDs to keep, in the order they should be relabelled and written
     :param new_chain_ids: new chain IDs, defaults to A, B, ... (in the order of the chains argument)
     :return: filtered PDB string
     """
@@ -893,8 +899,9 @@ def filter_and_relabel_chains_pdb_str(pdb_str: str, chains: list[str], new_chain
         raise ValueError(f"Expected {len(chains)} new chain IDs for chains {chains}, got: {new_chain_ids}")
 
     new_chain_id_by_chain_id = dict(zip(chains, new_chain_ids))
+    # Collected per chain, so that the chains can be written in the requested order
+    lines_by_chain_id = {chain_id: [] for chain_id in chains}
     found_chains = set()
-    lines = []
 
     for line in pdb_str.splitlines():
         record = line[:6].strip()
@@ -917,12 +924,20 @@ def filter_and_relabel_chains_pdb_str(pdb_str: str, chains: list[str], new_chain
 
         if record != "TER":
             found_chains.add(chain_id)
-        lines.append(line[:21] + new_chain_id_by_chain_id[chain_id] + line[22:])
+        # The TER of a chain is collected with it, so that it stays at the end of that chain
+        lines_by_chain_id[chain_id].append(line[:21] + new_chain_id_by_chain_id[chain_id] + line[22:])
 
     missing_chains = [chain_id for chain_id in chains if chain_id not in found_chains]
     if missing_chains:
         raise ChainNotFoundError(f"Chains {missing_chains} not found in structure, found: {sorted(found_chains)}")
 
+    # Columns 7-11 hold the atom serial number, which has to follow the order the lines are written in
+    serial_numbers = itertools.count(1)
+    lines = [
+        line[:6] + f"{next(serial_numbers):>5}" + line[11:]
+        for chain_id in chains
+        for line in lines_by_chain_id[chain_id]
+    ]
     return "\n".join(lines + ["END", ""])
 
 
@@ -988,6 +1003,33 @@ def get_standardized_remarks_from_pdb_str(pdb_str: str) -> dict[str, str]:
     return parsed_remarks
 
 
+def replace_standardized_remarks_in_pdb_str(pdb_str: str, contig: str, fixed_residues: list[int] = None) -> str:
+    """Replace the REMARK header of a PDB with the "standardized" remarks of the given contig.
+
+    All REMARK lines of the input are dropped, so that a structure taken from a previous design does
+    not carry over the remarks of that design. The chain of each contig chunk is named in input
+    order, the same way the backbone design pipelines name them (see ``standardize_pdb.py``).
+
+    :param pdb_str: PDB file contents as string
+    :param contig: standardized contig, one chunk per chain, e.g. "5-5/A6-12/0 B20-130"
+    :param fixed_residues: residues of the first chain that keep their sequence, in its own numbering
+        (starting at one), written as the labels read by the ProteinMPNN-FastRelax protocol
+    :return: PDB file contents with the new REMARK header, see
+        :func:`get_standardized_remarks_from_pdb_str` for the format
+    """
+    chains = " ".join(string.ascii_uppercase[index] for index in range(len(contig.split())))
+    # The parser joins the chunks of a key back together, so they are split at a fixed width
+    remark_lines = [
+        f"REMARK   1 {key}: {json.dumps(value[position : position + 40])}"
+        for key, value in [("Standardized contig", contig), ("Chains", chains)]
+        for position in range(0, len(value), 40)
+    ]
+    # Written after the atoms, the way Rosetta writes and standardize_pdb.py appends them
+    fixed_label_lines = [f"REMARK PDBinfo-LABEL:{residue: >5} FIXED" for residue in fixed_residues or []]
+    kept_lines = [line for line in pdb_str.splitlines() if not line.startswith("REMARK")]
+    return "\n".join(remark_lines + kept_lines + fixed_label_lines) + "\n"
+
+
 def trim_pdb_str(pdb_input_string: str, target_chain: str, start_res: int, end_res: int) -> str:
     return filter_pdb_str(pdb_input_string, [f"{target_chain}{start_res}-{end_res}"])
 
@@ -1035,6 +1077,73 @@ def _format_pdb_atom_name(atom_name: str, element: str) -> str:
     if len(element) == 1 and len(atom_name) < 4:
         return f" {atom_name:<3}"
     return f"{atom_name:<4}"
+
+
+def pdb_chain_looks_cyclic(pdb_data: str, chain_id: str, distance_cutoff: float = 4.0) -> bool:
+    """Check if a chain in a PDB structure is looks cyclic
+    (i.e. backbone termini are within a distance cutoff between the first and last residues).
+    """
+    parser = PDB.PDBParser(QUIET=True)
+    structure = parser.get_structure("structure", StringIO(pdb_data))
+    model = structure[0]
+
+    if chain_id not in model:
+        raise ChainNotFoundError(f"Chain {chain_id} not found in structure.")
+
+    chain = model[chain_id]
+    residues = list(chain.get_residues())
+    if len(residues) < 2:
+        return False
+
+    first_residue = residues[0]
+    last_residue = residues[-1]
+
+    # Get the CA atoms of the first and last residues
+    first_ca = first_residue["CA"] if "CA" in first_residue else None
+    last_ca = last_residue["CA"] if "CA" in last_residue else None
+
+    if first_ca is None or last_ca is None:
+        return False
+
+    distance = np.linalg.norm(first_ca.coord - last_ca.coord)
+    return distance <= distance_cutoff
+
+
+def get_contact_residues(pdb_str: str, chain_id: str, distance_cutoff: float = 10.0, only_ca: bool = True) -> list[int]:
+    """Get the residue numbers of a chain that are in contact with any of the other chains.
+
+    A residue is in contact when its Cα is within the cutoff of a Cα of another chain - the
+    definition the backbone contact descriptors use (see the backbone-metrics pipeline, which uses
+    10 Å), so it also works for a structure without side chains.
+
+    :param only_ca: Set to False to measure between all heavy atoms instead, as the interface metrics
+        do (with a 3 Å cutoff) - that needs a structure with side chains
+    """
+    atoms = PandasPdb().read_pdb_from_list(pdb_str.splitlines(True)).df["ATOM"]
+    atoms = atoms[atoms["atom_name"] == "CA"] if only_ca else atoms[atoms["element_symbol"] != "H"]
+    chain_atoms = atoms[atoms["chain_id"] == chain_id]
+    other_atoms = atoms[atoms["chain_id"] != chain_id]
+    if chain_atoms.empty or other_atoms.empty:
+        return []
+
+    coordinates = ["x_coord", "y_coord", "z_coord"]
+    contacts_by_atom = cKDTree(chain_atoms[coordinates].values).query_ball_tree(
+        cKDTree(other_atoms[coordinates].values), distance_cutoff
+    )
+    residue_numbers = chain_atoms["residue_number"].values
+    return sorted({int(residue_numbers[i]) for i, contacts in enumerate(contacts_by_atom) if contacts})
+
+
+def get_residue_b_factors(pdb_str: str, chain_id: str) -> dict[int, float]:
+    """Get the mean B-factor of each residue of a chain, which is the pLDDT of a predicted structure.
+
+    Returns the values as they are in the file - a predicted structure stores pLDDT either as a
+    percentage or as a fraction, so check the range before comparing it to a threshold.
+    """
+    atoms = PandasPdb().read_pdb_from_list(pdb_str.splitlines(True)).df["ATOM"]
+    chain_atoms = atoms[atoms["chain_id"] == chain_id]
+    mean_b_factors = chain_atoms.groupby("residue_number")["b_factor"].mean()
+    return {int(residue_number): float(value) for residue_number, value in mean_b_factors.items()}
 
 
 _ALLOWED_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

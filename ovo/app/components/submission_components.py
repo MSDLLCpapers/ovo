@@ -167,9 +167,15 @@ def format_param_table(
     )
 
 
-def review_workflow_submission(page_key: str):
-    """Show a summary of the workflow settings and submission modal button."""
-    workflow = st.session_state.workflows[page_key]
+def review_workflow_submission(page_key: str, workflow: Workflow = None):
+    """Show a summary of the workflow settings and submission modal button.
+
+    :param workflow: Workflow to review and submit, defaults to the one of the page. Pass a modified
+        copy to submit something other than what the page keeps in its session state - the Binder
+        diversification page leaves out the inputs that have nothing to redesign, see
+        :meth:`~ovo.core.database.models_rfdiffusion.RFdiffusionBinderDesignWorkflow.drop_skipped_inputs`
+    """
+    workflow = workflow if workflow is not None else st.session_state.workflows[page_key]
 
     round_id, pool_name, pool_description = get_pool_inputs(page_key)
 
@@ -504,7 +510,181 @@ def show_rfdiffusion3_params(workflow: RFdiffusionWorkflow):
     workflow.rfdiffusion_params.rfd3_is_non_loopy = {"Auto": None, "True": True, "False": False}[is_non_loopy_selected]
 
 
-def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
+# The 20 standard amino acids, offered as the options of the MPNN bias and omission inputs
+AMINO_ACIDS = list("ACDEFGHIKLMNPQRSTVWY")
+
+# Amino acid bias levels offered by show_mpnn_sequence_design_inputs, and what they were measured to
+# do to how often the amino acid ends up in the designed sequences, compared to not biasing it.
+#
+# MPNN samples from softmax((logits + bias) / temperature), so a bias changes the odds of an amino
+# acid by exp(bias / temperature) - a huge number at the default temperature of 0.1, which is why the
+# biases in the LigandMPNN examples look extreme. The per-position distribution is sharply peaked
+# though (at temperature 0.1 the most likely amino acid has a median probability of 0.99 or more),
+# so the realized effect is far smaller. Measured on the designed positions of 5 BindCraft binders,
+# of an independent RFdiffusion binder, and on the ProteinMPNN probabilities of 20 SKEMPI complex
+# chains - within the same range on all three, and within 15% of the same at temperatures 0.1 to 0.5:
+#
+#     bias                        -2        -1        +1        +2        +3
+#     rare amino acid (1-4%)      0-0.3x    0.1-0.8x  1.8-3.4x  4.3-6.7x  11-20x
+#     most frequent one (10-24%)  0-0.3x    0.2-0.6x  1.8-2.3x  2.2-3.6x  2.7-5.4x
+#
+# An amino acid that the model rules out altogether stays absent either way: tryptophan is sampled
+# 0% of the time in the RFdiffusion binder, and a bias of +2 only brings it up to 0.7%.
+#
+# All of this is with the default soluble_mpnn weights - the numbers are kept here rather than shown
+# to the user until they are confirmed with the other weights of MPNN_WEIGHT_CONFIG as well.
+SIMPLIFIED_AMINO_ACIDS = "Simplified"
+CUSTOM_AMINO_ACIDS = "Custom"
+
+MPNN_BIAS_LEVELS = {
+    "Discouraged amino acids (bias -1)": -1.0,
+    "Encouraged amino acids (bias +1)": 1.0,
+    "Highly encouraged amino acids (bias +2)": 2.0,
+}
+
+
+def parse_mpnn_bias(bias_aa: str) -> dict[str, float]:
+    """Parse the bias_aa parameter, for example "F:1.5,K:-1.2", into {amino acid: bias}."""
+    biases = [bias.split(":") for bias in bias_aa.split(",") if bias.strip()]
+    return {amino_acid.strip(): float(bias) for amino_acid, bias in biases}
+
+
+def format_mpnn_bias(bias_by_amino_acid: dict[str, float]) -> str:
+    """Format {amino acid: bias} as the bias_aa parameter, for example "F:1.5,K:-1.2"."""
+    return ",".join(f"{amino_acid}:{bias:g}" for amino_acid, bias in sorted(bias_by_amino_acid.items()))
+
+
+def show_mpnn_sequence_design_inputs(workflow: RFdiffusionWorkflow):
+    """Show the MPNN model weights, the sampling temperature and the amino acids to avoid or favor.
+
+    The amino acid bias is a single ``bias_aa`` parameter of the workflow, for example "F:1.5,K:-1.2",
+    offered here as one list of amino acids per bias level, which is how it is used in practice. A
+    bias set to any other value - by a bulk submission config, say - is kept as it is.
+    """
+    weight_keys = list(MPNN_WEIGHT_CONFIG.keys())
+    workflow.protein_mpnn_params.mpnn_weights_key = st.selectbox(
+        "MPNN Model weights",
+        options=weight_keys,
+        format_func=lambda key: MPNN_WEIGHT_CONFIG[key].display_name,
+        index=weight_keys.index(workflow.protein_mpnn_params.mpnn_weights_key)
+        if workflow.protein_mpnn_params.mpnn_weights_key in weight_keys
+        else weight_keys.index(ProteinMPNNParams.mpnn_weights_key),
+        key="mpnn_weights",
+        help="Select MPNN model weights. Standard LigandMPNN types or override with PottsMPNN/CyclicMPNN/HyperMPNN weights.",
+    )
+    st.caption(
+        ":material/info: References: [LigandMPNN](https://github.com/dauparas/LigandMPNN/tree/main), [PottsMPNN](https://github.com/KeatingLab/PottsMPNN/tree/main), [CyclicMPNN](https://github.com/ParisaH-Lab/CyclicMPNN/), [HyperMPNN](https://github.com/meilerlab/HyperMPNN/)"
+    )
+    st.caption(
+        ":material/info: Training with backbone noise is used to prevent overfitting to native sequence during training. "
+        "Models trained with more noise are more robust, models trained with less noise are more sensitive to small differences in the backbone structure."
+    )
+
+    workflow.protein_mpnn_params.sampling_temp = st.number_input(
+        "Sampling temperature protein MPNN",
+        format="%g",
+        value=workflow.protein_mpnn_params.sampling_temp,
+        min_value=0.0,
+        key="sampling_temp",
+    )
+    st.caption(
+        ":material/info: ProteinMPNN is a deterministic neural network, outputting residue probabilities. "
+        "The temperature parameter is used to select less probable residues during sequence sampling. "
+        "Higher temperature leads to higher diversity, temperature closer to 0 leads to less diversity and higher ProteinMPNN score. "
+        "Suggested values 0.01, 0.1, 0.15, 0.2, 0.25, 0.3. "
+    )
+
+    try:
+        bias_by_amino_acid = parse_mpnn_bias(workflow.protein_mpnn_params.bias_aa)
+        bias_is_valid = True
+    except ValueError:
+        # A value that cannot be parsed can only be corrected in the custom input below, which the
+        # mode is held at - the lists cannot show such a value and would silently drop it
+        bias_by_amino_acid = {}
+        bias_is_valid = False
+        st.session_state["mpnn_amino_acid_mode"] = CUSTOM_AMINO_ACIDS
+
+    level_biases = set(MPNN_BIAS_LEVELS.values())
+    # A value that the lists cannot express has to be edited as the parameter it is
+    fits_simplified = (
+        bias_is_valid
+        and set(workflow.protein_mpnn_params.omit_aa) <= set(AMINO_ACIDS) | {"X"}
+        and all(bias in level_biases for bias in bias_by_amino_acid.values())
+    )
+    amino_acid_mode = st.segmented_control(
+        "Amino Acid Bias",
+        options=[SIMPLIFIED_AMINO_ACIDS, CUSTOM_AMINO_ACIDS],
+        default=SIMPLIFIED_AMINO_ACIDS if fits_simplified else CUSTOM_AMINO_ACIDS,
+        key="mpnn_amino_acid_mode",
+        required=True,
+    )
+
+    if amino_acid_mode == CUSTOM_AMINO_ACIDS:
+        workflow.protein_mpnn_params.omit_aa = st.text_input(
+            "Omitted amino acids",
+            placeholder="For example CX",
+            value=workflow.protein_mpnn_params.omit_aa,
+            key="omit_aa_custom",
+        )
+        workflow.protein_mpnn_params.bias_aa = st.text_input(
+            "Amino acid bias",
+            placeholder="For example F:1,K:-1",
+            value=workflow.protein_mpnn_params.bias_aa,
+            key="mpnn_bias_custom",
+        )
+        try:
+            parse_mpnn_bias(workflow.protein_mpnn_params.bias_aa)
+        except ValueError:
+            st.error("Invalid bias, expected amino acids and their bias as for example F:1,K:-1")
+    else:
+        omitted_amino_acids = st.multiselect(
+            "Omitted amino acids",
+            options=AMINO_ACIDS,
+            default=[amino_acid for amino_acid in workflow.protein_mpnn_params.omit_aa if amino_acid in AMINO_ACIDS],
+            key="omit_aa",
+            help="These amino acids are never sampled. X is omitted as well, it is not a residue type.",
+        )
+        # X is not one of the options, it is omitted to keep MPNN from sampling an unknown residue
+        workflow.protein_mpnn_params.omit_aa = "".join(omitted_amino_acids) + "X"
+
+        other_bias_by_amino_acid = {
+            amino_acid: bias for amino_acid, bias in bias_by_amino_acid.items() if bias not in level_biases
+        }
+
+        biased_amino_acids = {}
+        duplicate_amino_acids = set()
+        for label, bias in MPNN_BIAS_LEVELS.items():
+            for amino_acid in st.multiselect(
+                label,
+                options=AMINO_ACIDS,
+                default=[
+                    amino_acid
+                    for amino_acid, amino_acid_bias in bias_by_amino_acid.items()
+                    if amino_acid_bias == bias and amino_acid in AMINO_ACIDS
+                ],
+                key=f"mpnn_bias_{bias:g}",
+            ):
+                if amino_acid in biased_amino_acids:
+                    duplicate_amino_acids.add(amino_acid)
+                biased_amino_acids[amino_acid] = bias
+
+        if duplicate_amino_acids:
+            st.error(f"Please pick a single bias for: {', '.join(sorted(duplicate_amino_acids))}")
+
+        workflow.protein_mpnn_params.bias_aa = format_mpnn_bias({**other_bias_by_amino_acid, **biased_amino_acids})
+        if other_bias_by_amino_acid:
+            st.caption(
+                f":material/info: Keeping the bias of {format_mpnn_bias(other_bias_by_amino_acid)}, "
+                f"which is not one of the levels above."
+            )
+
+    st.caption(
+        ":material/info: A negative bias reduces the probability of sampling the amino acid, "
+        "a positive one increases it."
+    )
+
+
+def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow, backbone_design: bool = True):
     st.markdown("Advanced settings")
 
     with st.expander(label="Show advanced settings"):
@@ -519,255 +699,187 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
                 key="batch_size",
             )
 
-        is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
+        if backbone_design:
+            is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
 
-        st.markdown("#### RFdiffusion3" if is_rfd3 else "#### RFdiffusion")
+            st.markdown("#### RFdiffusion3" if is_rfd3 else "#### RFdiffusion")
 
-        if is_rfd3:
-            timestep_label = "Number of timesteps (inference_sampler.num_timesteps)"
-            timestep_help = "Number of diffusion steps. Default is 200; use 10–50 for fast testing."
-        else:
-            timestep_label = "Num RFdiffusion timesteps (T)"
-            timestep_help = "Number of diffusion steps. Default is 50; use 10–20 for fast testing."
+            show_rfdiffusion_timesteps_input(workflow)
 
-        if TIMESTEPS_INPUT_KEY not in st.session_state:
-            # RFdiffusionParams default is RFD1's; RFD3 wants more steps
-            st.session_state[TIMESTEPS_INPUT_KEY] = (
-                RFD3_DEFAULT_TIMESTEPS if is_rfd3 else workflow.rfdiffusion_params.timesteps
-            )
-
-        workflow.rfdiffusion_params.timesteps = st.number_input(
-            timestep_label,
-            min_value=1,
-            key=TIMESTEPS_INPUT_KEY,
-            help=timestep_help,
-        )
-        st.caption(
-            ":material/info: Number of denoising diffusion steps determines the granularity of the diffusion process. "
-            "Higher values lead to better quality structures but also longer runtime."
-        )
-
-        workflow.rfdiffusion_params.contigmap_length = (
-            st.text_input(
-                "Sequence length limit" + (" (contigmap.length)" if not is_rfd3 else ""),
-                placeholder="For example 123 or 123-456",
-                value=workflow.rfdiffusion_params.contigmap_length,
-                key="contigmap_length",
-            )
-            or None
-        )
-        st.caption(
-            ":material/info: When using multiple generated segments with random length range (for example 10-100), "
-            "make sure that randomly sampling those lengths will produce contigs within the total length range."
-        )
-
-        if not is_rfd3 and workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
-            workflow.rfdiffusion_params.inpaint_seq = (
+            workflow.rfdiffusion_params.contigmap_length = (
                 st.text_input(
-                    "Sequence inpainting regions (contigmap.inpaint_seq)",
-                    placeholder="For example A12-34/A45-67/B89-90",
-                    value=workflow.rfdiffusion_params.inpaint_seq,
-                    key="inpaint_seq",
+                    "Sequence length limit" + (" (contigmap.length)" if not is_rfd3 else ""),
+                    placeholder="For example 123 or 123-456",
+                    value=workflow.rfdiffusion_params.contigmap_length,
+                    key="contigmap_length",
                 )
                 or None
             )
             st.caption(
-                ":material/info: Input structure regions present in the contig but to be redesigned with ProteinMPNN. "
-                "This argument tells RFdiffusion that the sequence will be redesigned "
-                "so it can better pack against those regions."
+                ":material/info: When using multiple generated segments with random length range (for example 10-100), "
+                "make sure that randomly sampling those lengths will produce contigs within the total length range."
             )
 
-        workflow.rfdiffusion_params.backbone_filters = (
-            st.text_input(
-                "Hard filters for backbone designs",
-                placeholder="For example pydssp_helix_percent<50,N_contact_hotspots>=5",
-                value=workflow.rfdiffusion_params.backbone_filters,
-                key="backbone_filters",
-            )
-            or None
-        )
-        st.caption(
-            "This filter can be used to completely discard undesirable backbone designs "
-            "and avoid wasting compute resources on their sequence design and structure prediction."
-        )
-        st.caption(f"Supported filtering metrics: {', '.join(descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES)}")
-
-        run_params_placeholder = (
-            "e.g. inference_sampler.step_scale=0.5" if is_rfd3 else "e.g. contigmap.inpaint_str=[123-456]"
-        )
-        workflow.rfdiffusion_params.run_parameters = st.text_input(
-            "Additional run parameters",
-            placeholder=run_params_placeholder,
-            value=workflow.rfdiffusion_params.run_parameters,
-            key="rfdiff_run_parameters",
-        )
-        if is_rfd3:
-            st.caption(
-                ":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5). Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
-            )
-        else:
-            st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
-        if workflow.rfdiffusion_params.run_parameters:
-            st.warning("Additional parameters can override previously selected parameters.")
-
-        if is_rfd3:
-            with st.columns([1, 2])[0]:
-                workflow.rfdiffusion_params.rfd3_inner_batch_size = st.number_input(
-                    "Inner batch size (diffusion_batch_size)",
-                    min_value=1,
-                    value=workflow.rfdiffusion_params.rfd3_inner_batch_size,
-                    key="rfd3_inner_batch_size",
-                    help="Number of designs generated in parallel within each RFD3 inference call. "
-                    "Higher values use more GPU memory but speed up generation significantly.",
-                )
-            st.caption(
-                ":material/info: Controls how many designs RFD3 runs in parallel per batch on the GPU. "
-                "The default (1) is safe for all GPU types. Increase for faster generation on high-VRAM GPUs. "
-                "If your job crashes with CUDA out-of-memory, reduce this value."
-            )
-            if workflow.rfdiffusion_params.rfd3_inner_batch_size > 1:
-                total = workflow.rfdiffusion_params.num_designs * workflow.rfdiffusion_params.rfd3_inner_batch_size
-                st.warning(
-                    f"Total backbone designs will be **{total}** "
-                    f"(num_designs={workflow.rfdiffusion_params.num_designs} "
-                    f"× inner_batch_size={workflow.rfdiffusion_params.rfd3_inner_batch_size}).\n\n"
-                    f"Total designs will be **{total * workflow.protein_mpnn_params.num_sequences}** "
-                    f"(total_backbones={total} × seq_designs={workflow.protein_mpnn_params.num_sequences})."
-                )
-
-            st.markdown("**InputSpec overrides (RFdiffusion3)**")
-            col1, col2 = st.columns(2)
-            with col1:
-                infer_ori_options = ["", "hotspots", "com"]
-                workflow.rfdiffusion_params.rfd3_infer_ori_strategy = (
-                    st.selectbox(
-                        "Origin strategy (infer_ori_strategy)",
-                        options=infer_ori_options,
-                        format_func=lambda x: "Auto-detect" if x == "" else x,
-                        index=infer_ori_options.index(workflow.rfdiffusion_params.rfd3_infer_ori_strategy or ""),
-                        key="rfd3_infer_ori_strategy",
-                        help="Controls placement of the ORI token. 'hotspots' places it near hotspot COM, 'com' uses input structure COM. Auto-detect sets 'hotspots' when hotspots are provided, 'com' otherwise.",
-                    )
-                    or None
-                )
-            with col2:
-                workflow.rfdiffusion_params.rfd3_ori_token = (
+            if not is_rfd3 and workflow.is_instance(RFdiffusionScaffoldDesignWorkflow):
+                workflow.rfdiffusion_params.inpaint_seq = (
                     st.text_input(
-                        "ORI token (ori_token)",
-                        value=workflow.rfdiffusion_params.rfd3_ori_token,
-                        placeholder="e.g. 10.5,20.3,15.1",
-                        key="rfd3_ori_token",
-                        help="Explicit [x,y,z] origin override to control center of mass placement of the designed structure. Overrides infer_ori_strategy.",
+                        "Sequence inpainting regions (contigmap.inpaint_seq)",
+                        placeholder="For example A12-34/A45-67/B89-90",
+                        value=workflow.rfdiffusion_params.inpaint_seq,
+                        key="inpaint_seq",
                     )
                     or None
                 )
+                st.caption(
+                    ":material/info: Input structure regions present in the contig but to be redesigned with ProteinMPNN. "
+                    "This argument tells RFdiffusion that the sequence will be redesigned "
+                    "so it can better pack against those regions."
+                )
 
-            # workflow.rfdiffusion_params.rfd3_length = (
-            #     st.text_input(
-            #         "Total length constraint (length)",
-            #         value=workflow.rfdiffusion_params.rfd3_length,
-            #         placeholder="e.g. 100-150 or 120",
-            #         key="rfd3_length",
-            #         help="Constrain the total design length. Useful when contig alone does not fix the total length.",
-            #     )
-            #     or None
-            # )
-
-            workflow.rfdiffusion_params.rfd3_spec_overrides = (
-                st.text_area(
-                    "Additional InputSpec overrides (JSON)",
-                    value=workflow.rfdiffusion_params.rfd3_spec_overrides,
-                    placeholder='e.g. {"select_unfixed_sequence": "A20-35", "redesign_motif_sidechains": true}',
-                    key="rfd3_spec_overrides",
-                    help="JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict.",
-                    height=80,
+            workflow.rfdiffusion_params.backbone_filters = (
+                st.text_input(
+                    "Hard filters for backbone designs",
+                    placeholder="For example pydssp_helix_percent<50,N_contact_hotspots>=5",
+                    value=workflow.rfdiffusion_params.backbone_filters,
+                    key="backbone_filters",
                 )
                 or None
             )
             st.caption(
-                ":material/info: JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict. Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
+                "This filter can be used to completely discard undesirable backbone designs "
+                "and avoid wasting compute resources on their sequence design and structure prediction."
             )
-            if workflow.rfdiffusion_params.rfd3_spec_overrides:
-                try:
-                    parsed = json.loads(workflow.rfdiffusion_params.rfd3_spec_overrides)
-                    if not isinstance(parsed, dict):
-                        st.error("Spec overrides must be a JSON object (dict)")
-                    else:
-                        from ovo.core.database.models_rfdiffusion import RFD3_SPEC_FIELDS
+            st.caption(f"Supported filtering metrics: {', '.join(descriptors_rfdiffusion.BACKBONE_METRIC_FIELD_NAMES)}")
 
-                        unknown = set(parsed.keys()) - RFD3_SPEC_FIELDS
-                        if unknown:
-                            st.error(f"Unknown InputSpec keys: {', '.join(sorted(unknown))}")
-                        # Warn about keys that overlap with dedicated UI fields
-                        named_param_keys = {
-                            "unindex",
-                            "select_fixed_atoms",
-                            "select_hotspots",
-                            "ligand",
-                            "length",
-                            "infer_ori_strategy",
-                            "is_non_loopy",
-                            "ori_token",
-                        }
-                        overlapping = set(parsed.keys()) & named_param_keys
-                        if overlapping:
-                            st.warning(
-                                f"Keys [{', '.join(sorted(overlapping))}] overlap with dedicated parameters above. "
-                                f"The values from this field will take precedence."
-                            )
-                except json.JSONDecodeError as e:
-                    st.error(f"Invalid JSON: {e}")
+            run_params_placeholder = (
+                "e.g. inference_sampler.step_scale=0.5" if is_rfd3 else "e.g. contigmap.inpaint_str=[123-456]"
+            )
+            workflow.rfdiffusion_params.run_parameters = st.text_input(
+                "Additional run parameters",
+                placeholder=run_params_placeholder,
+                value=workflow.rfdiffusion_params.run_parameters,
+                key="rfdiff_run_parameters",
+            )
+            if is_rfd3:
+                st.caption(
+                    ":material/info: Hydra overrides passed directly to rfd3 design (e.g. inference_sampler.step_scale=0.5). Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
+                )
+            else:
+                st.caption(":material/info: Reference: https://github.com/RosettaCommons/RFdiffusion.")
+            if workflow.rfdiffusion_params.run_parameters:
+                st.warning("Additional parameters can override previously selected parameters.")
+
+            if is_rfd3:
+                with st.columns([1, 2])[0]:
+                    workflow.rfdiffusion_params.rfd3_inner_batch_size = st.number_input(
+                        "Inner batch size (diffusion_batch_size)",
+                        min_value=1,
+                        value=workflow.rfdiffusion_params.rfd3_inner_batch_size,
+                        key="rfd3_inner_batch_size",
+                        help="Number of designs generated in parallel within each RFD3 inference call. "
+                        "Higher values use more GPU memory but speed up generation significantly.",
+                    )
+                st.caption(
+                    ":material/info: Controls how many designs RFD3 runs in parallel per batch on the GPU. "
+                    "The default (1) is safe for all GPU types. Increase for faster generation on high-VRAM GPUs. "
+                    "If your job crashes with CUDA out-of-memory, reduce this value."
+                )
+                if workflow.rfdiffusion_params.rfd3_inner_batch_size > 1:
+                    total = workflow.rfdiffusion_params.num_designs * workflow.rfdiffusion_params.rfd3_inner_batch_size
+                    st.warning(
+                        f"Total backbone designs will be **{total}** "
+                        f"(num_designs={workflow.rfdiffusion_params.num_designs} "
+                        f"× inner_batch_size={workflow.rfdiffusion_params.rfd3_inner_batch_size}).\n\n"
+                        f"Total designs will be **{total * workflow.protein_mpnn_params.num_sequences}** "
+                        f"(total_backbones={total} × seq_designs={workflow.protein_mpnn_params.num_sequences})."
+                    )
+
+                st.markdown("**InputSpec overrides (RFdiffusion3)**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    infer_ori_options = ["", "hotspots", "com"]
+                    workflow.rfdiffusion_params.rfd3_infer_ori_strategy = (
+                        st.selectbox(
+                            "Origin strategy (infer_ori_strategy)",
+                            options=infer_ori_options,
+                            format_func=lambda x: "Auto-detect" if x == "" else x,
+                            index=infer_ori_options.index(workflow.rfdiffusion_params.rfd3_infer_ori_strategy or ""),
+                            key="rfd3_infer_ori_strategy",
+                            help="Controls placement of the ORI token. 'hotspots' places it near hotspot COM, 'com' uses input structure COM. Auto-detect sets 'hotspots' when hotspots are provided, 'com' otherwise.",
+                        )
+                        or None
+                    )
+                with col2:
+                    workflow.rfdiffusion_params.rfd3_ori_token = (
+                        st.text_input(
+                            "ORI token (ori_token)",
+                            value=workflow.rfdiffusion_params.rfd3_ori_token,
+                            placeholder="e.g. 10.5,20.3,15.1",
+                            key="rfd3_ori_token",
+                            help="Explicit [x,y,z] origin override to control center of mass placement of the designed structure. Overrides infer_ori_strategy.",
+                        )
+                        or None
+                    )
+
+                # workflow.rfdiffusion_params.rfd3_length = (
+                #     st.text_input(
+                #         "Total length constraint (length)",
+                #         value=workflow.rfdiffusion_params.rfd3_length,
+                #         placeholder="e.g. 100-150 or 120",
+                #         key="rfd3_length",
+                #         help="Constrain the total design length. Useful when contig alone does not fix the total length.",
+                #     )
+                #     or None
+                # )
+
+                workflow.rfdiffusion_params.rfd3_spec_overrides = (
+                    st.text_area(
+                        "Additional InputSpec overrides (JSON)",
+                        value=workflow.rfdiffusion_params.rfd3_spec_overrides,
+                        placeholder='e.g. {"select_unfixed_sequence": "A20-35", "redesign_motif_sidechains": true}',
+                        key="rfd3_spec_overrides",
+                        help="JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict.",
+                        height=80,
+                    )
+                    or None
+                )
+                st.caption(
+                    ":material/info: JSON dict of additional InputSpec fields. These are applied on top of the parameters above and will override them on conflict. Reference: https://rosettacommons.github.io/foundry/models/rfd3/input.html"
+                )
+                if workflow.rfdiffusion_params.rfd3_spec_overrides:
+                    try:
+                        parsed = json.loads(workflow.rfdiffusion_params.rfd3_spec_overrides)
+                        if not isinstance(parsed, dict):
+                            st.error("Spec overrides must be a JSON object (dict)")
+                        else:
+                            from ovo.core.database.models_rfdiffusion import RFD3_SPEC_FIELDS
+
+                            unknown = set(parsed.keys()) - RFD3_SPEC_FIELDS
+                            if unknown:
+                                st.error(f"Unknown InputSpec keys: {', '.join(sorted(unknown))}")
+                            # Warn about keys that overlap with dedicated UI fields
+                            named_param_keys = {
+                                "unindex",
+                                "select_fixed_atoms",
+                                "select_hotspots",
+                                "ligand",
+                                "length",
+                                "infer_ori_strategy",
+                                "is_non_loopy",
+                                "ori_token",
+                            }
+                            overlapping = set(parsed.keys()) & named_param_keys
+                            if overlapping:
+                                st.warning(
+                                    f"Keys [{', '.join(sorted(overlapping))}] overlap with dedicated parameters above. "
+                                    f"The values from this field will take precedence."
+                                )
+                    except json.JSONDecodeError as e:
+                        st.error(f"Invalid JSON: {e}")
 
         st.markdown("#### Protein MPNN ")
 
-        weight_keys = list(MPNN_WEIGHT_CONFIG.keys())
-        workflow.protein_mpnn_params.mpnn_weights_key = st.selectbox(
-            "MPNN Model weights",
-            options=weight_keys,
-            format_func=lambda key: MPNN_WEIGHT_CONFIG[key].display_name,
-            index=weight_keys.index(workflow.protein_mpnn_params.mpnn_weights_key)
-            if workflow.protein_mpnn_params.mpnn_weights_key in weight_keys
-            else weight_keys.index(ProteinMPNNParams.mpnn_weights_key),
-            key="mpnn_weights",
-            help="Select MPNN model weights. Standard LigandMPNN types or override with PottsMPNN/CyclicMPNN/HyperMPNN weights.",
-        )
-        st.caption(
-            ":material/info: References: [LigandMPNN](https://github.com/dauparas/LigandMPNN/tree/main), [PottsMPNN](https://github.com/KeatingLab/PottsMPNN/tree/main), [CyclicMPNN](https://github.com/ParisaH-Lab/CyclicMPNN/), [HyperMPNN](https://github.com/meilerlab/HyperMPNN/)"
-        )
-        st.caption(
-            ":material/info: Training with backbone noise is used to prevent overfitting to native sequence during training. "
-            "Models trained with more noise are more robust, models trained with less noise are more sensitive to small differences in the backbone structure."
-        )
-
-        workflow.protein_mpnn_params.sampling_temp = st.number_input(
-            "Sampling temperature protein MPNN",
-            format="%g",
-            value=workflow.protein_mpnn_params.sampling_temp,
-            min_value=0.0,
-            key="sampling_temp",
-        )
-        st.caption(
-            ":material/info: ProteinMPNN is a deterministic neural network, outputting residue probabilities. "
-            "The temperature parameter is used to select less probable residues during sequence sampling. "
-            "Higher temperature leads to higher diversity, temperature closer to 0 leads to less diversity and higher ProteinMPNN score. "
-            "Suggested values 0.0001, 0.1, 0.15, 0.2, 0.25, 0.3. "
-        )
-
-        workflow.protein_mpnn_params.omit_aa = st.text_input(
-            "Omitted residue types from sequence design",
-            value=workflow.protein_mpnn_params.omit_aa,
-            key="omit_aa",
-        )
-
-        workflow.protein_mpnn_params.bias_aa = st.text_input(
-            "Amino acid bias for ProteinMPNN",
-            placeholder="For example F:1.5,K-1.2",
-            value=workflow.protein_mpnn_params.bias_aa,
-            key="mpnn_bias",
-        )
-        st.caption(
-            ":material/info: Negative values reduce the probability of sampling given amino acid, positive values increase it, zero is neutral (default)."
-        )
+        show_mpnn_sequence_design_inputs(workflow)
 
         # Additional commandline options
         workflow.protein_mpnn_params.run_parameters = st.text_input(
@@ -809,6 +921,53 @@ def show_rfdiffusion_advanced_settings(workflow: RFdiffusionWorkflow):
             workflow.acceptance_thresholds = new_thresholds
             st.rerun()
             return
+
+
+def show_rfdiffusion_timesteps_input(workflow: RFdiffusionWorkflow):
+    is_rfd3 = workflow.rfdiffusion_params.backbone_generator == "rfdiffusion3"
+
+    if is_rfd3:
+        label = "Number of timesteps (inference_sampler.num_timesteps)"
+        help_text = (
+            "Number of diffusion steps. Default is 200; use 10–50 for fast testing. "
+            "Number of denoising diffusion steps determines the granularity of the diffusion process. "
+            "Higher values lead to better quality structures but also longer runtime."
+        )
+    elif workflow.rfdiffusion_params.partial_diffusion:
+        # TODO note that we use the same field to store two different concepts
+        #  diffuser.T is actually still used, but we leave it at the default 50
+        #  since we only pass partial_T when partial_diffusion is True
+        label = "Num noising timesteps (partial_T)"
+        if workflow.rfdiffusion_params.partial_diffusion:
+            help_text = (
+                "Number of noising timesteps in RFdiffusion partial diffusion protocol. "
+                "Default is 20, use 1 for least noise and lowest diversity and 50 for most noise and highest diversity."
+            )
+    else:
+        label = "Num RFdiffusion timesteps (T)"
+        help_text = (
+            "Number of diffusion steps. Default is 50; use 10–20 for fast testing. "
+            "Number of denoising diffusion steps determines the granularity of the diffusion process. "
+            "Higher values lead to better quality structures but also longer runtime."
+        )
+
+    if TIMESTEPS_INPUT_KEY not in st.session_state:
+        # RFdiffusionParams default is RFD1's; RFD3 wants more steps
+        st.session_state[TIMESTEPS_INPUT_KEY] = (
+            RFD3_DEFAULT_TIMESTEPS if is_rfd3 else workflow.rfdiffusion_params.timesteps
+        )
+
+    workflow.rfdiffusion_params.timesteps = st.number_input(
+        label,
+        min_value=1,
+        width=280,
+        key=TIMESTEPS_INPUT_KEY,
+    )
+    st.caption(f":material/info: {help_text}")
+    if workflow.rfdiffusion_params.partial_diffusion and workflow.rfdiffusion_params.timesteps == 1:
+        st.warning(
+            "Consider using 'Sequence redesign' mode if you do not want to diversify the backbone",
+        )
 
 
 def customize_json_settings_component(diff: dict | None, default: dict, key_suffix: str):

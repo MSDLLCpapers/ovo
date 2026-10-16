@@ -10,7 +10,6 @@ include { BiotiteInterfaceMetrics } from params.getSharedPipelinePath("ovo.bioti
 
 def requiredParams = [
 	'design_type',
-	'rfdiffusion_input_pdb',
 ]
 requiredParams.each { param ->
     params[param] = null // this sets null as default, to avoid printing warning
@@ -21,6 +20,9 @@ requiredParams.each { param ->
 if (!params.custom_backbones && !params.rfdiffusion_contig) {
     throw new IllegalArgumentException("One of --rfdiffusion_contig or --custom_backbones must be provided!")
 }
+if (!params.custom_backbones && !params.rfdiffusion_input_pdb) {
+    throw new IllegalArgumentException("Argument --rfdiffusion_input_pdb is required unless --custom_backbones is provided!")
+}
 
 
 workflow {
@@ -28,7 +30,10 @@ workflow {
         throw new IllegalArgumentException("RFdiffusion hotspot_res should not be provided in --rfdiffusion_run_parameters but as --hotspot.")
 	}
 	def pdb_inputs
-    if (params.rfdiffusion_input_pdb.endsWith('.txt')) {
+    if (!params.rfdiffusion_input_pdb) {
+        // Custom backbones only - the input structure is just the native structure of scaffold refolding
+        pdb_inputs = []
+    } else if (params.rfdiffusion_input_pdb.endsWith('.txt')) {
         pdb_inputs = file(params.rfdiffusion_input_pdb).readLines()
     } else if (params.rfdiffusion_input_pdb.endsWith('.pdb')) {
         pdb_inputs = [params.rfdiffusion_input_pdb]
@@ -37,6 +42,8 @@ workflow {
     }
     def batches
     if (params.custom_backbones) {
+      // Custom backbone inputs
+
       println "Using custom backbones from directory: ${params.custom_backbones}"
 
       if (pdb_inputs.size() > 1) {
@@ -60,9 +67,15 @@ workflow {
         file_list.merge(indexes, { files, idx -> ["contig1_batch${idx}", files] })
       )
 
-      batches = file_list.merge(indexes, { _, idx -> ["contig1_batch${idx}", pdb_inputs[0]] })
+      batches = file_list.merge(indexes, { _, idx -> [
+          "contig1_batch${idx}",
+          pdb_inputs.size() ? pdb_inputs[0] : "${projectDir}/lib/NO_FILE"
+      ] })
       backbones_dir = CreateBackboneFolders.out.pdb_dir
+
     } else {
+      // RFdiffusion backbone design
+
       def contigs = "${params.rfdiffusion_contig}".split(",")
       if (pdb_inputs.size() != contigs.size()) {
           if (pdb_inputs.size() == 1) {

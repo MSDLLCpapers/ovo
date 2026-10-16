@@ -175,7 +175,9 @@ def settings_tab(
     # test creating new round
     show_test_dialog(at, "create_round")
     round_name = f"Round for {pool_name}"
-    at.text_input("round_name").set_value(round_name)
+    # Run after typing the name, the Create round button is disabled while the name is empty -
+    # which it is whenever the last round of the project is not named "<something> <number>"
+    at.text_input("round_name").set_value(round_name).run()
     at.button("create_round").click().run()
     rounds_by_id = get_or_create_project_rounds(project_id=at.session_state.project.id)
     round_ids_by_name = {round.name: round.id for round in rounds_by_id.values()}

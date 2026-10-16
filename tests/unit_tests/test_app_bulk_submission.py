@@ -66,7 +66,9 @@ class TestBulkSubmission:
         logger.info("Testing review & submit step...")
         show_test_dialog(at, "create_round")
         round_name = f"Round for {POOL_NAME_PREFIX}"
-        at.text_input("round_name").set_value(round_name)
+        # Run after typing the name, the Create round button is disabled while the name is empty -
+        # which it is whenever the last round of the project is not named "<something> <number>"
+        at.text_input("round_name").set_value(round_name).run(timeout=TIMEOUT)
         at.button("create_round").click().run(timeout=TIMEOUT)
         rounds_by_id = get_or_create_project_rounds(project_id=at.session_state.project.id)
         assert round_name in [project_round.name for project_round in rounds_by_id.values()], (

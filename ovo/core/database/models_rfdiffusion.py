@@ -1,5 +1,6 @@
 import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -166,8 +167,9 @@ class RFdiffusionParams(WorkflowParams):
     rfd3_spec_overrides: str | None = (
         None  # additional arbitrary JSON overrides for RFD3 InputSpec, applied on top of named params
     )
-    # Skip RFdiffusion backbone design, use custom backbone input from the given directory or .zip file
-    custom_backbones: str = None
+    # Skip RFdiffusion backbone design, use custom backbone input from the given directory,
+    # .zip file, or list of .pdb paths
+    custom_backbones: str | list[str] = field(default=None, metadata=dict(storage_path=True))
 
     @property
     def input_pdb(self):
@@ -187,15 +189,16 @@ class RFdiffusionParams(WorkflowParams):
 
     def to_dict(self, human_readable=False):
         super_dict = super().to_dict(human_readable=human_readable)
-        if human_readable and self.custom_backbones:
+        if human_readable and self.custom_backbones and not self.contigs:
             # When reviewing parameters and custom backbone dir is used,
-            # only show that custom backbone dir and no other parameters
+            # only show that custom backbone dir and no other parameters.
+            # Contigs are kept when provided, they define which residues are redesigned.
             return {k: v for k, v in super_dict.items() if k in ("custom_backbones", "hotspots")}
         return super_dict
 
     def validate(self):
         super().validate()
-        if not self.input_pdb:
+        if not self.input_pdb and not self.custom_backbones:
             raise ValueError("No input pdb provided")
         if not isinstance(self.contigs, list):
             if isinstance(self.contigs, str):
@@ -348,7 +351,9 @@ class ProteinMPNNParams(WorkflowParams):
     omit_aa: str = "CX"
     # sampling temperature (0 = greedy, 0.1 = default, higher is more random)
     sampling_temp: float = field(default=0.1, metadata={"show_to_user": True})
-    # amino acid bias, for example F:1.5,K:-1.5 (positive = more likely, zero = neutral default, negative = less likely)
+    # amino acid bias, for example F:1,K:-1 (positive = more likely, zero = neutral default, negative
+    # = less likely). MPNN samples from softmax((logits + bias) / sampling_temp), so a bias of 1 or 2
+    # is a moderate nudge rather than a hard rule, see MPNN_BIAS_LEVELS for measured effects
     bias_aa: str = ""
     # additional commandline run parameters
     run_parameters: str = ""
@@ -719,13 +724,14 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
     def set_selected_segments(self, segments: list[str], contig_index=0, partial_diffusion=False):
         if partial_diffusion:
             # create contig from REDESIGNED segments as they correspond to positions in binder chain A
-            # default case for a peptide of 12 residues:
-            # segments=[] -> binder_contig="12-12"
-            # or when redesigning only A1 and A3-7 in a peptide of 12 residues,
+            # when redesigning only A1 and A3-7 in a peptide of 12 residues,
             # segments=["A1-1", "A3-7"] -> binder_contig="1-1/A2-2/5-5/A8-12"
+            # an empty selection keeps the whole binder fixed, segments=[] -> binder_contig="A1-12",
+            # which cannot be submitted - the input is skipped, see get_submitted_contig_indexes
             binder_length, _ = parse_partial_diffusion_binder_contig(self.get_binder_contig(contig_index=contig_index))
             self.set_binder_contig(
-                create_partial_diffusion_binder_contig(redesigned_segments=segments, binder_length=binder_length)
+                create_partial_diffusion_binder_contig(redesigned_segments=segments, binder_length=binder_length),
+                contig_index=contig_index,
             )
         else:
             # Hotspots
@@ -733,31 +739,89 @@ class RFdiffusionBinderDesignWorkflow(RFdiffusionWorkflow):
             # Convert from segments to hotspots
             self.rfdiffusion_params.hotspots = from_segments_to_hotspots(segments)
 
-    def get_target_contig(self, contig_index=0):
+    def split_contig(self, contig_index=0) -> tuple[str, str]:
+        """Split the contig of an input into its binder part and its target part.
+
+        Which part is which is not positional: the binder comes first under partial diffusion and
+        second in de novo binder design, so it is recognized as the generated part - the one with a
+        segment that has no chain. Under partial diffusion all of it can be fixed, when nothing is
+        selected for redesign, and it is then recognized by its chain, which partial diffusion
+        requires to be A (see :func:`parse_partial_diffusion_binder_contig`).
+
+        :return: (binder contig, target contig), both "" if there is no contig yet
+        """
         contig = self.get_contig(contig_index=contig_index)
         if not contig:
-            return ""
-        subcontigs = [s.removesuffix("/0") for s in contig.split()]
+            return "", ""
+
+        subcontigs = [subcontig.removesuffix("/0") for subcontig in contig.split()]
         assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        fixed_subcontigs = [subcontig for subcontig in subcontigs if all(s[0].isalpha() for s in subcontig.split("/"))]
-        assert len(fixed_subcontigs) == 1, f"Expected exactly one fixed contig with chain specification, got: {contig}"
-        return fixed_subcontigs[0]
+
+        is_binder = [any(segment[0].isnumeric() for segment in subcontig.split("/")) for subcontig in subcontigs]
+        if not any(is_binder) and self.rfdiffusion_params.partial_diffusion:
+            is_binder = [all(segment[0] == "A" for segment in subcontig.split("/")) for subcontig in subcontigs]
+        assert sum(is_binder) == 1, f"Expected exactly one binder contig and one target contig, got: {contig}"
+
+        binder_index = is_binder.index(True)
+        return subcontigs[binder_index], subcontigs[1 - binder_index]
+
+    def get_target_contig(self, contig_index=0):
+        return self.split_contig(contig_index=contig_index)[1]
 
     def get_binder_contig(self, contig_index=0):
-        contig = self.get_contig(contig_index=contig_index)
-        if not contig:
-            return ""
-        subcontigs = contig.split()
-        assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        subcontigs = [s.removesuffix("/0") for s in contig.split()]
-        assert len(subcontigs) == 2, f"Expected a binder chain and target chain in contig, got: {contig}"
-        generated_subcontigs = [
-            subcontig for subcontig in subcontigs if any(s[0].isnumeric() for s in subcontig.split("/"))
+        return self.split_contig(contig_index=contig_index)[0]
+
+    def get_skipped_contig_indexes(self) -> list[int]:
+        """Get the indexes of the inputs that have no residues selected for redesign.
+
+        Only partial diffusion can end up like that, by deselecting every residue of a binder. There
+        is nothing to submit for such an input, so it is left out of the submission rather than
+        dropped from the workflow, which would lose the selections made in it - see
+        :meth:`drop_skipped_inputs`.
+        """
+        if not self.rfdiffusion_params.partial_diffusion:
+            return []
+        return [
+            contig_index
+            for contig_index in self.get_contig_indexes()
+            if not self.get_selected_segments(contig_index=contig_index, partial_diffusion=True)
         ]
-        assert len(generated_subcontigs) == 1, (
-            f"Expected exactly one generated contig with chain specification, got: {contig}"
-        )
-        return generated_subcontigs[0]
+
+    def drop_skipped_inputs(self) -> "RFdiffusionBinderDesignWorkflow":
+        """Return the workflow to submit, without the inputs that have no residues to redesign.
+
+        Returns this same workflow when there are none, so that the submitted workflow is a copy only
+        when it has to be. See :meth:`get_skipped_contig_indexes`.
+        """
+        skipped_contig_indexes = set(self.get_skipped_contig_indexes())
+        if not skipped_contig_indexes:
+            return self
+
+        workflow = deepcopy(self)
+        params = workflow.rfdiffusion_params
+        if len(params.input_pdb_paths) == len(params.contigs):
+            # One input per contig, so the inputs of the skipped contigs go as well - a workflow with
+            # several contigs for a single input keeps it, see get_input_pdb_path
+            params.input_pdb_paths = [
+                input_pdb_path
+                for contig_index, input_pdb_path in enumerate(params.input_pdb_paths)
+                if contig_index not in skipped_contig_indexes
+            ]
+        if isinstance(params.custom_backbones, list):
+            # Sequence redesign of the inputs, each custom backbone has its own contig
+            assert len(params.custom_backbones) == len(params.contigs), (
+                f"Expected one custom backbone for each contig, got {len(params.custom_backbones)} "
+                f"backbones and {len(params.contigs)} contigs"
+            )
+            params.custom_backbones = [
+                custom_backbone
+                for contig_index, custom_backbone in enumerate(params.custom_backbones)
+                if contig_index not in skipped_contig_indexes
+            ]
+        params.contigs = [
+            contig for contig_index, contig in enumerate(params.contigs) if contig_index not in skipped_contig_indexes
+        ]
+        return workflow
 
     def set_binder_contig(self, binder_contig: str, contig_index: int = 0):
         target_contig = self.get_target_contig(contig_index=contig_index)

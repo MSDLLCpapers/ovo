@@ -1,11 +1,17 @@
+import importlib.util
+import os
+
 import pytest
 
+import ovo
 from ovo import DesignSpec
 from ovo.core.utils.pdb import (
     ChainNotFoundError,
     filter_and_relabel_chains_pdb_str,
     get_sequences_from_pdb_str,
     get_pdb,
+    get_standardized_remarks_from_pdb_str,
+    replace_standardized_remarks_in_pdb_str,
 )
 
 TWO_CHAIN_PDB_STR = """MODEL        1
@@ -122,9 +128,9 @@ def test_filter_and_relabel_chains_pdb_str():
     filtered = filter_and_relabel_chains_pdb_str(TWO_CHAIN_PDB_STR, chains=["B"])
 
     assert get_sequences_from_pdb_str(filtered) == {"A": "M"}
-    # Residue numbering and atom lines are kept as is
-    assert "ATOM      6  N   MET A  10" in filtered
-    assert "TER       8      MET A  10" in filtered
+    # Residue numbering is kept as is, atom serial numbers are renumbered from 1
+    assert "ATOM      1  N   MET A  10" in filtered
+    assert "TER       3      MET A  10" in filtered
     # CONECT records and additional models are dropped
     assert "CONECT" not in filtered
     assert "GLY" not in filtered
@@ -135,6 +141,13 @@ def test_filter_and_relabel_chains_pdb_str_swap():
     filtered = filter_and_relabel_chains_pdb_str(TWO_CHAIN_PDB_STR, chains=["B", "A"])
 
     assert get_sequences_from_pdb_str(filtered) == {"A": "M", "B": "NT"}
+    # The chains are written in the requested order, with their serial numbers renumbered to follow
+    kept_lines = [line for line in filtered.splitlines() if line.startswith(("ATOM", "TER"))]
+    assert [line[21] for line in kept_lines] == list("AAABBBBB")
+    assert [int(line[6:11]) for line in kept_lines] == [1, 2, 3, 4, 5, 6, 7, 8]
+    # The TER of a chain stays with it
+    assert "TER       3      MET A  10" in filtered
+    assert "TER       8      THR B  21" in filtered
 
 
 def test_filter_and_relabel_chains_pdb_str_custom_chain_ids():
@@ -153,3 +166,45 @@ def test_pdb_online_download():
     assert b"HEADER" in content
     content = get_pdb("Q9NZC2")
     assert b"HEADER" in content
+
+
+def test_replace_standardized_remarks_in_pdb_str():
+    # The remarks of the design the structure comes from are replaced, not kept
+    pdb_str = (
+        'REMARK   1 Standardized contig: "A5-6/0 B10-10/0"\n'
+        "REMARK 350 PREVIOUS DESIGN\n"
+        "REMARK PDBinfo-LABEL:    1 FIXED\n" + TWO_CHAIN_PDB_STR
+    )
+    replaced = replace_standardized_remarks_in_pdb_str(pdb_str, contig="1-1/A2-2/0 B10-10", fixed_residues=[2])
+
+    assert get_standardized_remarks_from_pdb_str(replaced) == {
+        "Standardized contig": "1-1/A2-2/0 B10-10",
+        "Chains": "A B",
+    }
+    assert "PREVIOUS DESIGN" not in replaced
+    # Only the atoms of the input are kept, under the new remark header
+    assert get_sequences_from_pdb_str(replaced) == get_sequences_from_pdb_str(TWO_CHAIN_PDB_STR)
+    # The labels of the residues kept fixed are replaced as well, written after the atoms
+    assert replaced.splitlines()[-1] == "REMARK PDBinfo-LABEL:    2 FIXED"
+    assert len([line for line in replaced.splitlines() if "PDBinfo-LABEL" in line]) == 1
+
+    # The sequence design pipeline reads the redesigned residues from these remarks
+    prepare_json = import_pipeline_script("ligandmpnn-sequence-design", "prepare_json.py")
+    remark_lines = [line.removeprefix("REMARK   1 ") for line in replaced.splitlines() if line.startswith("REMARK   1")]
+    assert prepare_json.get_designed_residues(prepare_json.parse_remark_lines(remark_lines)) == "A1"
+
+    # A contig longer than a remark line is split into several of them and read back as one value
+    long_contig = "10-10/" + "/".join(f"A{index}-{index}" for index in range(11, 30))
+    replaced = replace_standardized_remarks_in_pdb_str(TWO_CHAIN_PDB_STR, contig=long_contig)
+
+    assert len([line for line in replaced.splitlines() if "Standardized contig" in line]) > 1
+    assert get_standardized_remarks_from_pdb_str(replaced) == {"Standardized contig": long_contig, "Chains": "A"}
+
+
+def import_pipeline_script(pipeline_name: str, script_name: str):
+    """Import a script of the bin directory of the given pipeline as a module."""
+    path = os.path.join(os.path.dirname(ovo.__file__), "pipelines", pipeline_name, "bin", script_name)
+    spec = importlib.util.spec_from_file_location(script_name.removesuffix(".py"), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

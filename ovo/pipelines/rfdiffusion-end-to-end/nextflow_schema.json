@@ -5,8 +5,7 @@
   "description": "",
   "type": "object",
   "required": [
-    "design_type",
-    "rfdiffusion_input_pdb"
+    "design_type"
   ],
   "properties": {
     "design_type": {
@@ -25,7 +24,7 @@
     },
     "rfdiffusion_input_pdb": {
       "type": "string",
-      "description": "Input PDB file for RFdiffusion (used as RFdiffusion input and to check native motif RMSD in Refolding stage)"
+      "description": "Input PDB file for RFdiffusion (used as RFdiffusion input and to check native motif RMSD in Refolding stage). Required unless custom_backbones is provided"
     },
     "rfdiffusion_contig": {
       "type": "string",

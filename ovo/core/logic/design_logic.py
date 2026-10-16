@@ -37,7 +37,8 @@ from ovo.core.logic.job_logic import (
     create_job_report_artifact,
     delete_job_artifacts,
 )
-from ovo.core.utils.pdb import mmcif_to_pdb
+from ovo.core.utils.pdb import filter_and_relabel_chains_pdb_str, mmcif_to_pdb
+from ovo.core.utils.residue_selection import get_chains_and_contigs
 
 # note: bulk submission config import/export lives in ovo.core.logic.bulk_submission_logic
 
@@ -821,3 +822,47 @@ def get_designed_chain_ids_by_design_id(design_ids: list[str]) -> dict[str, list
             raise ValueError(f"Design {design.id} has no chains in its spec, cannot determine the designed chains")
         designed_chain_ids_by_design_id[design.id] = design.spec.get_designed_chain_ids()
     return designed_chain_ids_by_design_id
+
+
+def store_structures_with_binder_as_chain_a(designs: list[Design], project_id: str) -> list[str]:
+    """Store a copy of the structure of each design with its binder chain labelled A and its target B.
+
+    The RFdiffusion binder workflows assume the binder is chain A - see
+    :meth:`~ovo.core.database.models_rfdiffusion.RFdiffusionBinderDesignWorkflow.get_refolding_designed_chains`
+    and the partial diffusion contig, which puts the diffused binder first - while a design can label
+    it differently (BindCraft labels the binder B). Designs are therefore relabelled before they are
+    diversified, the same way designs with differently labelled chains are relabelled for a
+    clustering job, see
+    :func:`~ovo.core.logic.descriptor_logic.prepare_design_structures`.
+
+    A design that already has the binder as chain A and the target as chain B is used as it is, so
+    the common case keeps pointing at the design's own structure rather than at a copy of it.
+
+    :return: One storage path per design, in the given order
+    :raises ValueError: if a design does not have exactly one designed and one target chain
+    """
+    designed_chains_by_design_id = get_designed_chain_ids_by_design_id([design.id for design in designs])
+
+    storage_paths = []
+    with storage.bulk_read_context():
+        for design in designs:
+            designed_chains = list(designed_chains_by_design_id[design.id])
+            pdb_str = storage.read_file_str(design.structure_path)
+            all_chains = sorted(get_chains_and_contigs(pdb_str))
+            target_chains = [chain_id for chain_id in all_chains if chain_id not in designed_chains]
+            if len(designed_chains) != 1 or len(target_chains) != 1:
+                raise ValueError(
+                    f"Design {design.id} has chains {', '.join(all_chains)} of which "
+                    f"{', '.join(designed_chains)} designed - expected one binder and one target chain"
+                )
+            if designed_chains + target_chains == ["A", "B"]:
+                storage_paths.append(design.structure_path)
+                continue
+            storage_paths.append(
+                storage.store_input(
+                    project_id=project_id,
+                    file_str=filter_and_relabel_chains_pdb_str(pdb_str, designed_chains + target_chains),
+                    filename=f"{design.id}.pdb",
+                )
+            )
+    return storage_paths

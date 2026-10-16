@@ -1,5 +1,8 @@
+import io
 import json
 import os
+import zipfile
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Callable
@@ -17,7 +20,8 @@ from ovo.core.database.models_refolding import RefoldingWorkflow
 from ovo.core.database.models_rfdiffusion import RFdiffusionWorkflow, MPNN_WEIGHT_CONFIG, ProteinMPNNParams
 from ovo.core.logic.descriptor_logic import save_descriptor_job_for_design_job, read_descriptor_file_values
 from ovo.core.logic.design_logic import set_designs_accepted
-from ovo.core.utils.pdb import get_standardized_remarks_from_pdb_str
+from ovo.core.utils.pdb import get_standardized_remarks_from_pdb_str, replace_standardized_remarks_in_pdb_str
+from ovo.core.utils.residue_selection import from_contig_to_residues, parse_partial_diffusion_binder_contig
 
 
 def submit_rfdiffusion_preview(
@@ -95,17 +99,33 @@ def process_workflow_results(
     source_backbone_paths = []
     if workflow.rfdiffusion_params.custom_backbones:
         # Find backbone paths in custom_backbones subdirectory of each batch
-        num_contigs = 1
         backbone_descriptor_key = descriptors_rfdiffusion.CUSTOM_BACKBONE_STRUCTURE_PATH.key
+        # Custom backbones provided as a list of paths are the input structures of the workflow, one
+        # per contig, and keep their filename in the pipeline output - see prepare_custom_backbones.
+        # A directory or a .zip of backbones has no such mapping, they all belong to the one contig.
+        contig_index_by_filename = (
+            {os.path.basename(path): index for index, path in enumerate(workflow.rfdiffusion_params.custom_backbones)}
+            if isinstance(workflow.rfdiffusion_params.custom_backbones, list)
+            else {}
+        )
+        num_contigs = max(len(contig_index_by_filename), 1)
+        backbone_numbers = Counter()  # 1-based design counter, counted per contig
         batch_number = 1
-        backbone_number = 1
         while paths := storage.list_dir(f"{source_dir}/contig1_batch{batch_number}/custom_backbones"):
             for path in paths:
                 if not path.endswith(".pdb"):
                     continue
+                if contig_index_by_filename and path not in contig_index_by_filename:
+                    raise ValueError(
+                        f"Backbone {path} of the scheduler output cannot be matched to any of the custom "
+                        f"backbones of the workflow: {', '.join(sorted(contig_index_by_filename))}"
+                    )
+                contig_idx = contig_index_by_filename.get(path, 0)
+                backbone_numbers[contig_idx] += 1
                 full_path = f"contig1_batch{batch_number}/custom_backbones/{path}"
-                source_backbone_paths.append((0, f"contig1_batch{batch_number}", backbone_number, full_path))
-                backbone_number += 1
+                source_backbone_paths.append(
+                    (contig_idx, f"contig1_batch{batch_number}", backbone_numbers[contig_idx], full_path)
+                )
             batch_number += 1
         if not source_backbone_paths:
             raise ValueError(
@@ -410,12 +430,18 @@ def process_rfdiffusion_design(
 
 
 def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: str) -> dict:
-    # prepare pdb file or txt file with multiple pdb paths
-    workflow_input_path = storage.prepare_workflow_inputs(workflow.rfdiffusion_params.input_pdb_paths, workdir=workdir)
     design_type = workflow.get_refolding_design_type()
+    # Custom binder backbones are the input structures themselves, and the pipeline only uses the
+    # input structure as the native structure of scaffold refolding, so none is submitted for those
+    submit_input_pdb = not (workflow.rfdiffusion_params.custom_backbones and design_type == "binder")
     params = {
         "batch_size": workflow.rfdiffusion_params.batch_size,
-        "rfdiffusion_input_pdb": workflow_input_path,
+        # pdb file or txt file with multiple pdb paths
+        "rfdiffusion_input_pdb": storage.prepare_workflow_inputs(
+            workflow.rfdiffusion_params.input_pdb_paths, workdir=workdir
+        )
+        if submit_input_pdb
+        else None,
         "backbone_generator": workflow.rfdiffusion_params.backbone_generator,
         "refolding_tests": workflow.refolding_params.primary_test,
         "refolding_chains": ",".join(workflow.get_refolding_designed_chains()),
@@ -424,8 +450,10 @@ def prepare_rfdiffusion_workflow_params(workflow: RFdiffusionWorkflow, workdir: 
     }
     if workflow.rfdiffusion_params.custom_backbones:
         params["custom_backbones"] = prepare_custom_backbones(
-            custom_backbones=str(workflow.rfdiffusion_params.custom_backbones),
+            custom_backbones=workflow.rfdiffusion_params.custom_backbones,
             workdir=workdir,
+            design_type=design_type,
+            contigs=workflow.rfdiffusion_params.contigs,
         )
     else:
         params["rfdiffusion_num_designs"] = workflow.rfdiffusion_params.num_designs
@@ -559,27 +587,100 @@ def get_rfdiffusion_run_parameters(
     return args
 
 
-def prepare_custom_backbones(custom_backbones: str, workdir: str) -> str:
-    """Prepare custom backbone input for RFdiffusion workflow"""
-    if custom_backbones.endswith(".zip"):
+def prepare_custom_backbones(
+    custom_backbones: str | list[str], workdir: str, design_type: str = None, contigs: list[str] = None
+) -> str:
+    """Prepare custom backbone input for RFdiffusion workflow
+
+    :param custom_backbones: .zip file, directory, or list of .pdb files in storage
+    :param workdir: working directory of the scheduler
+    :param design_type: design type of the workflow, see
+        :meth:`RFdiffusionWorkflow.get_refolding_design_type`
+    :param contigs: one contig per custom backbone, required for binder design - the backbones are
+        zipped with a REMARK header rewritten from these contigs, which is what tells the sequence
+        design pipeline (see ``prepare_json.py``) which residues to redesign
+    :return: path of the prepared pipeline input (.zip, .txt or .pdb)
+    """
+    if isinstance(custom_backbones, str) and custom_backbones.endswith(".zip"):
+        # The remarks of a zipped input are used as they are, rewriting them would mean repacking it
         return storage.prepare_workflow_input(custom_backbones, workdir=workdir)
+
+    if isinstance(custom_backbones, list):
+        # Not filtered, each backbone of a binder design is paired with its contig by position
+        if not all(path.endswith(".pdb") for path in custom_backbones):
+            raise ValueError(f"Expected only .pdb files in custom_backbones, got: {', '.join(custom_backbones)}")
+        custom_backbone_paths = custom_backbones
     else:
         custom_dir = storage.resolve_path(custom_backbones)
         custom_backbone_paths = [
             os.path.join(custom_dir, path) for path in storage.list_dir(custom_dir) if path.endswith(".pdb")
         ]
-        if not custom_backbone_paths:
-            raise ValueError(f"No .pdb files found in custom_backbones: {custom_backbones}")
-        example_pdb_data = storage.read_file_str(custom_backbone_paths[0])
-        remarks = get_standardized_remarks_from_pdb_str(example_pdb_data)
-        if not remarks or not remarks.get("Standardized contig") or not remarks.get("Chains"):
-            raise ValueError(
-                f"Custom backbone pdb files for scaffold design must have standardized REMARK with contig and chain information, "
-                f"required remarks not found in {custom_backbone_paths[0]}. Please add these to the top or bottom of your PDB file:\n"
-                'REMARK   1 Standardized contig: "A123-456/10-10/A456-789"\n'
-                'REMARK   1 Chains: "A"     \n'
-            )
-        return storage.prepare_workflow_inputs(
-            storage_paths=custom_backbone_paths,
-            workdir=workdir,
+    if not custom_backbone_paths:
+        raise ValueError(f"No .pdb files found in custom_backbones: {custom_backbones}")
+
+    if design_type == "binder":
+        return prepare_custom_binder_backbones(custom_backbone_paths, workdir=workdir, contigs=contigs)
+
+    example_pdb_data = storage.read_file_str(custom_backbone_paths[0])
+    remarks = get_standardized_remarks_from_pdb_str(example_pdb_data)
+    if not remarks or not remarks.get("Standardized contig") or not remarks.get("Chains"):
+        raise ValueError(
+            f"Custom backbone pdb files for scaffold design must have standardized REMARK with contig and chain information, "
+            f"required remarks not found in {custom_backbone_paths[0]}. Please add these to the top or bottom of your PDB file:\n"
+            'REMARK   1 Standardized contig: "A123-456/10-10/A456-789"\n'
+            'REMARK   1 Chains: "A"     \n'
         )
+    return storage.prepare_workflow_inputs(
+        storage_paths=custom_backbone_paths,
+        workdir=workdir,
+    )
+
+
+def prepare_custom_binder_backbones(custom_backbone_paths: list[str], workdir: str, contigs: list[str]) -> str:
+    """Zip custom binder backbones with the REMARK header of their contig, see
+    :func:`prepare_custom_backbones`.
+
+    Each backbone is an existing binder-target complex, so the remarks it carries describe the
+    design it came from, not the residues to redesign now - they are replaced, see
+    :func:`replace_standardized_remarks_in_pdb_str`. That includes the labels of the residues kept
+    fixed, which the ProteinMPNN-FastRelax protocol reads instead of the contig.
+
+    :param custom_backbone_paths: paths of the backbone .pdb files in storage
+    :param workdir: working directory of the scheduler
+    :param contigs: one contig per custom backbone
+    :return: path of the prepared .zip file
+    """
+    if not contigs or len(contigs) != len(custom_backbone_paths):
+        raise ValueError(
+            f"Expected one contig for each custom backbone of a binder design, got {len(contigs or [])} "
+            f"contigs for {len(custom_backbone_paths)} backbones"
+        )
+    filenames = [os.path.basename(path) for path in custom_backbone_paths]
+    if len(set(filenames)) != len(filenames):
+        raise ValueError(f"Custom backbones must have unique filenames, got: {', '.join(sorted(filenames))}")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+        for filename, path, contig in zip(filenames, custom_backbone_paths, contigs):
+            zip_file.writestr(
+                filename,
+                replace_standardized_remarks_in_pdb_str(
+                    storage.read_file_str(path),
+                    contig=contig,
+                    fixed_residues=get_fixed_binder_residues(contig),
+                ),
+            )
+    return storage.prepare_workflow_input(
+        storage_path="custom_backbones.zip", workdir=workdir, input_bytes=zip_buffer.getvalue()
+    )
+
+
+def get_fixed_binder_residues(contig: str) -> list[int]:
+    """Get the binder residues of a contig that are not redesigned, in binder chain numbering.
+
+    :param contig: contig with the binder as its first chunk, e.g. "1-1/A2-2/5-5/A8-12/0 B20-130"
+    :return: residue numbers of the binder that keep their sequence, starting at one
+    """
+    binder_length, designed_segments = parse_partial_diffusion_binder_contig(contig.split()[0].removesuffix("/0"))
+    designed_residues = set(from_contig_to_residues("/".join(designed_segments)) or [])
+    return [residue for residue in range(1, binder_length + 1) if residue not in designed_residues]

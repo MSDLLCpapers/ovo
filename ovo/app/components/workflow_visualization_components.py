@@ -832,9 +832,13 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         .dropna()
         .to_dict()
     )
-    input_pdb_path = workflow.get_input_pdb_path(design.contig_index)
+    try:
+        input_pdb_path = workflow.get_input_pdb_path(design.contig_index)
 
-    st.write(f"**Input structure:** {os.path.basename(input_pdb_path)}")
+        st.write(f"**Input structure:** {os.path.basename(input_pdb_path)}")
+    except IndexError:
+        st.warning("No input structure available for this design.")
+        input_pdb_path = None
 
     show_design_metrics(
         design_id,
@@ -973,7 +977,7 @@ def rfdiffusion_binder_design_visualization(design_id: str):
         middle, right = left, middle
 
     with left:
-        if not is_binder_alone:
+        if not is_binder_alone and input_pdb_path:
             st.write("##### Input structure aligned to prediction")
 
             input_pdb_str = storage.read_file_str(input_pdb_path)

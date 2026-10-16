@@ -170,3 +170,66 @@ def test_rfdiffusion_unindexed_valid():
         rfd3_unindex="A200,A244",
     )
     workflow.rfdiffusion_params.validate()
+
+
+def _make_partial_diffusion_workflow(input_pdb_paths: list[str], contigs: list[str]):
+    return RFdiffusionBinderDesignWorkflow(
+        rfdiffusion_params=RFdiffusionParams(
+            input_pdb_paths=input_pdb_paths,
+            contigs=contigs,
+            partial_diffusion=True,
+            timesteps=20,
+            num_designs=1,
+        ),
+        protein_mpnn_params=ProteinMPNNParams(num_sequences=1, sampling_temp=0.01),
+        refolding_params=RefoldingParams(primary_test="esmfold"),
+    )
+
+
+def test_split_contig_recognizes_the_binder_in_either_order():
+    """The binder is the generated part of the contig, whichever side of the chain break it is on."""
+    de_novo = RFdiffusionBinderDesignWorkflow(
+        rfdiffusion_params=RFdiffusionParams(contigs=["A123-456/0 20-40"], partial_diffusion=False)
+    )
+    assert de_novo.split_contig() == ("20-40", "A123-456")
+
+    partial = _make_partial_diffusion_workflow(["one.pdb"], ["5-5/A6-20/0 B20-130"])
+    assert partial.split_contig() == ("5-5/A6-20", "B20-130")
+
+
+def test_partial_diffusion_selection_can_be_emptied_and_set_again():
+    """Deselecting every residue keeps the whole binder fixed, which is still read back as chain A."""
+    workflow = _make_partial_diffusion_workflow(["one.pdb"], ["12-12/0 B20-130"])
+    assert workflow.get_selected_segments(contig_index=0, partial_diffusion=True) == ["A1-12"]
+
+    workflow.set_selected_segments([], contig_index=0, partial_diffusion=True)
+    assert workflow.rfdiffusion_params.contigs == ["A1-12/0 B20-130"]
+    assert workflow.split_contig() == ("A1-12", "B20-130")
+    assert workflow.get_selected_segments(contig_index=0, partial_diffusion=True) == []
+
+    workflow.set_selected_segments(["A3-7"], contig_index=0, partial_diffusion=True)
+    assert workflow.get_selected_segments(contig_index=0, partial_diffusion=True) == ["A3-7"]
+
+
+def test_drop_skipped_inputs_leaves_out_the_inputs_without_a_selection():
+    """An input with nothing to redesign is left out of the submission, without changing the workflow."""
+    workflow = _make_partial_diffusion_workflow(
+        ["one.pdb", "two.pdb", "three.pdb"],
+        ["12-12/0 B20-130", "A1-15/0 B20-130", "5-5/A6-20/0 B20-130"],
+    )
+    assert workflow.get_skipped_contig_indexes() == [1]
+
+    submitted = workflow.drop_skipped_inputs()
+    assert submitted.rfdiffusion_params.input_pdb_paths == ["one.pdb", "three.pdb"]
+    assert submitted.rfdiffusion_params.contigs == ["12-12/0 B20-130", "5-5/A6-20/0 B20-130"]
+    assert len(workflow.rfdiffusion_params.contigs) == 3, "The workflow of the page keeps every input"
+    assert submitted.drop_skipped_inputs() is submitted, "Nothing to skip, so no copy is made"
+
+
+def test_drop_skipped_inputs_keeps_a_shared_input():
+    """A workflow with several contigs for a single input keeps that input, see get_input_pdb_path."""
+    workflow = _make_partial_diffusion_workflow(["one.pdb"], ["12-12/0 B20-130", "A1-15/0 B20-130"])
+
+    submitted = workflow.drop_skipped_inputs()
+    assert submitted.rfdiffusion_params.input_pdb_paths == ["one.pdb"]
+    assert submitted.rfdiffusion_params.contigs == ["12-12/0 B20-130"]

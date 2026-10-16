@@ -103,7 +103,9 @@ class BindCraftBinderDesignWorkflow(DesignWorkflow, RefoldingSupportedDesignWork
     def get_input_pdb_paths(self):
         return [self.get_input_pdb_path()]
 
-    def get_input_pdb_path(self):
+    def get_input_pdb_path(self, contig_index: int = 0):
+        if contig_index != 0:
+            raise ValueError("BindCraft1 expects one input pdb")
         return self.bindcraft_params.input_pdb_path
 
     def get_selected_segments(self):
