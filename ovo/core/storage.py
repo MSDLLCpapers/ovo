@@ -568,6 +568,7 @@ class Storage:
         file_bytes: bytes = None,
         file_str: str = None,
         filename: str = None,
+        overwrite: bool = True,
     ) -> str:
         """Store the file string in the source filesystem or source S3 bucket
 
@@ -576,6 +577,9 @@ class Storage:
         :param file_bytes: file bytes to store (when loading from bytes)
         :param file_str: file string to store (when loading from string)
         :param filename: filename to use when storing the file (required when loading from bytes or string)
+        :param overwrite: if False, a file already stored under the destination path is left alone.
+            The destination is derived from a hash of the content, so a file that is already there is
+            the same file - pass False to make storing the same input again a no-op.
         """
         if file_path:
             assert file_bytes is None and file_str is None, "Provide only one of file_path, file_bytes, or file_str"
@@ -591,7 +595,7 @@ class Storage:
             assert filename is not None, "filename must be provided when loading from string"
             file_bytes = file_str.encode()
         storage_rel_path = os.path.join(self.get_project_path(project_id, input_bytes=file_bytes), filename)
-        return self.store_file_bytes(file_bytes, storage_rel_path)
+        return self.store_file_bytes(file_bytes, storage_rel_path, overwrite=overwrite)
 
     def create_zip(self, storage_paths_by_dir: dict[str, list[str]] | list[str], flatten: bool = False) -> bytes:
         """Create zip file

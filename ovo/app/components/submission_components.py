@@ -118,21 +118,50 @@ def shorten_absolute_file_paths(v, max_length=40):
     return truncate_middle(v, max_length)
 
 
-def format_param_values(values: pd.Series) -> pd.Series:
+@st.cache_data(max_entries=1000, show_spinner=False)
+def get_cached_param_values(workflow: Workflow, name: str) -> pd.Series:
+    try:
+        default_workflow = workflow.__class__()
+    except Exception as e:
+        print(e)
+        default_workflow = None
+    return format_param_values(
+        values=workflow.get_table_row(name=name),
+        default_values=default_workflow.get_table_row(name=name) if default_workflow else None,
+    )
+
+
+def format_param_values(values: pd.Series, default_values: pd.Series | None = None) -> pd.Series:
     """Format a workflow's table row for display: lists joined, long paths shortened, empties dropped.
 
     Split out of :func:`format_param_table` so a caller reviewing many workflows can format their
-    values once and only re-attach the pool name and description, which change on every rerun.
+    values once (see :func:`get_cached_param_values`) and only re-attach the pool name and
+    description, which change on every rerun.
     """
-    # concatenate list values into comma-separated strings
-    values = values.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
-    # shorten long file paths to /path/to/.../filename.ext
-    values = values.apply(shorten_absolute_file_paths)
+    values = format_values_for_display(values)
     # remove empty values
     values = values[~values.isnull() & (values != "")]
+    # add (default) prefix for values that match the default
+    if default_values is not None:
+        # Formatted the same way, so that a list or a shortened path can match its default as well
+        default_dict = format_values_for_display(default_values).to_dict()
+        for k, v in values.items():
+            if k in [("Workflow", "type")]:
+                # avoid marking workflow type as default value
+                continue
+            if k in default_dict and v == default_dict[k]:
+                values[k] = f":grey[{v} (default)]"
     # add index names
     values.index.names = ("Category", "Parameter")
     return values
+
+
+def format_values_for_display(values: pd.Series) -> pd.Series:
+    """Format the values of a workflow's table row: lists joined, long file paths shortened."""
+    # concatenate list values into comma-separated strings
+    values = values.apply(lambda v: ", ".join(map(str, v)) if isinstance(v, list) else v)
+    # shorten long file paths to /path/to/.../filename.ext
+    return values.apply(shorten_absolute_file_paths)
 
 
 def format_param_table(
@@ -141,16 +170,11 @@ def format_param_table(
     pool_name: str,
     pool_description: str | None,
     values: pd.Series,
-    format_values: bool = True,
 ):
     """Return the review table column of one workflow: where it is submitted, then its parameters.
 
-    :param values: The workflow's table row, formatted by :func:`format_param_values` unless
-        ``format_values`` is False (pass False if it was formatted already)
+    :param values: The workflow's formatted table row, see :func:`get_cached_param_values`
     """
-    if format_values:
-        values = format_param_values(values)
-
     return pd.concat(
         [
             pd.Series(
@@ -203,7 +227,7 @@ def review_workflow_submission(page_key: str, workflow: Workflow = None):
             round_name=project_round.name,
             pool_name=pool_name,
             pool_description=pool_description,
-            values=workflow.get_table_row(name="Value"),
+            values=get_cached_param_values(workflow, name="Value"),
         ),
         width="content",
     )

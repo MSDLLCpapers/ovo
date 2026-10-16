@@ -1,6 +1,6 @@
 import enum
 import json
-from dataclasses import is_dataclass, asdict
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 
 import pandas as pd
@@ -8,7 +8,14 @@ from sqlalchemy import TypeDecorator, String
 
 
 class DataclassEncoder(json.JSONEncoder):
-    """Simple JSON encoder that encodes dataclasses and enums."""
+    """Simple JSON encoder that encodes dataclasses and enums.
+
+    Dataclass fields are serialized in the order the dataclass declares them, except for the names
+    a class lists in ``__serialize_last__``, which go last. Declared once on a base class and
+    inherited, since a field declared on a base class otherwise comes before every field of its
+    subclasses - which puts a long shared field such as ``DesignWorkflow.acceptance_thresholds``
+    above the parameters that identify the workflow.
+    """
 
     def default(self, o):
         if hasattr(o, "__serialize_field__") and o.__serialize_field__:
@@ -19,7 +26,12 @@ class DataclassEncoder(json.JSONEncoder):
             # numpy scalars), which fails when saving to the Postgres DB
             return json.loads(o.to_json(orient="records", date_format="iso"))
         if is_dataclass(o):
-            return asdict(o)
+            # The field values are returned as they are, rather than converted by dataclasses.asdict,
+            # so that json recurses back into this method for each nested dataclass and orders its
+            # fields the same way
+            serialize_last = getattr(o, "__serialize_last__", ())
+            ordered = sorted(fields(o), key=lambda f: f.name in serialize_last)
+            return {f.name: getattr(o, f.name) for f in ordered}
         if isinstance(o, enum.Enum):
             return o.value
         if isinstance(o, Path):

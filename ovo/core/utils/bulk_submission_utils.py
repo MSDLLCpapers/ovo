@@ -219,6 +219,21 @@ def replace_storage_paths(workflows: list, path_mapping: dict[str, str]) -> None
             _set_storage_path_value(wf, dotted, value, path_mapping[value])
 
 
+def replace_config_values(config_dict, path_mapping: dict[str, str]):
+    """Return a copy of a bulk submission config with every string value found in path_mapping replaced.
+
+    The config counterpart of :func:`replace_storage_paths`, for a config that is not expanded yet -
+    it walks the plain data, so paths inside a grid or a list are replaced too.
+    """
+    if isinstance(config_dict, dict):
+        return {k: replace_config_values(v, path_mapping) for k, v in config_dict.items()}
+    if isinstance(config_dict, list):
+        return [replace_config_values(v, path_mapping) for v in config_dict]
+    if isinstance(config_dict, str):
+        return path_mapping.get(config_dict, config_dict)
+    return config_dict
+
+
 def match_uploaded_file(path: str, uploaded_files: dict[str, bytes] = None) -> str | None:
     """Return the uploaded_files key holding the file for path, or None if there is no match.
 

@@ -1,6 +1,6 @@
 import streamlit as st
 
-from ovo import db, Pool, Design, WorkflowTypes, Threshold
+from ovo import db, Pool, Design, Threshold
 from ovo.app.components.acceptance_thresholds_components import (
     thresholds_and_histograms_component,
     accept_designs_dialog,
@@ -21,6 +21,7 @@ from ovo.app.components.parallel_coordinates_component import (
     parallel_coordinates_plot_component,
 )
 from ovo.app.components.pool_components import pool_actions_menu
+from ovo.app.components.workflow_summary import show_workflow_summary
 from ovo.app.components.workflow_visualization_components import show_designs_fragment
 from ovo.app.utils.cached_db import (
     get_cached_pools,
@@ -420,18 +421,3 @@ def show_all_designs(all_design_ids: list):
     if len(displayed_design_ids) > 1:
         design_labeling_fragment(displayed_design_ids, key_suffix="jobs_bulk", show_header=True, header=header)
     return displayed_design_ids
-
-
-def show_workflow_summary(jobs: list[DesignJob]):
-    unique_workflow_names = set(job.workflow.name for job in jobs if job.workflow)
-    for workflow_name in unique_workflow_names:
-        WorkflowType = WorkflowTypes.get(workflow_name)
-        if len(unique_workflow_names) > 1:
-            st.write(f"### Workflow: {workflow_name}")
-
-        try:
-            WorkflowType.visualize_summary(
-                jobs=[job for job in jobs if job.workflow and job.workflow.name == workflow_name]
-            )
-        except NotImplementedError as e:
-            st.error(e)

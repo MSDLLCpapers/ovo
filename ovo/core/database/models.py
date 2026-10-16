@@ -305,10 +305,12 @@ class Workflow:
                     # instantiate params dataclasses from dicts
                     data[field_name] = type(empty_params).from_dict(data[field_name])
 
-            # convert all thresholds to Threshold objects
+            # convert all thresholds to Threshold objects, in a new dict - the copy above is shallow,
+            # so writing them into this one would turn the thresholds of the caller's dict into objects
             if "acceptance_thresholds" in data:
-                for key, value in data["acceptance_thresholds"].items():
-                    data["acceptance_thresholds"][key] = Threshold(**value)
+                data["acceptance_thresholds"] = {
+                    key: Threshold(**value) for key, value in data["acceptance_thresholds"].items()
+                }
 
             return subclass(**{k: v for k, v in data.items() if k not in ("name",)})
         except Exception as e:
@@ -507,6 +509,11 @@ class AlignmentOption:
 
 @dataclass
 class DesignWorkflow(Workflow):
+    # Serialized after the fields of the subclasses, so that the long shared acceptance_thresholds
+    # does not bury the parameters that identify the workflow in an exported config.
+    # Not annotated, so that the dataclass does not take it for a field (same as __serialize_field__).
+    __serialize_last__ = ["acceptance_thresholds"]
+
     # acceptance threshold values (descriptor key -> interval (min, max, enabled))
     acceptance_thresholds: dict[str, Threshold] = field(default_factory=dict)
 
@@ -1032,6 +1039,42 @@ class JobReportArtifact(Artifact):
         return [p for p in [self.report_path, self.timeline_path, self.workflow_dag_path] if p is not None]
 
 
+@ArtifactTypes.register()
+@dataclass
+class BulkSubmissionDraftArtifact(Artifact):
+    """A bulk submission saved under a persistent link, and the jobs it was eventually submitted as.
+
+    Saved unsubmitted - by the "Save link" button of the Bulk submission page, or by an agent
+    preparing a submission for a user to confirm - and updated in place once someone opens the link
+    and submits it, so ``submitted_by`` tells a draft apart from one that has already been acted on.
+
+    The config is stored with every input path already resolved into storage (see
+    :func:`~ovo.core.logic.bulk_submission_logic.save_bulk_submission_draft`), so the draft does not depend
+    on the files uploaded in the session that created it.
+    """
+
+    config: dict  # config dict with the input paths resolved into storage, grids unexpanded before submission, expanded after submission
+    input_paths: list[str]  # the storage paths the config references, see get_storage_paths
+    round_id: str | None  # round to submit into, preselected but still editable when submitting
+    pool_name_prefix: str = ""
+    pool_description_prefix: str = ""
+    scheduler_key: str | None = None
+    note: str | None = None  # why this submission is proposed, shown to whoever opens the link
+
+    # All filled in on submission, empty until then. The pools the jobs created are not stored here,
+    # they are a db.select(Pool, design_job_id__in=design_job_ids) away
+    submitted_by: str | None = None
+    design_job_ids: list[str] = field(default_factory=list)
+    submission_errors: list[str] = field(default_factory=list)
+
+    def is_submitted(self) -> bool:
+        """Whether this draft has been submitted, even if some of its workflows then failed."""
+        return self.submitted_by is not None
+
+    def get_storage_paths(self) -> list[str]:
+        return self.input_paths
+
+
 class ProjectArtifact(Base, MetadataMixin):
     __tablename__ = "project_artifact"
     id: Mapped[str] = mapped_column(String, primary_key=True, default_factory=lambda: str(uuid.uuid4()))
@@ -1264,4 +1307,5 @@ __all__ = [
     "ProjectArtifact",
     "AttachmentArtifact",
     "JobReportArtifact",
+    "BulkSubmissionDraftArtifact",
 ]

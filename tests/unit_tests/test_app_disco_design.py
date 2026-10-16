@@ -26,7 +26,9 @@ class TestDiscoDesign:
 
         # Settings tab: create a round so a pool can be submitted
         show_test_dialog(at, "create_round")
-        at.text_input("round_name").set_value("DISCO round")
+        # Run after typing the name, the Create round button is disabled while the name is empty -
+        # which it is whenever the last round of the project is not named "<something> <number>"
+        at.text_input("round_name").set_value("DISCO round").run(timeout=TIMEOUT)
         at.button("create_round").click().run(timeout=TIMEOUT)
 
         pool_name = "DISCO CCD test"

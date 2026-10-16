@@ -14,6 +14,7 @@ from ovo.app.utils.cached_db import (
 )
 from ovo.core.database import (
     Design,
+    WorkflowTypes,
     descriptors_rfdiffusion,
     descriptors_refolding,
 )
@@ -25,6 +26,33 @@ from ovo.core.utils.residue_selection import (
     from_hotspots_to_segments,
     ContigSegment,
 )
+
+
+# Set once the user asks to see the whole summary, see iterate_shown_items
+SHOW_ALL_SUMMARY_KEY = "show_all_workflow_summary"
+
+
+def show_workflow_summary(jobs: list[DesignJob]):
+    """Show the summary of each workflow type among the given jobs, grouped by their inputs.
+
+    The jobs do not have to be submitted yet: an unsaved job has no pool, so the summary of a
+    submission that is still being reviewed leaves out the design counts and the job links, see
+    :func:`get_subjob_table`.
+
+    Only the first workflow type is shown, and within it only its first group of jobs, until the
+    user asks for all of them - see :func:`iterate_shown_items`.
+    """
+    workflow_names = sorted(set(job.workflow.name for job in jobs if job.workflow))
+    for _, workflow_name in iterate_shown_items(workflow_names, noun="workflow", button_key="workflows"):
+        WorkflowType = WorkflowTypes.get(workflow_name)
+        st.write(f"#### {workflow_name}")
+
+        try:
+            WorkflowType.visualize_summary(
+                jobs=[job for job in jobs if job.workflow and job.workflow.name == workflow_name]
+            )
+        except NotImplementedError as e:
+            st.error(e)
 
 
 @st.fragment
@@ -59,15 +87,16 @@ def rfdiffusion_scaffold_workflow_summary(jobs: list[DesignJob]):
     )
     key = "_".join([job.id for job in jobs])
 
-    for i, ((input_or_partial, fixed_segments), group_subjobs) in enumerate(group_subjobs_by_key(jobs, groupby)):
-        group_subjobs = list(group_subjobs)
+    groups = group_subjobs_by_key(jobs, groupby)
+    shown_groups = iterate_shown_items(groups, noun="group", button_key=f"groups_{key}")
+    for i, ((input_or_partial, fixed_segments), group_subjobs) in shown_groups:
         if input_or_partial == "partial":
             title = "Partial diffusion"
         else:
             title = os.path.basename(input_or_partial)
         title += f", fixed segments: {fixed_segments}"
 
-        st.write(f"#### {title}")
+        st.write(f"##### {title}")
         show_subjob_table(group_subjobs, accepted_designs_by_pool, total_designs_by_pool)
 
         target_chains = [s[0] for s in fixed_segments.split("/") if s]
@@ -87,7 +116,7 @@ def rfdiffusion_scaffold_workflow_summary(jobs: list[DesignJob]):
                 height=450,
             )
         with right:
-            st.write("##### Input motif")
+            st.write("###### Input motif")
             viz.molstar(
                 viz.StructureVisualization(
                     data=filter_pdb_str(storage.read_file_str(input_path), fixed_segments.split("/"), add_ter=True),
@@ -97,7 +126,8 @@ def rfdiffusion_scaffold_workflow_summary(jobs: list[DesignJob]):
                 key=f"structure_motif_{key}_{i}",
                 height=450,
             )
-        st.divider()
+        if i < len(groups) - 1:
+            st.divider()
 
 
 @st.fragment
@@ -105,7 +135,7 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
     if len(jobs) > 1:
         st.write(
             "This section shows jobs in groups. Each group uses the same input structure, "
-            "target chain and trim region, and hotspot."
+            "target chain, trim region, and hotspot."
         )
 
     def groupby(subjob):
@@ -124,10 +154,9 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
     )
     key = "_".join([job.id for job in jobs])
 
-    for i, ((input_or_partial, target_contig, hotspots), group_subjobs) in enumerate(
-        group_subjobs_by_key(jobs, groupby)
-    ):
-        group_subjobs = list(group_subjobs)
+    groups = group_subjobs_by_key(jobs, groupby)
+    shown_groups = iterate_shown_items(groups, noun="group", button_key=f"groups_{key}")
+    for i, ((input_or_partial, target_contig, hotspots), group_subjobs) in shown_groups:
         if input_or_partial == "partial":
             title = "Partial diffusion"
         else:
@@ -135,7 +164,7 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
 
         title += f", region: {target_contig}, hotspots: {hotspots}"
 
-        st.write(f"#### {title}")
+        st.write(f"##### {title}")
         show_subjob_table(group_subjobs, accepted_designs_by_pool, total_designs_by_pool)
 
         input_path = subjob_input_selectbox(
@@ -156,8 +185,12 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
             width=700,
         )
         if not any(j.job_result for j, _, _ in group_subjobs):
-            st.write("No results yet.")
-            st.divider()
+            # A job without a pool is not submitted yet (see show_workflow_summary), so saying that
+            # it has no results would only be confusing while its submission is being reviewed
+            if any(pool is not None for _, pool, _ in group_subjobs):
+                st.write("No results yet.")
+            if i < len(groups) - 1:
+                st.divider()
             continue
 
         for method, color, descriptor in [
@@ -165,7 +198,7 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
             ["AlphaFold2 refolding predicted", "red", descriptors_refolding.AF2_PRIMARY_INTERFACE_TARGET_RESIDUES],
             # TODO include Boltz-2 once the descriptor is available for Boltz-2 results
         ]:
-            st.write(f"#### {method} binding sites")
+            st.write(f"##### {method} binding sites")
             st.write(f"Most common binding sites shown in :{color}[{color}] - {descriptor.description}")
             target_chain_ids = sorted(set(s[0] for s in target_contig.split("/")))
             assert len(target_chain_ids) == 1, (
@@ -173,7 +206,7 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
             )
             for accepted, col in zip([None, True], st.columns(2, gap="medium")):
                 with col:
-                    st.write("##### Accepted designs" if accepted else "##### All designs")
+                    st.write("###### Accepted designs" if accepted else "###### All designs")
                     interface_residue_stats = get_cached_interface_residue_stats(
                         group_subjobs=group_subjobs,
                         accepted=accepted,
@@ -220,7 +253,8 @@ def rfdiffusion_binder_design_workflow_summary(jobs: list[DesignJob]):
                             f"Found {len(binding_residues)} most frequent "
                             f"binding residues: :{color}-badge[{f'] :{color}-badge['.join(binding_residues)}]"
                         )
-        st.divider()
+        if i < len(groups) - 1:
+            st.divider()
 
 
 @st.fragment
@@ -245,13 +279,13 @@ def bindcraft_workflow_summary(jobs: list[DesignJob]):
     )
     key = "_".join([job.id for job in jobs])
 
-    for i, ((input_path, target_chains, hotspots), group_subjobs) in enumerate(group_subjobs_by_key(jobs, groupby)):
-        group_subjobs = list(group_subjobs)
+    groups = group_subjobs_by_key(jobs, groupby)
+    shown_groups = iterate_shown_items(groups, noun="group", button_key=f"groups_{key}")
+    for i, ((input_path, target_chains, hotspots), group_subjobs) in shown_groups:
         title = f"{os.path.basename(input_path)} chain {target_chains}, hotspots: {hotspots}"
 
-        st.write(f"#### {title}")
+        st.write(f"##### {title}")
         show_subjob_table(group_subjobs, accepted_designs_by_pool, total_designs_by_pool)
-
         viz.molstar(
             viz.StructureVisualization(
                 data=filter_pdb_str(storage.read_file_str(input_path), target_chains.split(",")),
@@ -264,7 +298,8 @@ def bindcraft_workflow_summary(jobs: list[DesignJob]):
             width=700,
         )
         # TODO visualize interface residues - these are not produced by BindCraft currently
-        st.divider()
+        if i < len(groups) - 1:
+            st.divider()
 
 
 @st.cache_data(max_entries=10)
@@ -327,16 +362,56 @@ def group_subjobs_by_key(jobs: list[DesignJob], key: Callable):
     pools_by_job_id = {pool.design_job_id: pool for pool in pools}
 
     # we split a job into multiple subjobs in case it has multiple PDB inputs or multiple contigs
-    subjobs: list[tuple[DesignJob, Pool, int]] = []
+    subjobs: list[tuple[DesignJob, Pool | None, int]] = []
     for job in jobs:
         for contig_index in job.workflow.get_contig_indexes():
-            subjobs.append((job, pools_by_job_id[job.id], contig_index))
+            # The pool is None for a job that is not submitted yet, see show_workflow_summary
+            subjobs.append((job, pools_by_job_id.get(job.id), contig_index))
 
     group_sizes = pd.Series(key(subjob) for subjob in subjobs).value_counts().to_dict()
     # sort subjobs by their group size (largest first), then by the key (to group them consecutively)
     subjobs = sorted(subjobs, key=lambda subjob: (group_sizes[key(subjob)], key(subjob)), reverse=True)
 
-    return itertools.groupby(subjobs, key=key)
+    # Materialized rather than returned as the groupby iterator, so that the caller knows how many
+    # groups there are - e.g. to leave out the divider after the last one
+    return [(group_key, list(group_subjobs)) for group_key, group_subjobs in itertools.groupby(subjobs, key=key)]
+
+
+def iterate_shown_items(items: list, noun: str, button_key: str, limit: int = 10):
+    """Yield the items of one summary section to show, hiding the rest behind a "Show all" button.
+
+    Only the very first item is shown until the user asks for all of them, the same way the job
+    detail page shows only the first job - the hidden items are not rendered at all, so their input
+    structures are not read from storage until they are asked for. Even then at most ``limit`` of
+    them are shown, as a large grid of workflows would take very long to visualize.
+
+    All the sections share one state, so a single "Show all" reveals the remaining workflow types as
+    well as the remaining groups within each of them.
+
+    :param noun: What the items are called in the messages about the ones that are not shown
+    :param button_key: Distinguishes this button from the "Show all" of another section
+    :param limit: How many items to show at most once the user asked for all of them
+    """
+    show_all = st.session_state.get(SHOW_ALL_SUMMARY_KEY)
+    num_shown = limit if show_all else 1
+
+    for i, item in enumerate(items[:num_shown]):
+        yield i, item
+
+    num_hidden = len(items) - num_shown
+    if num_hidden <= 0:
+        return
+
+    if show_all:
+        st.warning(f"Showing the first {num_shown} {noun}s, {num_hidden} remaining {noun}s not shown.")
+        return
+
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if st.button(":material/unfold_more: Show all", key=f"show_all_summary_{button_key}"):
+            st.session_state[SHOW_ALL_SUMMARY_KEY] = True
+            # The hidden items of the other sections are rendered outside of this fragment
+            st.rerun(scope="app")
+        st.write(f"1 more {noun} not shown" if num_hidden == 1 else f"{num_hidden} more {noun}s not shown")
 
 
 def subjob_input_selectbox(all_input_paths: list[str], key_suffix: str):
@@ -361,27 +436,40 @@ def subjob_input_selectbox(all_input_paths: list[str], key_suffix: str):
         )
     else:
         input_name = list(input_paths_by_name.keys())[0]
-        st.write(f"##### Input structure: {input_name}")
+        st.write(f"###### Input structure: {input_name}")
     return input_paths_by_name[input_name]
 
 
 def get_subjob_table(
-    group_subjobs: list[tuple[DesignJob, Pool, int]],
+    group_subjobs: list[tuple[DesignJob, Pool | None, int]],
     accepted_designs_by_pool,
     total_designs_by_pool,
 ):
+    """Return the table of the subjobs of one group, one row per subjob.
+
+    Subjobs whose pool does not exist yet (a draft submission that is still being reviewed, see
+    :func:`show_workflow_summary`) only get the columns that come from the workflow - their design
+    counts are all zero and their job link would lead nowhere.
+    """
+    is_draft = any(pool is None for job, pool, contig_index in group_subjobs)
+    project_rounds_by_id = (
+        {}
+        if is_draft
+        else {r.id: r for r in get_cached_rounds(id__in=[pool.round_id for job, pool, _ in group_subjobs])}
+    )
     rows = []
-    project_rounds = get_cached_rounds(id__in=[pool.round_id for job, pool, contig_index in group_subjobs])
-    project_rounds_by_id = {r.id: r for r in project_rounds}
     for job, pool, contig_index in group_subjobs:
-        accepted_designs = accepted_designs_by_pool.get((pool.id, contig_index), 0)
-        total_designs = total_designs_by_pool.get((pool.id, contig_index), 0)
         row = {}
         if isinstance(job.workflow, RFdiffusionWorkflow):
             if len(job.workflow.rfdiffusion_params.input_pdb_paths) > 1:
                 row["Input"] = os.path.basename(job.workflow.get_input_pdb_path(contig_index))
             elif len(job.workflow.rfdiffusion_params.contigs) > 1:
                 row["Contig"] = job.workflow.get_contig(contig_index)
+        if is_draft:
+            rows.append(row)
+            continue
+        accepted_designs = accepted_designs_by_pool.get((pool.id, contig_index), 0)
+        total_designs = total_designs_by_pool.get((pool.id, contig_index), 0)
         rows.append(
             {
                 **row,
@@ -394,12 +482,16 @@ def get_subjob_table(
         )
 
     table = pd.DataFrame(rows)
-    table.index = [pool.id for job, pool, contig_index in group_subjobs]
-    table.index.name = "Pool ID"
+    if not is_draft:
+        table.index = [pool.id for job, pool, contig_index in group_subjobs]
+        table.index.name = "Pool ID"
 
     return table
 
 
 def show_subjob_table(group_subjobs: list, accepted_designs_by_pool: dict, total_designs_by_pool: dict):
     table = get_subjob_table(group_subjobs, accepted_designs_by_pool, total_designs_by_pool)
+    if table.empty:
+        # A draft submission whose workflows have a single input and contig, nothing to show
+        return
     st.table(table, width="content")

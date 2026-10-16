@@ -10,6 +10,7 @@ from ovo.core.database.models import (
     Pool,
     ProjectArtifact,
     JobReportArtifact,
+    BulkSubmissionDraftArtifact,
     Round,
     Design,
     DesignJob,
@@ -313,6 +314,23 @@ def get_cached_workflow_pools_and_jobs(project_id: str, workflow_names: Collecti
         pools_by_id[pool.id] = pool
         jobs_by_id[job.id] = job
     return pools_by_id, jobs_by_id
+
+
+@clear_when_modified(ProjectArtifact)
+@st.cache_data(ttl="1m")
+def get_cached_bulk_submission_drafts(project_id: str) -> list[ProjectArtifact]:
+    """Get the saved bulk submission drafts of a project, newest first.
+
+    Only use these to list the drafts - load the one being submitted with db.get, as submitting it
+    mutates and saves the row (see
+    :func:`~ovo.core.logic.bulk_submission_logic.save_bulk_submission_results`).
+    """
+    return db.select(
+        ProjectArtifact,
+        project_id=project_id,
+        artifact_type=BulkSubmissionDraftArtifact.artifact_type,
+        order_by=ProjectArtifact.created_date_utc.desc(),
+    )
 
 
 @clear_when_modified(Labeling, DesignLabeling)

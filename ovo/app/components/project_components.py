@@ -11,22 +11,43 @@ from ovo.app.utils.cached_db import (
     get_cached_pools,
     get_cached_total_compute_hours,
 )
-from ovo.core.database.models import Design, Project, ProjectArtifact, JobReportArtifact
+from ovo.app.components.navigation import SUBMISSION_QUERY_PARAM
+from ovo.core.database.models import (
+    BulkSubmissionDraftArtifact,
+    Design,
+    Project,
+    ProjectArtifact,
+    JobReportArtifact,
+)
 from ovo.core.logic.project_logic import get_or_create_personal_project
 from ovo.core.logic.user_settings_logic import get_or_create_user_settings, update_last_project_id
 
 
 def get_query_arg_project() -> Project | None:
-    if project_id := st.query_params.get("project_id"):
+    if project_id := st.query_params.get("project_id") or get_submission_query_arg_project_id():
         if not config.auth.allow_private_project_link_access and project_id not in get_cached_project_ids_and_names(
             username=get_username()
         ):
             st.error(f"Project URL **{project_id}** not accessible, redirecting to last project.")
-            del st.query_params["project_id"]
+            st.query_params.pop("project_id", None)
             return None
         else:
             return db.get(Project, id=project_id)
     return None
+
+
+def get_submission_query_arg_project_id() -> str | None:
+    """Return the project of the bulk submission draft in the URL, if the URL names one.
+
+    So that a link to a draft only has to carry its ID - the draft knows which project it belongs
+    to, see :func:`~ovo.app.pages.bulk.bulk_submission.load_saved_submission`.
+    """
+    if not (submission_id := st.query_params.get(SUBMISSION_QUERY_PARAM)):
+        return None
+    project_ids = db.select_values(
+        ProjectArtifact, "project_id", id=submission_id, artifact_type=BulkSubmissionDraftArtifact.artifact_type
+    )
+    return project_ids[0] if project_ids else None
 
 
 def project_sidebar_component():

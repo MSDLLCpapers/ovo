@@ -6,7 +6,8 @@ Front-end agnostic — the Bulk Submission page (``ovo/app/pages/bulk/bulk_submi
 1. :func:`import_bulk_config` — config dict to a list of expanded :class:`BulkSubmission` records
 2. :func:`find_list_on_scalar_fields` — warn about a plain list where a grid was probably meant
 3. :func:`check_workflows_limit` — refuse a grid larger than the server allows
-4. :func:`resolve_input_paths` — get every referenced input file into storage
+4. :func:`resolve_input_paths` — get every referenced input file into storage and point the
+   workflows at it (:func:`prepare_input_files` only does the former, leaving the paths alone)
 5. :func:`validate_submissions` — check the pool names and workflows of the whole batch
 6. :func:`bulk_submit` — submit each workflow, collecting per-workflow errors
 
@@ -28,6 +29,10 @@ The web app also lets the user type a pool name and description prefix in the UI
 :func:`bulk_submit`'s ``pool_name_prefix`` and ``pool_description_prefix`` — they name and describe
 the pools of the submissions that the config did not, and prefix those that it did.
 
+A config can also be saved as a draft with :func:`save_bulk_submission_draft` and submitted later from its
+link, which is how an agent proposes a submission for a user to confirm — the jobs it is eventually
+submitted as are recorded back on the draft by :func:`save_bulk_submission_results`.
+
 :func:`export_bulk_config` is the inverse of step 1, used to re-export previously submitted
 workflows as a config dict — as YAML text via
 :func:`~ovo.core.utils.bulk_submission_utils.dump_bulk_config_yaml`, or as a ZIP with the input
@@ -43,8 +48,21 @@ import zipfile
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from ovo import config, db, storage
-from ovo.core.database.models import DesignJob, DesignWorkflow, Pool, UnknownWorkflow, Workflow, WorkflowTypes
+from ovo.core.auth import get_username
+from ovo.core.database.models import (
+    BulkSubmissionDraftArtifact,
+    DesignJob,
+    DesignWorkflow,
+    Pool,
+    ProjectArtifact,
+    Round,
+    UnknownWorkflow,
+    Workflow,
+    WorkflowTypes,
+)
 from ovo.core.logic.design_logic import submit_design_workflow
 from ovo.core.logic.import_export_logic import can_export_bulk_config, get_pools_filename_prefix
 from ovo.core.utils.bulk_submission_utils import (
@@ -56,6 +74,7 @@ from ovo.core.utils.bulk_submission_utils import (
     get_unique_storage_path_values,
     get_workflow_configs,
     match_uploaded_file,
+    replace_config_values,
     replace_storage_paths,
 )
 from ovo.core.utils.formatting import get_hashed_path_for_bytes
@@ -69,49 +88,34 @@ class BulkSubmission:
     :func:`bulk_submit`, which reports one :class:`BulkSubmissionResult` per submission.
 
     ``pool_name`` and ``pool_description`` hold what the config gave, under the same names as the
-    config keys (``None`` when it did not set them). The name and description actually submitted
-    under are derived on demand by :meth:`get_pool_name` and :meth:`get_pool_description`, so a
-    front-end can render them on every rerun without mutating anything.
-
-    ``combo_index`` and ``num_combos`` describe the position within the config entry this workflow was
-    expanded from, **not** within the whole submission, so the second entry of a config starts
-    counting its combos at 1 again.
+    config keys (``None`` when it did not set them), with the grid combo suffixes already appended by
+    :func:`import_bulk_config` - so an expanded config exported by :func:`export_bulk_config` reads
+    back into the same pools. The name and description actually submitted under are derived on demand
+    by :meth:`get_pool_name` and :meth:`get_pool_description`, so a front-end can render them on every
+    rerun without mutating anything.
     """
 
     workflow: DesignWorkflow
     pool_name: str | None = None  # pool name from the config, None if it did not name a pool
     pool_description: str | None = None
     combo: dict = field(default_factory=dict)  # {dotted param path: grid value}, empty without a grid
-    combo_index: int = 0  # index of this combo within the config entry it was expanded from
-    num_combos: int = 1  # number of combos that config entry expanded into
 
     def get_pool_name(self, prefix: str = "") -> str:
         """Return the pool name to submit under, built from prefix and the name from the config.
 
         A prefix (the web app's "Pool name prefix" input, nothing in the CLI) is joined to the
         config's pool name with a space, and names the pool on its own if the config did not.
-        A config entry expanded into a grid gets "Combo N" appended, so its pools stay
-        distinguishable in the round.
-
-        Returns "" if neither side named the pool, so a grid does not end up with pools named after
-        nothing but their combo number.
+        Returns "" if neither side named the pool.
         """
-        name = " ".join(part for part in (prefix, self.pool_name) if part)
-        if not name:
-            return ""
-        if self.num_combos > 1:
-            name = f"{name} Combo {self.combo_index + 1}"
-        return name
+        return " ".join(part for part in (prefix, self.pool_name) if part)
 
     def get_pool_description(self, prefix: str = "") -> str:
         """Return the pool description, built from prefix and the description from the config.
 
         Like :meth:`get_pool_name`, the prefix (the web app's description input) is joined to the
         config's description with a space, and describes the pool on its own if the config did not.
-        The grid combo values are appended, so each pool of a grid says which values it used.
         """
-        description = " ".join(part for part in (prefix, self.pool_description) if part)
-        return (description + format_combo_string(self.combo)).strip()
+        return " ".join(part for part in (prefix, self.pool_description) if part)
 
     @classmethod
     def get_pool_names(cls, submissions: list["BulkSubmission"], pool_name_prefix: str = "") -> list[str]:
@@ -159,9 +163,11 @@ def import_bulk_config(config_dict: dict) -> list[BulkSubmission]:
     Expects top-level key 'submissions', each entry pairing 'pool_name'/'pool_description' with the
     'workflow' to run (see the module docstring). Grid parameters (values of the form
     {grid: [v1, v2, ...]}) are expanded via Cartesian product across all grid fields of a workflow,
-    and the resulting pools are named "<pool_name> Combo N" (see
-    :meth:`BulkSubmission.get_pool_name`). A submission that
-    does not name its pool leaves that to the caller of :func:`bulk_submit`.
+    and the resulting pools are named "<pool_name> Combo N" (just "Combo N" if the config did not name
+    the pool, for a prefix given to :func:`bulk_submit` to precede), with the combo values appended to
+    their description. Combos are numbered within each config entry, so the second entry of a config
+    starts counting at 1 again. A submission without a grid that does not name its pool leaves that
+    to the caller of :func:`bulk_submit`.
 
     Uses Workflow.from_dict for deserialization — no custom subtype logic needed.
 
@@ -186,14 +192,17 @@ def import_bulk_config(config_dict: dict) -> list[BulkSubmission]:
             workflow = Workflow.from_dict(cfg)
             if workflow.is_instance(UnknownWorkflow):
                 raise ValueError(f"Invalid config for workflow '{cfg['name']}': {workflow.error}")
+            pool_name = submission_config.get("pool_name") or ""
+            pool_description = submission_config.get("pool_description") or ""
+            if len(expanded_configs) > 1:
+                pool_name = f"{pool_name} Combo {combo_index + 1}".strip()
+            pool_description = (pool_description + format_combo_string(combo)).strip()
             submissions.append(
                 BulkSubmission(
                     workflow=workflow,
-                    pool_name=submission_config.get("pool_name") or None,
-                    pool_description=submission_config.get("pool_description") or None,
+                    pool_name=pool_name or None,
+                    pool_description=pool_description or None,
                     combo=combo,
-                    combo_index=combo_index,
-                    num_combos=len(expanded_configs),
                 )
             )
 
@@ -211,7 +220,7 @@ def export_bulk_config(submissions: list[BulkSubmission]) -> dict:
     return {
         "submissions": [
             {
-                # The names as configured, without the grid combo suffix that submission adds
+                # Including the grid combo suffix, as the expanded config has no grid to number the pools by
                 "pool_name": s.pool_name or "",
                 "pool_description": s.pool_description or "",
                 "workflow": s.workflow.to_dict(clean=True),
@@ -273,13 +282,13 @@ def check_workflows_limit(num_workflows: int) -> None:
         )
 
 
-def resolve_input_paths(
+def prepare_input_files(
     workflows: list[DesignWorkflow],
     project_id: str,
     uploaded_files: dict[str, bytes] = None,
     base_dir: str = None,
-) -> None:
-    """Get every input file referenced by the workflows into storage, rewriting the paths in place.
+) -> dict[str, str]:
+    """Get every input file referenced by the workflows into storage, returning the paths it now has.
 
     Each storage_path value found on the workflows is resolved in this order:
 
@@ -288,10 +297,17 @@ def resolve_input_paths(
     2. already a valid storage path — left alone
     3. ``base_dir`` given — resolved as a local file relative to it (absolute paths as-is) and uploaded
 
-    :param workflows: Expanded workflows, **mutated in place** to point at the resolved storage paths
+    Everything :func:`resolve_input_paths` does except rewriting the paths, so a front-end can call
+    this on every rerun to show what the submission would do without changing what the user wrote.
+    A file that is already stored is not stored again — its path is a hash of its content, so a file
+    that is already there is the same file — leaving only one existence check per path per call.
+
+    :param workflows: Expanded workflows, **not** modified, see :func:`resolve_input_paths`
     :param project_id: Project whose storage the inputs are stored under
     :param uploaded_files: Optional {filename: bytes} of files supplied by the caller (the web app)
     :param base_dir: Optional directory to resolve relative local paths against (the CLI's config dir)
+    :return: {path referenced by the workflows: path it is stored under}, only for the paths that
+        changed — the ones that were already storage paths are left out
     :raises FileNotFoundError: if a referenced path matches none of the three cases
     """
     all_paths = {path for paths in get_storage_path_values(workflows).values() for path in paths}
@@ -303,6 +319,7 @@ def resolve_input_paths(
                 project_id=project_id,
                 file_bytes=uploaded_files[uploaded_key],
                 filename=os.path.basename(uploaded_key),
+                overwrite=False,
             )
         elif storage.file_exists(path, storage_only=True):
             # Already in storage, no need to upload — leave the path untouched
@@ -315,10 +332,32 @@ def resolve_input_paths(
                 project_id=project_id,
                 file_path=local_path,
                 filename=os.path.basename(local_path),
+                overwrite=False,
             )
         else:
             raise FileNotFoundError(f"Input file not found in storage or among the provided files: {path}")
 
+    return path_mapping
+
+
+def resolve_input_paths(
+    workflows: list[DesignWorkflow],
+    project_id: str,
+    uploaded_files: dict[str, bytes] = None,
+    base_dir: str = None,
+) -> None:
+    """Get every input file referenced by the workflows into storage, rewriting the paths in place.
+
+    :func:`prepare_input_files` followed by
+    :func:`~ovo.core.utils.bulk_submission_utils.replace_storage_paths` - see there for how each
+    referenced path is resolved and for the arguments.
+
+    :param workflows: Expanded workflows, **mutated in place** to point at the resolved storage paths
+    :raises FileNotFoundError: if a referenced path cannot be resolved
+    """
+    path_mapping = prepare_input_files(
+        workflows, project_id=project_id, uploaded_files=uploaded_files, base_dir=base_dir
+    )
     if path_mapping:
         print(f"Uploaded {len(path_mapping)} input file(s) to storage")
     # replace storage paths in-place
@@ -444,6 +483,141 @@ def bulk_submit(
             callback(result)
 
     return results
+
+
+def save_bulk_submission_draft(
+    config_dict: dict,
+    project_id: str,
+    round_id: str = None,
+    pool_name_prefix: str = "",
+    pool_description_prefix: str = "",
+    scheduler_key: str = None,
+    note: str = None,
+    uploaded_files: dict[str, bytes] = None,
+    base_dir: str = None,
+    author: str = None,
+) -> ProjectArtifact:
+    """Save a bulk submission config as a draft, to be reviewed and submitted later from its link.
+
+    Gets every input file the config references into storage (see :func:`prepare_input_files`) and
+    saves the config as written, grids unexpanded, with the input paths replaced by the stored ones as a
+    :class:`~ovo.core.database.models.BulkSubmissionDraftArtifact`, so the draft stays submittable once
+    the session that created it is gone. The main use case is an agent preparing a submission for a
+    user to confirm: pass the returned artifact's ``id`` as the ``submission`` query parameter of the
+    Bulk submission page and the whole page state is restored from it.
+
+    Nothing is submitted here — :func:`bulk_submit` does that when the user confirms, and
+    :func:`save_bulk_submission_results` then records on the draft what it submitted.
+
+    The config is parsed and its workflows validated, so a saved draft is never one that cannot be
+    read back. The pool names are deliberately not checked: the prefix and the round can both still
+    change before it is submitted, which is when :func:`validate_submissions` checks them.
+
+    :param config_dict: Config as accepted by :func:`import_bulk_config`
+    :param round_id: Round to preselect, the user confirming the draft can still change it
+    :param note: Why this submission is proposed, shown to whoever opens the link
+    :param uploaded_files: See :func:`resolve_input_paths`
+    :param base_dir: See :func:`resolve_input_paths`
+    :param author: Defaults to the current user
+    :raises ValueError: if the config cannot be parsed or one of its workflows is not valid
+    :raises FileNotFoundError: if a referenced input file is neither uploaded nor in storage
+    """
+    submissions = import_bulk_config(config_dict)
+    for i, submission in enumerate(submissions):
+        try:
+            submission.workflow.validate()
+        except Exception as e:
+            raise ValueError(f"Invalid workflow of submission {i + 1}: {e}") from e
+
+    workflows = [submission.workflow for submission in submissions]
+    path_mapping = prepare_input_files(
+        workflows, project_id=project_id, uploaded_files=uploaded_files, base_dir=base_dir
+    )
+    # The expanded workflows are only pointed at storage to collect input_paths, the config is saved
+    # as written (grids included) with just its paths replaced, so the draft stays self-contained
+    replace_storage_paths(workflows, path_mapping)
+
+    saved_submission = ProjectArtifact(
+        project_id=project_id,
+        artifact_type=BulkSubmissionDraftArtifact.artifact_type,
+        author=author or get_username(),
+        artifact=BulkSubmissionDraftArtifact(
+            config=replace_config_values(config_dict, path_mapping),
+            input_paths=get_unique_storage_path_values(workflows),
+            round_id=round_id,
+            pool_name_prefix=pool_name_prefix,
+            pool_description_prefix=pool_description_prefix,
+            scheduler_key=scheduler_key,
+            note=note,
+        ),
+    )
+    db.save(saved_submission)
+    return saved_submission
+
+
+def save_bulk_submission_note(saved_submission: ProjectArtifact, note: str = None) -> None:
+    """Update the note of a saved bulk submission draft, shown to whoever opens its link.
+
+    :param saved_submission: The artifact row returned by :func:`save_bulk_submission_draft`, **mutated**
+    :param note: Empty or None to remove the note
+    """
+    saved_submission.artifact.note = note or None
+    flag_modified(saved_submission, "artifact")
+    db.save(saved_submission)
+
+
+def save_bulk_submission_results(
+    saved_submission: ProjectArtifact,
+    results: list[BulkSubmissionResult],
+    submissions: list[BulkSubmission],
+    round_id: str,
+    pool_name_prefix: str = "",
+    pool_description_prefix: str = "",
+    scheduler_key: str = None,
+    submitted_by: str = None,
+) -> None:
+    """Record what a saved bulk submission draft was submitted as, back on the draft.
+
+    Called right after :func:`bulk_submit` by whoever submitted a draft, so that opening its link
+    again reports what it created instead of offering to submit it a second time. Only the job IDs
+    are recorded - the pools they created are a ``db.select(Pool, design_job_id__in=...)`` away.
+
+    The submitted config, round and prefixes replace the ones the draft was saved with, as the user
+    confirming a draft can edit them first - so the draft describes the submission that happened,
+    not the one that was proposed. Its note is kept.
+
+    :param saved_submission: The artifact row returned by :func:`save_bulk_submission_draft`, **mutated**
+    :param submissions: The submissions as submitted, with their input paths already resolved
+    :param submitted_by: Defaults to the current user
+    :raises ValueError: if the submission was made in a different project than the draft belongs to
+    """
+    # The draft describes a submission of its own project, see detach_foreign_draft of the page
+    round_project_ids = db.select_values(Round, "project_id", id=round_id)
+    if round_project_ids and round_project_ids[0] != saved_submission.project_id:
+        raise ValueError(
+            f"Cannot record a submission of project {round_project_ids[0]} on submission draft "
+            f"{saved_submission.id}, which belongs to project {saved_submission.project_id}"
+        )
+
+    artifact: BulkSubmissionDraftArtifact = saved_submission.artifact
+    # Overwritten rather than kept, as the user confirming a draft can edit them before submitting
+    # Note that after submission, this config stores individual submissions expanded from the grid
+    artifact.config = export_bulk_config(submissions)
+    artifact.input_paths = get_unique_storage_path_values([submission.workflow for submission in submissions])
+    artifact.round_id = round_id
+    artifact.pool_name_prefix = pool_name_prefix
+    artifact.pool_description_prefix = pool_description_prefix
+    artifact.scheduler_key = scheduler_key
+
+    artifact.submitted_by = submitted_by or get_username()
+    artifact.design_job_ids = [result.design_job_id for result in results if result.success]
+    artifact.submission_errors = [
+        f"Pool '{result.pool_name}': {result.error}" for result in results if not result.success
+    ]
+    # Not atomic with the submission: if this save fails, the jobs exist but the draft still reads as
+    # unsubmitted - submitting it again is then refused by the pool name check in validate_submissions
+    flag_modified(saved_submission, "artifact")
+    db.save(saved_submission)
 
 
 def get_bulk_config_template(name: str) -> str:

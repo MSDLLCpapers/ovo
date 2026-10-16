@@ -3,6 +3,7 @@ from unittest.mock import ANY
 import pytest
 
 from ovo.core.utils.resources import RESOURCES_DIR
+from ovo.core.database.models import Threshold, Workflow
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionScaffoldDesignWorkflow,
     RFdiffusionParams,
@@ -233,3 +234,19 @@ def test_drop_skipped_inputs_keeps_a_shared_input():
     submitted = workflow.drop_skipped_inputs()
     assert submitted.rfdiffusion_params.input_pdb_paths == ["one.pdb"]
     assert submitted.rfdiffusion_params.contigs == ["12-12/0 B20-130"]
+
+
+def test_from_dict_leaves_the_given_dict_alone():
+    """Loading a workflow does not turn the thresholds of the dict it was given into objects."""
+    data = {
+        "name": RFdiffusionBinderDesignWorkflow.name,
+        "design_ids": ["ovo_abc_001"],
+        "acceptance_thresholds": {"af2|primary_ipae": {"min_value": None, "max_value": 10.0, "enabled": True}},
+    }
+
+    workflow = Workflow.from_dict(data)
+
+    assert workflow.acceptance_thresholds == {"af2|primary_ipae": Threshold(max_value=10.0)}
+    assert data["acceptance_thresholds"] == {
+        "af2|primary_ipae": {"min_value": None, "max_value": 10.0, "enabled": True}
+    }, "The dict given to from_dict should be left as it was"

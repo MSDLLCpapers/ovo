@@ -5,12 +5,16 @@ import pandas as pd
 import streamlit as st
 
 from ovo import db
-from ovo.core.database import Round, Design
+from ovo.core.database import Round, Design, Pool, Project
 from ovo.core.utils.formatting import get_hash_of_bytes
+from ovo.app.utils.cached_db import get_cached_project_ids_and_names
+from ovo.core.auth import get_username
 
 CURRENT_SECTION_PREFIX = "current_section_"
 ROUND_IDS_QUERY_PARAM = "rounds"
 DESIGN_IDS_QUERY_PARAM = "designs"
+# ID of the bulk submission draft to review, see bulk_submission.load_saved_submission
+SUBMISSION_QUERY_PARAM = "submission"
 
 
 def show_prev_next_sections(key: str, title: str, sections: dict[str, callable]):
@@ -46,7 +50,12 @@ def show_prev_next_sections(key: str, title: str, sections: dict[str, callable])
 
 
 def open_first_section(key: str):
-    st.session_state[CURRENT_SECTION_PREFIX + key] = 0
+    open_section(key, 0)
+
+
+def open_section(key: str, section_index: int):
+    """Open the section of the given page at the given index, as if the user had navigated to it."""
+    st.session_state[CURRENT_SECTION_PREFIX + key] = section_index
 
 
 def show_buttons(
@@ -185,19 +194,41 @@ def project_round_selector(
             placeholder="Paste design IDs here, separated by commas, spaces, or new lines",
             key=design_ids_key,
         )
-        design_ids = design_ids_input.replace(",", " ").strip().split()
+        input_design_ids = design_ids_input.replace(",", " ").strip().split()
         # validate design IDs
-        found_design_ids = set(db.select_values(Design, "id", id__in=design_ids))
-        if found_design_ids != set(design_ids):
-            missing_ids = sorted(set(design_ids) - found_design_ids)
+        found_design_ids = set(db.select_values(Design, "id", id__in=input_design_ids))
+        if found_design_ids != set(input_design_ids):
+            missing_ids = sorted(set(input_design_ids) - found_design_ids)
             st.warning(f"{len(missing_ids):,} design IDs were not found: {', '.join(missing_ids)}")
             if not found_design_ids:
                 st.stop()
+            st.warning(f"Showing designs for {len(found_design_ids):,} valid design IDs.")
         elif found_design_ids:
             st.success(f"Showing {len(found_design_ids):,} " + ("design" if len(found_design_ids) == 1 else "designs"))
+        else:
+            return [], []
 
-        # remove duplicates while preserving order (dict preserves insertion order since Python 3.7)
-        design_ids = list(dict.fromkeys(design_ids))
+        # remove duplicates and missing ids while preserving input order
+        design_ids = [design_id for design_id in dict.fromkeys(input_design_ids) if design_id in found_design_ids]
+
+        # check if the designs belong to the current project, and warn if not
+        pool_ids = set(Design.design_id_to_pool_id(design_id) for design_id in design_ids)
+        round_ids = db.select_unique_values(Pool, "round_id", id__in=pool_ids)
+        project_ids = sorted(db.select_unique_values(Round, "project_id", id__in=round_ids))
+        if len(project_ids) > 1:
+            st.info(
+                "Showing designs from multiple projects. Any submitted descriptor jobs will be accessible only from the current project."
+            )
+        elif project_ids[0] != st.session_state.project.id:
+            if project_ids[0] not in get_cached_project_ids_and_names(username=get_username()):
+                st.error("Designs from this project are not accessible to your account")
+                st.stop()
+            expected_project = db.get(Project, id=project_ids[0])
+            st.warning(f"These designs originate from a different project: {expected_project.name}")
+            if st.button(f"Switch to project: {expected_project.name}"):
+                st.session_state.project = expected_project
+                st.rerun()
+            st.stop()
 
         if len(design_ids) <= 100:
             # Save design IDs to query params but avoid too long URLs

@@ -5,8 +5,8 @@ import zipfile
 import pytest
 import yaml
 
-from ovo import config, storage
-from ovo.core.database.models import UnknownWorkflow, WorkflowTypes
+from ovo import config, db, storage
+from ovo.core.database.models import ProjectArtifact, Round, UnknownWorkflow, WorkflowTypes
 from ovo.core.database.models_rfdiffusion import (
     RFdiffusionScaffoldDesignWorkflow,
     RFdiffusionParams,
@@ -14,12 +14,16 @@ from ovo.core.database.models_rfdiffusion import (
 )
 from ovo.core.logic.bulk_submission_logic import (
     BulkSubmission,
+    BulkSubmissionResult,
     export_bulk_config,
     export_bulk_config_zip,
     get_unresolved_input_paths,
     get_bulk_config_template,
     import_bulk_config,
+    prepare_input_files,
     resolve_input_paths,
+    save_bulk_submission_draft,
+    save_bulk_submission_results,
 )
 from ovo.core.logic.import_export_logic import can_export_bulk_config
 from ovo.core.utils.bulk_submission_utils import (
@@ -225,8 +229,11 @@ def test_import_bulk_config_names_pools_per_submission():
         "first Combo 3",
         "second",
     ]
-    assert [(s.combo_index, s.num_combos) for s in submissions] == [(0, 3), (1, 3), (2, 3), (0, 1)]
     assert submissions[0].get_pool_description() == f"[{param_key}=1]"
+    # The suffixes are part of the expanded config, so exporting it reads back into the same pools
+    reimported = import_bulk_config(export_bulk_config(submissions))
+    assert BulkSubmission.get_pool_names(reimported) == BulkSubmission.get_pool_names(submissions)
+    assert reimported[0].get_pool_description() == f"[{param_key}=1]"
     # A prefix given by the front-end is prepended to the name from the config, not replacing it
     assert BulkSubmission.get_pool_names(submissions, "TREM2")[0] == "TREM2 first Combo 1"
 
@@ -237,13 +244,15 @@ def test_import_bulk_config_names_pools_per_submission():
         described[0].get_pool_description("typed by the user") == f"typed by the user from the config [{param_key}=1]"
     )
 
-    # A submission without a pool name in the config is named by the prefix alone
+    # A grid without a pool name in the config is named by the prefix and its combo number
     submissions = import_bulk_config({"submissions": [submission_config("", [1, 2])]})
-    assert all(s.pool_name is None for s in submissions)
     assert BulkSubmission.get_pool_names(submissions, "from the UI") == ["from the UI Combo 1", "from the UI Combo 2"]
+    assert BulkSubmission.get_pool_names(submissions) == ["Combo 1", "Combo 2"]
     assert submissions[0].get_pool_description("typed by the user") == f"typed by the user [{param_key}=1]"
 
-    # Without a name from either side there is nothing to create the pool under
+    # Without a grid and a name from either side there is nothing to create the pool under
+    submissions = import_bulk_config({"submissions": [submission_config("", [1])]})
+    assert submissions[0].pool_name is None
     with pytest.raises(ValueError, match="Missing pool name for submission"):
         BulkSubmission.get_pool_names(submissions)
 
@@ -325,6 +334,120 @@ def test_resolve_input_paths_already_in_storage(example_pdb_path):
 
     resolve_input_paths([workflow], project_id="test_project")
     assert workflow.rfdiffusion_params.input_pdb_paths == [storage_path]
+
+
+def test_prepare_input_files_is_repeatable(example_pdb_path):
+    """The inputs are stored without touching the workflow, and storing them again changes nothing."""
+    workflow = _workflow_with_input(os.path.basename(example_pdb_path))
+    base_dir = os.path.dirname(example_pdb_path)
+
+    path_mapping = prepare_input_files([workflow], project_id="test_project", base_dir=base_dir)
+
+    (storage_path,) = path_mapping.values()
+    assert storage.file_exists(storage_path)
+    assert workflow.rfdiffusion_params.input_pdb_paths == [os.path.basename(example_pdb_path)], (
+        "The workflow should keep the path as it was written, only resolve_input_paths rewrites it"
+    )
+
+    # Called again on every rerun of the review step, so it has to be a no-op the second time
+    assert prepare_input_files([workflow], project_id="test_project", base_dir=base_dir) == path_mapping
+
+
+def test_save_bulk_submission_results_records_the_edited_config(ovo_resources_path, example_pdb_path):
+    """Submitting a draft whose config was edited first records what was submitted, keeping the note."""
+    example_config = os.path.join(ovo_resources_path, "examples/inputs/5ELI_A_hairpin_scaffold.yaml")
+    with open(example_config) as f:
+        config_dict = parse_bulk_config_yaml(f.read())
+
+    saved_submission = save_bulk_submission_draft(
+        config_dict=config_dict,
+        project_id="test_project",
+        pool_name_prefix="Draft",
+        note="Please confirm",
+        author="test_agent",
+        base_dir=os.path.dirname(example_pdb_path),
+    )
+    (storage_path,) = saved_submission.artifact.input_paths
+    assert saved_submission.artifact.config["submissions"][0]["workflow"]["rfdiffusion_params"]["num_designs"] == 1
+
+    # The user edits the config before confirming the draft, then submits it into another round
+    submissions = import_bulk_config(saved_submission.artifact.config)
+    submissions[0].workflow.rfdiffusion_params.num_designs = 7
+    save_bulk_submission_results(
+        saved_submission,
+        results=[BulkSubmissionResult(pool_name="Draft pool", pool_description="", design_job_id="job-1")],
+        submissions=submissions,
+        round_id="round-2",
+        pool_name_prefix="Edited",
+        submitted_by="test_user",
+    )
+
+    artifact = db.get(ProjectArtifact, id=saved_submission.id).artifact
+    assert artifact.config["submissions"][0]["workflow"]["rfdiffusion_params"]["num_designs"] == 7
+    assert artifact.input_paths == [storage_path]
+    assert (artifact.round_id, artifact.pool_name_prefix) == ("round-2", "Edited")
+    assert artifact.design_job_ids == ["job-1"] and not artifact.submission_errors
+    assert (artifact.submitted_by, artifact.note) == ("test_user", "Please confirm")
+
+
+def test_save_bulk_submission_results_refuses_another_project(ovo_resources_path, example_pdb_path):
+    """A submission made in another project is not recorded on the draft, see detach_foreign_draft."""
+    example_config = os.path.join(ovo_resources_path, "examples/inputs/5ELI_A_hairpin_scaffold.yaml")
+    with open(example_config) as f:
+        config_dict = parse_bulk_config_yaml(f.read())
+
+    saved_submission = save_bulk_submission_draft(
+        config_dict=config_dict,
+        project_id="test_project",
+        author="test_agent",
+        base_dir=os.path.dirname(example_pdb_path),
+    )
+    other_round = Round(project_id="other_test_project", name="Round of another project", author="test_user")
+    db.save(other_round)
+
+    with pytest.raises(ValueError, match="belongs to project test_project"):
+        save_bulk_submission_results(
+            saved_submission,
+            results=[BulkSubmissionResult(pool_name="Pool", pool_description="", design_job_id="job-1")],
+            submissions=import_bulk_config(saved_submission.artifact.config),
+            round_id=other_round.id,
+        )
+
+    assert not db.get(ProjectArtifact, id=saved_submission.id).artifact.is_submitted()
+
+
+def test_save_bulk_submission_draft_keeps_the_grid(ovo_resources_path, example_pdb_path):
+    """A draft saves the config as written, grids unexpanded, with only the input paths replaced."""
+    example_config = os.path.join(ovo_resources_path, "examples/inputs/5ELI_A_hairpin_scaffold.yaml")
+    with open(example_config) as f:
+        config_dict = parse_bulk_config_yaml(f.read())
+    rfdiffusion_params = config_dict["submissions"][0]["workflow"]["rfdiffusion_params"]
+    rfdiffusion_params["timesteps"] = {"grid": [1, 2]}
+    rfdiffusion_params["input_pdb_paths"] = {"grid": [[os.path.basename(example_pdb_path)]]}
+
+    saved_submission = save_bulk_submission_draft(
+        config_dict=config_dict,
+        project_id="test_project",
+        author="test_agent",
+        base_dir=os.path.dirname(example_pdb_path),
+    )
+
+    artifact = saved_submission.artifact
+    (storage_path,) = artifact.input_paths
+    saved_params = artifact.config["submissions"][0]["workflow"]["rfdiffusion_params"]
+    assert saved_params["timesteps"] == {"grid": [1, 2]}
+    assert saved_params["input_pdb_paths"] == {"grid": [[storage_path]]}
+    assert rfdiffusion_params["input_pdb_paths"] == {"grid": [[os.path.basename(example_pdb_path)]]}, (
+        "The config passed in should not be modified"
+    )
+
+    # Reading the draft back expands the grid again, into pools that are told apart by their combo
+    submissions = import_bulk_config(artifact.config)
+    assert [s.get_pool_name() for s in submissions] == [
+        "CLI hairpin scaffold test Combo 1",
+        "CLI hairpin scaffold test Combo 2",
+    ]
+    assert all(s.workflow.rfdiffusion_params.input_pdb_paths == [storage_path] for s in submissions)
 
 
 def test_match_uploaded_file():
