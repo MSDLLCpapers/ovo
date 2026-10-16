@@ -174,9 +174,15 @@ def get_design_jobs_table(
 def format_total_compute_hours(total_compute_hours: float | None) -> str | None:
     if total_compute_hours is None:
         return None
+    if total_compute_hours >= 2:
+        # for 2 and more hours, format as 12,345
+        return f"{int(total_compute_hours):,}"
     if total_compute_hours >= 1:
-        return f"{int(total_compute_hours)}h"
-    return f"{total_compute_hours:.2f}"
+        # for 1 to 2 hours, format as 1.2
+        return f"{total_compute_hours:.1f}"
+    else:
+        # for less than 1 hour, format as 0.12
+        return f"{total_compute_hours:.2f}"
 
 
 def get_pools_table(project_id: str = None, round_ids: list[str] = None):
