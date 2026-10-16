@@ -152,7 +152,7 @@ def get_design_jobs_table(
                 ("Job", "created"): naturaltime(
                     job.created_date_utc, when=datetime.now(timezone.utc).replace(tzinfo=None)
                 ),
-                ("Job", "total compute hours"): total_compute_hours,
+                ("Job", "compute hours"): format_total_compute_hours(total_compute_hours),
                 ("Designs", "accepted"): accepted_by_pool.get(pool.id, 0) if pool.processed else None,
                 ("Designs", "total"): total_by_pool.get(pool.id, 0) if pool.processed else None,
             }
@@ -169,6 +169,14 @@ def get_design_jobs_table(
     pools_table = pd.concat([pools_table, workflows_table], axis=1)
 
     return pools_table.set_index([("Pool", "id")])
+
+
+def format_total_compute_hours(total_compute_hours: float | None) -> str | None:
+    if total_compute_hours is None:
+        return None
+    if total_compute_hours >= 1:
+        return f"{int(total_compute_hours)}h"
+    return f"{total_compute_hours:.2f}"
 
 
 def get_pools_table(project_id: str = None, round_ids: list[str] = None):

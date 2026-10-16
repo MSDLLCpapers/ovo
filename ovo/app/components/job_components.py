@@ -159,28 +159,35 @@ def job_status_fragment(job: DesignJob | DescriptorJob, pool: Pool = None, expan
                             summary["% of total"] = task_durations / total_duration * 100
                         else:
                             summary["% of total"] = 0
-                        # Add total row to summary
-                        total_row_data = {
-                            "name": "Total",
-                            "avg_duration": "",
-                            "total_duration": precisedelta(total_duration, **delta_kwargs),
-                            "% of total": "-",
-                        }
-                        # Add empty columns for status counts
-                        for col in summary.columns:
-                            if col not in ["avg_duration", "total_duration", "% of total"]:
-                                total_row_data[col] = ""
-                        summary_with_total = pd.concat(
-                            [summary.reset_index(), pd.DataFrame([total_row_data])], ignore_index=True
-                        )
-                        # Apply white-to-grey gradient styling
-                        num_task_rows = len(summary_with_total) - 1  # Exclude the total row
-                        styled = summary_with_total.style.background_gradient(
-                            subset=pd.IndexSlice[: num_task_rows - 1, "% of total"],  # Skip the total row (last)
-                            cmap="Greys",
-                            vmin=0,
-                            vmax=100,
-                        ).format({"% of total": lambda x: x if isinstance(x, str) else f"{x:.1f}%"})
+
+                        # Only add Total row if there are multiple tasks
+                        if len(summary) > 1:
+                            total_row_data = {
+                                "name": "Total",
+                                "avg_duration": "",
+                                "total_duration": precisedelta(total_duration, **delta_kwargs),
+                                "% of total": "-",
+                            }
+                            # Add empty columns for status counts
+                            for col in summary.columns:
+                                if col not in ["avg_duration", "total_duration", "% of total"]:
+                                    total_row_data[col] = ""
+                            summary_with_total = pd.concat(
+                                [summary.reset_index(), pd.DataFrame([total_row_data])], ignore_index=True
+                            )
+                            # Apply grey gradient styling when there are multiple unique task types
+                            styled = summary_with_total.style.background_gradient(
+                                subset=pd.IndexSlice[
+                                    : len(summary) - 1, "% of total"
+                                ],  # Task rows only (exclude total)
+                                cmap="Greys",
+                                vmin=0,
+                                vmax=100,
+                            ).format({"% of total": lambda x: x if isinstance(x, str) else f"{x:.1f}%"})
+                        else:
+                            # Single unique task type - no Total row or styling
+                            summary_with_total = summary.reset_index()
+                            styled = summary_with_total.style.format({"% of total": lambda x: f"{x:.1f}%"})
                         st.dataframe(
                             styled,
                             hide_index=True,
