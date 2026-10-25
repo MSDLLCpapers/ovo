@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import json
 import os
 import re
 import time
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from dateutil import tz
-from mypy_boto3_logs.type_defs import OutputLogEventTypeDef
+
+if TYPE_CHECKING:
+    # annotation only, see ovo.core.aws
+    from mypy_boto3_logs.type_defs import OutputLogEventTypeDef
 
 from ovo.core.auth import get_username
 from ovo.core.scheduler.base_scheduler import Scheduler, SchedulerTypes

@@ -1,11 +1,18 @@
+from __future__ import annotations
+
 from datetime import datetime
 from time import time
+from typing import TYPE_CHECKING
+
 import boto3
 from botocore.exceptions import ClientError
-from mypy_boto3_logs import CloudWatchLogsClient
 
-from mypy_boto3_s3.client import S3Client
-from mypy_boto3_omics import OmicsClient
+if TYPE_CHECKING:
+    # annotation only: these are type stub packages, importing them at run time costs ~0.2s
+    # of every `ovo` command and provides nothing
+    from mypy_boto3_logs import CloudWatchLogsClient
+    from mypy_boto3_omics import OmicsClient
+    from mypy_boto3_s3.client import S3Client
 
 
 class AWSSessionManager:

@@ -18,8 +18,9 @@ from Bio.PDB import PDBParser
 from Bio.SeqUtils import seq1
 
 from io import StringIO
-from scipy.spatial import cKDTree
-from scipy.spatial.transform import Rotation as R
+
+# scipy.spatial is imported where it is used: it costs ~0.4s and only three functions of this
+# module need it, while importing this module is on the path of every `ovo` command
 
 
 aa3to1 = {
@@ -263,7 +264,9 @@ def calculate_coords_from_transformed_displacements(P1, P2) -> np.ndarray:
     z_axis = np.array([0, 0, 1])
 
     # Calculate the rotation matrix aligning U to the Z-axis
-    rotation_matrix = R.align_vectors([z_axis], [U])[0].as_matrix()
+    from scipy.spatial.transform import Rotation
+
+    rotation_matrix = Rotation.align_vectors([z_axis], [U])[0].as_matrix()
 
     # Inverse rotation
     inverse_rotation = rotation_matrix.T
@@ -564,7 +567,9 @@ def align_pdb_to_front(pdb_str: str, chain: str) -> str:
         print("Warning: target vector is too small, skipping rotation")
         return pdb_str
     z_axis = np.array([0, 0, -1])
-    rotation_matrix = R.align_vectors([z_axis], [target_vector])[0].as_matrix()
+    from scipy.spatial.transform import Rotation
+
+    rotation_matrix = Rotation.align_vectors([z_axis], [target_vector])[0].as_matrix()
 
     for atom in structure.get_atoms():
         atom.coord = rotation_matrix @ atom.coord
@@ -1125,6 +1130,8 @@ def get_contact_residues(pdb_str: str, chain_id: str, distance_cutoff: float = 1
     other_atoms = atoms[atoms["chain_id"] != chain_id]
     if chain_atoms.empty or other_atoms.empty:
         return []
+
+    from scipy.spatial import cKDTree
 
     coordinates = ["x_coord", "y_coord", "z_coord"]
     contacts_by_atom = cKDTree(chain_atoms[coordinates].values).query_ball_tree(
