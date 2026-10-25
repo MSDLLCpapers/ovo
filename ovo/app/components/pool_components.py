@@ -7,48 +7,88 @@ import streamlit as st
 
 from ovo import get_username, config, db
 from ovo.app.components.download_component import download_bulk_config_button
+from ovo.app.components.custom_elements import simple_tabs
 from ovo.app.components.navigation import ROUND_IDS_QUERY_PARAM
 from ovo.app.components.submission_components import get_next_round_name
 from ovo.core.database.models import Design, Pool, Round
 from ovo.core.logic.pool_logic import PoolUpload, create_pool_from_uploads
+from ovo.core.plugins import DesignUploadOption, get_extension_points, load_variable
 from ovo.app.utils.cached_db import get_cached_round, get_cached_pool_count
 from ovo.core.logic.round_logic import get_or_create_project_rounds, get_or_create_archived_round, ARCHIVED_ROUND_NAME
 from ovo.core.utils.export import parse_tabular_file
 from ovo.core.utils.formatting import truncate_middle
 
 
+# the built-in upload source, shown first and selected by default
+FILE_UPLOAD_TAB = "File upload"
+
+
 @st.dialog("Upload new pool of designs", width="large")
 def create_new_pool():
-    content = st.empty()
-    with content.container():
-        project_id = st.session_state.project.id
+    """Create a pool from uploaded files, or from any source a plugin contributes.
 
-        rounds_by_id = get_or_create_project_rounds(project_id=project_id)
-        round_ids = list(rounds_by_id.keys())
-        options = round_ids + ["__new__"]
+    A plugin adds a source by declaring an ``ovo.design_upload`` extension point, see
+    :class:`~ovo.core.plugins.DesignUploadOption`. The sources are shown as tabs after the built-in
+    "File upload" one, and no tabs are shown when no plugin contributes any.
+    """
+    project_id = st.session_state.project.id
 
-        col1, col2, _ = st.columns([1, 1, 1])
+    rounds_by_id = get_or_create_project_rounds(project_id=project_id)
+    round_ids = list(rounds_by_id.keys())
+    options = round_ids + ["__new__"]
 
-        with col1:
-            round_id = st.selectbox(
-                "Project Round",
-                options=options,
-                format_func=lambda i: rounds_by_id[i].name if i != "__new__" else "+ Create new round",
-                # Use len(round_ids) in key to refresh widget after creation of a new round
-                key=f"custom_pool_round_selectbox_{len(round_ids)}",
-                index=len(round_ids) - 1 if round_ids else 0,
+    col1, col2, _ = st.columns([1, 1, 1])
+
+    with col1:
+        round_id = st.selectbox(
+            "Project Round",
+            options=options,
+            format_func=lambda i: rounds_by_id[i].name if i != "__new__" else "+ Create new round",
+            # Use len(round_ids) in key to refresh widget after creation of a new round
+            key=f"custom_pool_round_selectbox_{len(round_ids)}",
+            index=len(round_ids) - 1 if round_ids else 0,
+        )
+
+    new_round_name = None
+    if round_id == "__new__":
+        with col2:
+            new_round_name = st.text_input(
+                "New round name",
+                value=get_next_round_name(rounds_by_id[round_ids[-1]].name),
+                placeholder="Enter round name",
+                key="new_round_name",
             )
 
-        new_round_name = None
-        if round_id == "__new__":
-            with col2:
-                new_round_name = st.text_input(
-                    "New round name",
-                    value=get_next_round_name(rounds_by_id[round_ids[-1]].name),
-                    placeholder="Enter round name",
-                    key="new_round_name",
-                )
+    # A plugin adds a source by declaring this extension point in its plugin dict:
+    #
+    #     plugin = dict(
+    #         extension_points={
+    #             "ovo.design_upload": [
+    #                 dict(title="Chaperone run", path="my_plugin.app.my_upload:show_my_upload"),
+    #             ],
+    #         },
+    #     )
+    options = get_extension_points("ovo.design_upload", DesignUploadOption)
+    if not options:
+        show_file_upload(project_id, round_id, new_round_name)
+        return
 
+    options_by_title = {option.title: option for option in options}
+    tab_name = simple_tabs([FILE_UPLOAD_TAB] + list(options_by_title), key="design_upload_tab")
+    if tab_name == FILE_UPLOAD_TAB:
+        show_file_upload(project_id, round_id, new_round_name)
+        return
+
+    option = options_by_title[tab_name]
+    show_func = load_variable(option.path)
+    assert callable(show_func), f"Design upload '{option.title}' should be a function: {option.path}"
+    show_func(project_id=project_id, round_id=round_id, new_round_name=new_round_name)
+
+
+def show_file_upload(project_id: str, round_id: str, new_round_name: str | None):
+    """Show the built-in source: structure files, or a table of sequences."""
+    content = st.empty()
+    with content.container():
         files = st.file_uploader(
             "Structures or sequences",
             accept_multiple_files=True,

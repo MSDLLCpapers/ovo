@@ -29,6 +29,20 @@ class DesignView:
     labels: list[str] = field(default_factory=list)
 
 
+@dataclass
+class DesignUploadOption:
+    """One more source to create a pool of designs from, shown as a tab of the upload dialog.
+
+    :param title: Tab label, shown beside the built-in "File upload" tab, e.g. "Chaperone run", no emojis
+    :param path: ``module.submodule:function`` of the function drawing the tab, called with the
+        project and the round the dialog selected: ``(project_id, round_id, new_round_name)``.
+        It owns everything else, including saving the pool and rerunning to close the dialog.
+    """
+
+    title: str
+    path: str
+
+
 class OVOPlugin(BaseModel):
     """Plugin configuration validated with Pydantic"""
 
